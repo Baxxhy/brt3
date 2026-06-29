@@ -8,13 +8,18 @@ import re
 from pathlib import Path
 from typing import Any
 
-from prompts.templates import STRICT_SEMANTIC_VERIFIER_SYSTEM_PROMPT, STRICT_SEMANTIC_VERIFIER_USER_PROMPT
+from prompts.loader import load_prompt
 from core.schema import (
     BehaviorTarget, CandidateTest, ExecutionResult, ProtocolRecovery,
     StrictVerifierResult, VerifierDecision,
 )
 from validation.semantic_guard import audit_candidate
 from core.utils import extract_json_object, safe_json_dump, truncate_text, write_text
+
+
+_STRICT_SEMANTIC_VERIFIER_PROMPT = load_prompt("strict_semantic_verifier")
+STRICT_SEMANTIC_VERIFIER_SYSTEM_PROMPT = _STRICT_SEMANTIC_VERIFIER_PROMPT.system
+STRICT_SEMANTIC_VERIFIER_USER_PROMPT = _STRICT_SEMANTIC_VERIFIER_PROMPT.user
 
 
 _DECISIONS = {"accept", "repair_setup", "repair_trigger", "repair_oracle", "reject"}

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from execution.executor import run_command_in_conda
-from prompts.templates import SURROGATE_PATCH_SYSTEM_PROMPT, SURROGATE_PATCH_USER_PROMPT
+from prompts.loader import load_prompt
 from core.schema import (
     BehaviorTarget,
     CandidateTest,
@@ -21,6 +21,11 @@ from core.schema import (
     SurrogatePatchCandidate,
 )
 from core.utils import ensure_dir, extract_json_object, safe_json_dump, truncate_text, write_text
+
+
+_SURROGATE_PATCH_PROMPT = load_prompt("surrogate_patch")
+SURROGATE_PATCH_SYSTEM_PROMPT = _SURROGATE_PATCH_PROMPT.system
+SURROGATE_PATCH_USER_PROMPT = _SURROGATE_PATCH_PROMPT.user
 
 
 def _effective_surrogate_sources(

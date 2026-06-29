@@ -1,0 +1,10 @@
+task = "observation_oracle_probe"
+status = "used"
+description = "保留测试 setup 和 trigger 并生成公开行为观测探针"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "python"

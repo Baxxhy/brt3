@@ -1,0 +1,10 @@
+task = "mutation_generation"
+status = "used"
+description = "基于相似测试和行为目标生成最小变异的缺陷复现测试"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "python"

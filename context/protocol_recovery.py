@@ -8,9 +8,14 @@ import re
 from pathlib import Path
 
 from execution.icore_runtime import icore_test_command
-from prompts.templates import PROTOCOL_RECOVERY_SYSTEM_PROMPT, PROTOCOL_RECOVERY_USER_PROMPT
+from prompts.loader import load_prompt
 from core.schema import BehaviorTarget, ProtocolRecovery, RetrievedCode, RetrievedTest
 from core.utils import extract_json_object, truncate_text, write_text
+
+
+_PROTOCOL_RECOVERY_PROMPT = load_prompt("protocol_recovery")
+PROTOCOL_RECOVERY_SYSTEM_PROMPT = _PROTOCOL_RECOVERY_PROMPT.system
+PROTOCOL_RECOVERY_USER_PROMPT = _PROTOCOL_RECOVERY_PROMPT.user
 
 
 _SETUP_NAMES = {"setUp", "setUpClass", "setup_method", "setup_class"}

@@ -1,0 +1,10 @@
+task = "repair_oracle"
+status = "used"
+description = "修复候选测试中方向错误、过强或脆弱的断言"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "python"

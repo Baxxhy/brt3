@@ -7,9 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from core.io_utils import format_code_context, format_test_context
-from prompts.templates import ISSUE_REWRITE_SYSTEM_PROMPT, ISSUE_REWRITE_USER_PROMPT
+from prompts.loader import load_prompt
 from core.schema import BehaviorTarget, InstanceContext
 from core.utils import ensure_dir, extract_json_object, now_timestamp, safe_json_dump, write_text
+
+
+_ISSUE_REWRITE_PROMPT = load_prompt("issue_rewrite")
+ISSUE_REWRITE_SYSTEM_PROMPT = _ISSUE_REWRITE_PROMPT.system
+ISSUE_REWRITE_USER_PROMPT = _ISSUE_REWRITE_PROMPT.user
 
 
 REQUIRED_FIELDS = [

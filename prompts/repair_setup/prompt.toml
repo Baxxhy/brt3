@@ -1,0 +1,10 @@
+task = "repair_setup"
+status = "used"
+description = "修复候选测试的导入、fixture、收集和运行上下文问题"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "python"

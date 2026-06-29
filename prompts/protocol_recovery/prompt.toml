@@ -1,0 +1,10 @@
+task = "protocol_recovery"
+status = "used"
+description = "审计并补全从单个相关测试恢复出的测试协议"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "json"

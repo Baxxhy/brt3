@@ -1,0 +1,10 @@
+task = "repair_trigger"
+status = "used"
+description = "修复候选测试未触发 Issue 相关缺陷路径的问题"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "python"

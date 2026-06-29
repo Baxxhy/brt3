@@ -1,0 +1,10 @@
+task = "assert_synthesis"
+status = "used"
+description = "根据 Issue 语义和观测结果生成稳定的最终断言"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "python"

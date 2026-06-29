@@ -1,0 +1,10 @@
+task = "seed_mutation_plan"
+status = "used"
+description = "根据 Issue 和单一 seed 规划最小缺陷触发变异"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "json"

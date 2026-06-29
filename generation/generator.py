@@ -11,19 +11,27 @@ from pathlib import Path
 from typing import Any
 
 from core.io_utils import format_code_context
-from prompts.templates import (
-    MUTATION_GENERATION_SYSTEM_PROMPT,
-    MUTATION_GENERATION_USER_PROMPT,
-    REPAIR_ORACLE_SYSTEM_PROMPT,
-    REPAIR_ORACLE_USER_PROMPT,
-    REPAIR_SETUP_SYSTEM_PROMPT,
-    REPAIR_SETUP_USER_PROMPT,
-    REPAIR_TRIGGER_SYSTEM_PROMPT,
-    REPAIR_TRIGGER_USER_PROMPT,
-)
+from prompts.loader import load_prompt
 from core.schema import BehaviorTarget, CandidateTest, ExecutionResult, HostContext, MutationPlan, ProtocolRecovery, RetrievedCode, RetrievedTest
 from validation.semantic_guard import audit_candidate
 from core.utils import clean_code_block, ensure_dir, sanitize_instance_id, truncate_text, write_text
+
+
+_MUTATION_GENERATION_PROMPT = load_prompt("mutation_generation")
+MUTATION_GENERATION_SYSTEM_PROMPT = _MUTATION_GENERATION_PROMPT.system
+MUTATION_GENERATION_USER_PROMPT = _MUTATION_GENERATION_PROMPT.user
+
+_REPAIR_ORACLE_PROMPT = load_prompt("repair_oracle")
+REPAIR_ORACLE_SYSTEM_PROMPT = _REPAIR_ORACLE_PROMPT.system
+REPAIR_ORACLE_USER_PROMPT = _REPAIR_ORACLE_PROMPT.user
+
+_REPAIR_SETUP_PROMPT = load_prompt("repair_setup")
+REPAIR_SETUP_SYSTEM_PROMPT = _REPAIR_SETUP_PROMPT.system
+REPAIR_SETUP_USER_PROMPT = _REPAIR_SETUP_PROMPT.user
+
+_REPAIR_TRIGGER_PROMPT = load_prompt("repair_trigger")
+REPAIR_TRIGGER_SYSTEM_PROMPT = _REPAIR_TRIGGER_PROMPT.system
+REPAIR_TRIGGER_USER_PROMPT = _REPAIR_TRIGGER_PROMPT.user
 
 
 MAX_PROMPT_BEHAVIOR_CHARS = 24000

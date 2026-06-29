@@ -1,0 +1,10 @@
+task = "buggy_only_verifier"
+status = "used"
+description = "判断候选测试在 buggy 版本上的结果并选择下一步动作"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "json"

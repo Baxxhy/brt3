@@ -1,0 +1,10 @@
+task = "host_context"
+status = "unused"
+description = "根据行为目标和相似测试恢复可复用的测试宿主上下文"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "json"

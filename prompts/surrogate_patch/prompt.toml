@@ -1,0 +1,10 @@
+task = "surrogate_patch"
+status = "used"
+description = "生成最小临时生产代码补丁以验证测试的 fail-to-pass 潜力"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "json"

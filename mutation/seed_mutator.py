@@ -6,11 +6,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from prompts.templates import SEED_MUTATION_PLAN_SYSTEM_PROMPT, SEED_MUTATION_PLAN_USER_PROMPT
+from prompts.loader import load_prompt
 from core.schema import BehaviorTarget, HostContext, MutationPlan, ProtocolRecovery
 from core.utils import extract_json_object, safe_json_dump, truncate_text, write_text
 from mutation.brt_mutation_rules import trigger_rule_catalog
 from mutation.mutation_plan_schema import mutation_plan_from_payload
+
+
+_SEED_MUTATION_PLAN_PROMPT = load_prompt("seed_mutation_plan")
+SEED_MUTATION_PLAN_SYSTEM_PROMPT = _SEED_MUTATION_PLAN_PROMPT.system
+SEED_MUTATION_PLAN_USER_PROMPT = _SEED_MUTATION_PLAN_PROMPT.user
 
 
 def _normalize_plan(instance_id: str, round_id: int, data: dict[str, Any], behavior: BehaviorTarget) -> MutationPlan:

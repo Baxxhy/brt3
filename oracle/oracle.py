@@ -9,9 +9,18 @@ from typing import Any
 
 from execution.executor import run_command_in_conda
 from execution.icore_runtime import first_test_selector, icore_test_command
-from prompts.templates import ASSERT_SYNTHESIS_SYSTEM_PROMPT, ASSERT_SYNTHESIS_USER_PROMPT, OBSERVATION_PROBE_SYSTEM_PROMPT, OBSERVATION_PROBE_USER_PROMPT
+from prompts.loader import load_prompt
 from core.schema import BehaviorTarget, CandidateTest, ObservationReport
 from core.utils import clean_code_block, safe_json_dump, truncate_text, write_text
+
+
+_ASSERT_SYNTHESIS_PROMPT = load_prompt("assert_synthesis")
+ASSERT_SYNTHESIS_SYSTEM_PROMPT = _ASSERT_SYNTHESIS_PROMPT.system
+ASSERT_SYNTHESIS_USER_PROMPT = _ASSERT_SYNTHESIS_PROMPT.user
+
+_OBSERVATION_PROBE_PROMPT = load_prompt("observation_probe")
+OBSERVATION_PROBE_SYSTEM_PROMPT = _OBSERVATION_PROBE_PROMPT.system
+OBSERVATION_PROBE_USER_PROMPT = _OBSERVATION_PROBE_PROMPT.user
 
 
 MAX_ORACLE_EXECUTION_LOG = 24_000

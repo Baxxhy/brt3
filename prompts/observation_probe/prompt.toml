@@ -1,0 +1,10 @@
+task = "observation_probe"
+status = "used"
+description = "将候选测试改写为带固定标记的运行时观测测试"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "python"

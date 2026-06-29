@@ -1,0 +1,10 @@
+task = "issue_rewrite"
+status = "used"
+description = "将原始 Issue、检索源码和检索测试转换成结构化缺陷行为目标，并生成可供后续 BRT 生成使用的澄清版 Issue"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "json"

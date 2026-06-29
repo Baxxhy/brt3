@@ -1,0 +1,10 @@
+task = "strict_semantic_verifier"
+status = "used"
+description = "严格验证 buggy 失败是否真实表达 Issue 的期望行为"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "json"

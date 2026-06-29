@@ -40,7 +40,9 @@ dist/
 # BRT runtime logs and generated results
 /logs/
 /results/
-/retrieval_results/
+/retrieval_results/*
+!/retrieval_results/code/
+!/retrieval_results/test/
 /data/
 *.log
 *.pid

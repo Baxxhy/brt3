@@ -6,10 +6,15 @@ import json
 import re
 from typing import Any
 
-from prompts.templates import BUGGY_ONLY_VERIFIER_SYSTEM_PROMPT, BUGGY_ONLY_VERIFIER_USER_PROMPT
+from prompts.loader import load_prompt
 from core.schema import BehaviorTarget, CandidateTest, ExecutionResult, VerifierDecision
 from validation.semantic_guard import audit_candidate
 from core.utils import extract_json_object
+
+
+_BUGGY_ONLY_VERIFIER_PROMPT = load_prompt("buggy_only_verifier")
+BUGGY_ONLY_VERIFIER_SYSTEM_PROMPT = _BUGGY_ONLY_VERIFIER_PROMPT.system
+BUGGY_ONLY_VERIFIER_USER_PROMPT = _BUGGY_ONLY_VERIFIER_PROMPT.user
 
 
 def _missing_check_target(
