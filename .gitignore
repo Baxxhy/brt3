@@ -1,0 +1,65 @@
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+.secrets/
+secrets/
+.credentials/
+credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+*_credentials.json
+credentials*.json
+secrets*.json
+api_keys.*
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+
+# Packaging and build outputs
+build/
+dist/
+*.egg-info/
+*.egg
+
+# BRT runtime logs and generated results
+/logs/
+/results/
+/retrieval_results/
+/data/
+*.log
+*.pid
+*.tmp
+*.bak
+
+# Generated runtime directories
+checkpoints/
+outputs/
+artifacts/
+
+# Legacy experiment launchers
+/scripts/legacy/
+
+# Editors and operating-system metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
