@@ -1,0 +1,127 @@
+instance_id: sympy__sympy-19487
+
+issue_summary: The `sign` function lacks a rewrite rule to express it as `x/Abs(x)`, and there is an inconsistency in handling zero arguments between `sign(0)` and the mathematical definition.
+
+trigger_condition:
+{
+  "text": "Calling `sign(x).rewrite(Abs)` on a symbolic expression `x` (which could be zero).",
+  "evidence": [
+    "Issue shows example: `sign(x).rewrite(Abs)`.",
+    "Test `test_Abs_rewrite` demonstrates the pattern of calling `.rewrite(Abs)` on other functions."
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "`sign(x).rewrite(Abs)` does not produce the expected expression `x / Abs(x)`. Additionally, there is a semantic inconsistency: `sign(0)` returns `0` while the mathematical definition `0/Abs(0)` evaluates to `nan`.",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue states: \"There should be a way to rewrite the sign in terms of `Abs` e.g.: ...\" and shows the expected output.",
+    "Issue shows `sign(0)` returns `0` and `0 / Abs(0)` returns `nan`."
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`sign(x).rewrite(Abs)` should successfully rewrite the sign function to an expression involving `Abs`, ideally `x / Abs(x)` for non-zero arguments. The behavior for zero arguments should be consistent, either both `sign(0)` and the rewrite handle zero appropriately (e.g., return `nan` or a defined value) without causing evaluation errors.",
+  "evidence": [
+    "Issue states the definition `sign(z) := z / Abs(z)` for non-zero `z`.",
+    "Issue shows the expected rewrite output `x / Abs(x)`.",
+    "Test `test_sign` shows `sign(x).doit()` returns `x / Abs(x)` for certain symbol types, indicating this is a valid symbolic representation."
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "sign",
+    "kind": "function",
+    "source_path": "",
+    "reason": "The core function being discussed, which should support `rewrite(Abs)`."
+  },
+  {
+    "name": "Abs",
+    "kind": "class",
+    "source_path": "sympy/functions/elementary/complexes.py",
+    "reason": "The target of the rewrite operation."
+  },
+  {
+    "name": "rewrite",
+    "kind": "method",
+    "source_path": "",
+    "reason": "The method called on `sign(x)` to attempt the transformation."
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "`sign(x).rewrite(Piecewise)` or `sign(x).rewrite(Heaviside)`",
+    "target_pattern": "`sign(x).rewrite(Abs)`",
+    "reason": "The issue is specifically about rewriting `sign` in terms of `Abs`, not other functions.",
+    "confidence": "high"
+  },
+  {
+    "slot": "input",
+    "current_pattern": "Symbol `x` with generic or real assumptions.",
+    "target_pattern": "Symbol `x` (generic), and also the literal integer `0`.",
+    "reason": "The issue highlights the zero argument case as a point of inconsistency.",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "The result of `sign(x).rewrite(Abs)`. Observe if it's an expression tree containing `Abs` or if it remains unchanged as `sign(x)`.",
+    "reason": "The core symptom is the missing or incorrect rewrite output."
+  },
+  {
+    "kind": "repr",
+    "expression_hint": "`str(sign(0))` and `str(0 / Abs(0))`.",
+    "reason": "To observe the inconsistency between `sign(0)` and the mathematical definition `0/Abs(0)`."
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`sign(x).rewrite(Abs)` should return an expression that is not identical to `sign(x)` and should involve the `Abs` function.",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "Checking for an exact, full string representation of `x/Abs(x)`, as simplifications might alter the form.",
+    "reason": "The rewrite should produce *some* expression with `Abs`. The exact form (`x/Abs(x)` or a simplified version) might depend on simplifications, but the presence of `Abs` is the key public behavior."
+  },
+  {
+    "assertion_goal": "The evaluation of `sign(0)` and the evaluation of the rewritten expression for `x=0` should be consistent (either both give a number, both give `nan`, or the rewrite handles it symbolically).",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "Asserting a specific numeric value (`0` or `nan`) for `sign(0)`, as the issue is undecided on the correct fix.",
+    "reason": "The issue points out an inconsistency. A fix should resolve it, but the exact resolution (change `sign(0)` or make rewrite handle zero) is not specified. The assertion should check for consistency between the two related evaluations."
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "Use the standard SymPy test environment. Import `sign`, `Abs`, `Symbol`, and possibly `nan` from `sympy`.",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "Create symbolic variables with different assumptions (real, nonzero) as seen in `test_sign` to explore different evaluation paths.",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "The exact expected output of `sign(x).rewrite(Abs)` for a generic symbolic `x`. Is it exactly `x/Abs(x)` or a potentially simplified form?",
+  "Whether the fix should change the value of `sign(0)` from `0` to `nan`.",
+  "How the rewrite should behave when the argument is known to be zero (e.g., `sign(0).rewrite(Abs)`). Should it return `0`, `nan`, or remain `sign(0)`?",
+  "The specific error or return value when the rewrite is not implemented (does it return `sign(x)` unchanged, or raise an exception?)."
+]

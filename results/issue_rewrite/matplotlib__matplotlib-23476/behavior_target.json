@@ -1,0 +1,371 @@
+{
+  "instance_id": "matplotlib__matplotlib-23476",
+  "issue_summary": "在 M1 Mac 的 MacOSX 后端上，Figure 对象反序列化后 DPI 值翻倍，多次操作导致溢出错误。",
+  "trigger_condition": {
+    "text": "在 M1 Mac 上，使用 MacOSX 后端，创建一个 matplotlib Figure 对象，对其进行 pickle.dump 序列化，然后 pickle.load 反序列化。",
+    "evidence": [
+      "Issue 中的复现代码展示了创建 Figure、pickle.dump、pickle.load 的完整流程。",
+      "Issue 明确指出后端为 MacOSX，系统为 M1 Mac。",
+      "相关测试 test_pickle.py 中也使用了 pickle.dump 和 pickle.load。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "unpickle 后 Figure 对象的 dpi 属性值翻倍。多次循环 unpickle 后 DPI 值指数增长，最终在创建画布时引发 OverflowError: signed integer is greater than maximum。",
+    "symptom_type": "serialization_error",
+    "evidence": [
+      "Issue 的 Actual outcome 显示了 DPI 从 200 开始，每次 unpickle 后翻倍：200.0, 400.0, 800.0...",
+      "Issue 的 Actual outcome 最后显示了 OverflowError 的堆栈跟踪，指向 backend_macosx.py。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "修复后，对 Figure 对象进行 pickle 序列化再反序列化，得到的 Figure 对象的 DPI 值应与原始对象的 DPI 值保持一致，不发生变化。",
+    "evidence": [
+      "Issue 的 Expected outcome 显示了 DPI 值在每次 unpickle 后保持为 200.0。",
+      "Issue 描述 \"When a figure is unpickled, it's dpi is doubled.\" 暗示期望行为是 DPI 不变。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "pickle.dump",
+      "kind": "function",
+      "source_path": "",
+      "reason": "用于序列化 Figure 对象。"
+    },
+    {
+      "name": "pickle.load",
+      "kind": "function",
+      "source_path": "",
+      "reason": "用于反序列化 Figure 对象，触发 __setstate__。"
+    },
+    {
+      "name": "plt.figure",
+      "kind": "function",
+      "source_path": "lib/matplotlib/pyplot.py",
+      "reason": "用于创建 Figure 对象。"
+    },
+    {
+      "name": "Figure.__setstate__",
+      "kind": "method",
+      "source_path": "lib/matplotlib/figure.py",
+      "reason": "在 unpickle 时被调用，是问题可能发生的核心位置。"
+    },
+    {
+      "name": "new_figure_manager_given_figure",
+      "kind": "method",
+      "source_path": "lib/matplotlib/backend_bases.py",
+      "reason": "在 __setstate__ 中被调用，可能与 DPI 处理有关。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "lib/matplotlib/figure.py",
+      "object": "Figure.__setstate__",
+      "lines": "3035-3059",
+      "reason": "这是 Figure 对象反序列化时调用的方法，负责恢复状态，可能错误地处理了 DPI 或触发了导致 DPI 变化的后端逻辑。"
+    },
+    {
+      "path": "lib/matplotlib/backends/backend_macosx.py",
+      "object": "FigureCanvas.__init__",
+      "lines": "",
+      "reason": "OverflowError 直接发生在此处，表明 DPI 翻倍导致画布尺寸计算溢出。问题根源可能在 unpickling 过程中传递给后端的 DPI 或尺寸信息有误。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_simple",
+      "test_file": "lib/matplotlib/tests/test_pickle.py",
+      "why_relevant": "这个测试直接对 plt.figure() 创建的 Figure 进行 pickle.dump 操作，与 Issue 的核心操作（创建 Figure 并 pickle）一致。",
+      "reusable_parts": [
+        "imports: pickle, plt, numpy",
+        "对象构造: fig = plt.figure()",
+        "序列化操作: pickle.dump(fig, BytesIO(), pickle.HIGHEST_PROTOCOL)"
+      ],
+      "possible_gap": "该测试只进行了 dump，没有进行 load (unpickle)，因此无法观测到 DPI 变化。需要添加 pickle.load 步骤并检查 DPI 属性。"
+    },
+    {
+      "test_name": "test_unpickle_canvas",
+      "test_file": "lib/matplotlib/tests/test_pickle.py",
+      "why_relevant": "这个测试完整执行了 pickle.dump 和 pickle.load 流程，并检查了 canvas 属性不为 None，与 Issue 的触发流程高度相似。",
+      "reusable_parts": [
+        "完整的 pickle/unpickle 流程: dump -> seek(0) -> load",
+        "使用 BytesIO 作为内存流，避免文件操作",
+        "断言风格: assert fig2.canvas is not None"
+      ],
+      "possible_gap": "该测试只断言了 canvas 存在，没有检查 DPI 属性。需要添加对 fig.dpi 和 fig2.dpi 的相等性断言。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "call_chain",
+      "current_pattern": "test_unpickle_canvas 中：创建 fig -> pickle.dump -> pickle.load -> 断言 canvas 存在。",
+      "target_pattern": "创建 fig -> 记录初始 dpi -> pickle.dump -> pickle.load -> 获取新 fig 的 dpi -> 比较前后 dpi。",
+      "reason": "Issue 的核心错误是 DPI 变化，因此测试需要在 unpickle 后增加对 DPI 值的观测和比较。",
+      "confidence": "high"
+    },
+    {
+      "slot": "config",
+      "current_pattern": "相关测试通常使用默认后端（可能不是 MacOSX）在通用环境中运行。",
+      "target_pattern": "在测试中显式设置或确保后端为 'MacOSX'，并在 M1 Mac 或类似架构的模拟环境下运行。",
+      "reason": "Issue 明确指出问题只发生在 M1 Mac 的 MacOSX 后端上。改变后端配置可能触发缺陷路径。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "return_value",
+      "expression_hint": "fig.dpi (unpickle 前) 和 fig2.dpi (unpickle 后)",
+      "reason": "DPI 值是 Issue 中直接观察到的错误症状，比较这两个公开属性可以判断 DPI 是否翻倍。"
+    },
+    {
+      "kind": "state",
+      "expression_hint": "fig.canvas.manager 和 fig2.canvas.manager 的状态（如 manager 是否存在、是否相同）",
+      "reason": "__setstate__ 中涉及 manager 的创建，manager 的状态可能影响 DPI 的恢复。"
+    },
+    {
+      "kind": "exception",
+      "expression_hint": "在循环多次 pickle/unpickle 后是否引发 OverflowError",
+      "reason": "DPI 翻倍的累积效应最终导致溢出错误，这是缺陷的严重表现。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "unpickle 后得到的 Figure 对象的 DPI 值应与原始对象的 DPI 值相等。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言完整的 repr(fig) 或私有属性如 _dpi。避免断言 DPI 等于固定值 200，应断言等于原始值。",
+      "reason": "DPI 是 Figure 的公开属性，直接比较其数值是稳定且与 Issue 核心对齐的断言。"
+    },
+    {
+      "assertion_goal": "多次 pickle/unpickle 循环后，DPI 值应保持稳定，不引发 OverflowError。",
+      "preferred_assertion_style": "before_after_relation",
+      "avoid": "断言内部缓存或画布尺寸的精确像素值。",
+      "reason": "Issue 描述了循环导致错误，断言循环前后 DPI 关系可以捕捉到累积效应。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "使用 BytesIO 作为内存流进行 pickle 操作，避免文件系统依赖。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要模拟或检测 M1 Mac 环境和 MacOSX 后端，但测试应尽量保持可移植性。",
+      "source": "issue",
+      "confidence": "medium"
+    },
+    {
+      "hint": "参考 test_pickle.py 中的导入和测试结构。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "DPI 翻倍的确切计算发生在代码的哪个具体位置（__setstate__ 内部、new_figure_manager_given_figure 中，还是后端画布初始化时）。",
+    "是否所有 DPI 设置方式（如 plt.figure(dpi=...)、fig.set_dpi()）都会触发此问题。",
+    "除了 MacOSX 后端，其他后端（如 Agg）在 unpickling 时是否也有 DPI 处理问题。",
+    "问题是否与特定的 pickle 协议版本有关。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "[Bug]: DPI of a figure is doubled after unpickling on M1 Mac\n### Bug summary\n\nWhen a figure is unpickled, it's dpi is doubled. This behaviour happens every time and if done in a loop it can cause an `OverflowError`.\n\n### Code for reproduction\n\n```python\nimport numpy as np\nimport matplotlib\nimport matplotlib.pyplot as plt\nimport pickle\nimport platform\n\nprint(matplotlib.get_backend())\nprint('Matplotlib ver:', matplotlib.__version__)\nprint('Platform:', platform.platform())\nprint('System:', platform.system())\nprint('Release:', platform.release())\nprint('Python ver:', platform.python_version())\n\n\ndef dump_load_get_dpi(fig):\n    with open('sinus.pickle','wb') as file:\n        pickle.dump(fig, file)\n\n    with open('sinus.pickle', 'rb') as blob:\n        fig2 = pickle.load(blob)\n    return fig2, fig2.dpi\n\n\ndef run():\n    fig = plt.figure()\n    x = np.linspace(0,2*np.pi)\n    y = np.sin(x)\n\n    for i in range(32):\n        print(f'{i}: {fig.dpi}')\n        fig, dpi = dump_load_get_dpi(fig)\n\n\nif __name__ == '__main__':\n    run()\n```\n\n\n### Actual outcome\n\n```\nMacOSX\nMatplotlib ver: 3.5.2\nPlatform: macOS-12.4-arm64-arm-64bit\nSystem: Darwin\nRelease: 21.5.0\nPython ver: 3.9.12\n0: 200.0\n1: 400.0\n2: 800.0\n3: 1600.0\n4: 3200.0\n5: 6400.0\n6: 12800.0\n7: 25600.0\n8: 51200.0\n9: 102400.0\n10: 204800.0\n11: 409600.0\n12: 819200.0\n13: 1638400.0\n14: 3276800.0\n15: 6553600.0\n16: 13107200.0\n17: 26214400.0\n18: 52428800.0\n19: 104857600.0\n20: 209715200.0\n21: 419430400.0\nTraceback (most recent call last):\n  File \"/Users/wsykala/projects/matplotlib/example.py\", line 34, in <module>\n    run()\n  File \"/Users/wsykala/projects/matplotlib/example.py\", line 30, in run\n    fig, dpi = dump_load_get_dpi(fig)\n  File \"/Users/wsykala/projects/matplotlib/example.py\", line 20, in dump_load_get_dpi\n    fig2 = pickle.load(blob)\n  File \"/Users/wsykala/miniconda3/envs/playground/lib/python3.9/site-packages/matplotlib/figure.py\", line 2911, in __setstate__\n    mgr = plt._backend_mod.new_figure_manager_given_figure(num, self)\n  File \"/Users/wsykala/miniconda3/envs/playground/lib/python3.9/site-packages/matplotlib/backend_bases.py\", line 3499, in new_figure_manager_given_figure\n    canvas = cls.FigureCanvas(figure)\n  File \"/Users/wsykala/miniconda3/envs/playground/lib/python3.9/site-packages/matplotlib/backends/backend_macosx.py\", line 32, in __init__\n    _macosx.FigureCanvas.__init__(self, width, height)\nOverflowError: signed integer is greater than maximum\n```\n\n### Expected outcome\n\n```\nMacOSX\nMatplotlib ver: 3.5.2\nPlatform: macOS-12.4-arm64-arm-64bit\nSystem: Darwin\nRelease: 21.5.0\nPython ver: 3.9.12\n0: 200.0\n1: 200.0\n2: 200.0\n3: 200.0\n4: 200.0\n5: 200.0\n6: 200.0\n7: 200.0\n8: 200.0\n9: 200.0\n10: 200.0\n11: 200.0\n12: 200.0\n13: 200.0\n14: 200.0\n15: 200.0\n16: 200.0\n17: 200.0\n18: 200.0\n19: 200.0\n20: 200.0\n21: 200.0\n22: 200.0\n```\n\n### Additional information\n\nThis seems to happen only on M1 MacBooks and the version of python doesn't matter.\n\n### Operating system\n\nOS/X\n\n### Matplotlib Version\n\n3.5.2\n\n### Matplotlib Backend\n\nMacOSX\n\n### Python version\n\n3.9.12\n\n### Jupyter version\n\n_No response_\n\n### Installation\n\npip",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 M1 Mac 上，使用 MacOSX 后端时，对 matplotlib 的 Figure 对象进行 pickle 序列化后反序列化（unpickle），其 DPI 值会翻倍。每次 unpickle 都会导致 DPI 翻倍，在循环中多次操作最终会因 DPI 值过大导致 OverflowError。修复后，unpickle 得到的 Figure 对象的 DPI 应与原始对象的 DPI 保持一致。",
+      "facts_from_issue": [
+        "Bug 发生在 M1 Mac 上，Python 版本无关。",
+        "使用的后端是 MacOSX。",
+        "Matplotlib 版本是 3.5.2。",
+        "操作：创建 Figure -> pickle.dump -> pickle.load (unpickle)。",
+        "现象：unpickle 后 Figure 的 DPI 翻倍。",
+        "循环多次 unpickle 后 DPI 指数增长，最终导致 OverflowError。",
+        "期望：unpickle 后 DPI 保持不变。"
+      ],
+      "facts_from_retrieved_context": [
+        "Figure 类有 __setstate__ 方法，在 unpickle 时被调用。",
+        "__setstate__ 方法中会调用 plt._backend_mod.new_figure_manager_given_figure。",
+        "backend_bases 模块定义了 new_figure_manager_given_figure 方法。",
+        "存在测试文件 test_pickle.py，其中包含对 Figure 进行 pickle/unpickle 的测试。"
+      ],
+      "inferences": [
+        "DPI 翻倍可能与 Figure 的 __setstate__ 方法或后端相关的 unpickling 逻辑有关。",
+        "OverflowError 源于 DPI 值过大，导致后端在创建画布时整数溢出。",
+        "问题可能与特定后端（MacOSX）在 unpickling 时处理 DPI 或画布尺寸的逻辑有关。"
+      ],
+      "do_not_assume": [
+        "其他后端（如 Agg）是否也存在此问题。",
+        "DPI 翻倍的确切计算位置（是 __setstate__ 内部还是后端方法）。",
+        "修复后 DPI 的精确值（可能不是 200，而是原始值）。"
+      ]
+    },
+    "issue_summary": "在 M1 Mac 的 MacOSX 后端上，Figure 对象反序列化后 DPI 值翻倍，多次操作导致溢出错误。",
+    "trigger_condition": {
+      "text": "在 M1 Mac 上，使用 MacOSX 后端，创建一个 matplotlib Figure 对象，对其进行 pickle.dump 序列化，然后 pickle.load 反序列化。",
+      "evidence": [
+        "Issue 中的复现代码展示了创建 Figure、pickle.dump、pickle.load 的完整流程。",
+        "Issue 明确指出后端为 MacOSX，系统为 M1 Mac。",
+        "相关测试 test_pickle.py 中也使用了 pickle.dump 和 pickle.load。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "unpickle 后 Figure 对象的 dpi 属性值翻倍。多次循环 unpickle 后 DPI 值指数增长，最终在创建画布时引发 OverflowError: signed integer is greater than maximum。",
+      "symptom_type": "serialization_error",
+      "evidence": [
+        "Issue 的 Actual outcome 显示了 DPI 从 200 开始，每次 unpickle 后翻倍：200.0, 400.0, 800.0...",
+        "Issue 的 Actual outcome 最后显示了 OverflowError 的堆栈跟踪，指向 backend_macosx.py。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "修复后，对 Figure 对象进行 pickle 序列化再反序列化，得到的 Figure 对象的 DPI 值应与原始对象的 DPI 值保持一致，不发生变化。",
+      "evidence": [
+        "Issue 的 Expected outcome 显示了 DPI 值在每次 unpickle 后保持为 200.0。",
+        "Issue 描述 \"When a figure is unpickled, it's dpi is doubled.\" 暗示期望行为是 DPI 不变。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "pickle.dump",
+        "kind": "function",
+        "source_path": "",
+        "reason": "用于序列化 Figure 对象。"
+      },
+      {
+        "name": "pickle.load",
+        "kind": "function",
+        "source_path": "",
+        "reason": "用于反序列化 Figure 对象，触发 __setstate__。"
+      },
+      {
+        "name": "plt.figure",
+        "kind": "function",
+        "source_path": "lib/matplotlib/pyplot.py",
+        "reason": "用于创建 Figure 对象。"
+      },
+      {
+        "name": "Figure.__setstate__",
+        "kind": "method",
+        "source_path": "lib/matplotlib/figure.py",
+        "reason": "在 unpickle 时被调用，是问题可能发生的核心位置。"
+      },
+      {
+        "name": "new_figure_manager_given_figure",
+        "kind": "method",
+        "source_path": "lib/matplotlib/backend_bases.py",
+        "reason": "在 __setstate__ 中被调用，可能与 DPI 处理有关。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "lib/matplotlib/figure.py",
+        "object": "Figure.__setstate__",
+        "lines": "3035-3059",
+        "reason": "这是 Figure 对象反序列化时调用的方法，负责恢复状态，可能错误地处理了 DPI 或触发了导致 DPI 变化的后端逻辑。"
+      },
+      {
+        "path": "lib/matplotlib/backends/backend_macosx.py",
+        "object": "FigureCanvas.__init__",
+        "lines": "",
+        "reason": "OverflowError 直接发生在此处，表明 DPI 翻倍导致画布尺寸计算溢出。问题根源可能在 unpickling 过程中传递给后端的 DPI 或尺寸信息有误。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_simple",
+        "test_file": "lib/matplotlib/tests/test_pickle.py",
+        "why_relevant": "这个测试直接对 plt.figure() 创建的 Figure 进行 pickle.dump 操作，与 Issue 的核心操作（创建 Figure 并 pickle）一致。",
+        "reusable_parts": [
+          "imports: pickle, plt, numpy",
+          "对象构造: fig = plt.figure()",
+          "序列化操作: pickle.dump(fig, BytesIO(), pickle.HIGHEST_PROTOCOL)"
+        ],
+        "possible_gap": "该测试只进行了 dump，没有进行 load (unpickle)，因此无法观测到 DPI 变化。需要添加 pickle.load 步骤并检查 DPI 属性。"
+      },
+      {
+        "test_name": "test_unpickle_canvas",
+        "test_file": "lib/matplotlib/tests/test_pickle.py",
+        "why_relevant": "这个测试完整执行了 pickle.dump 和 pickle.load 流程，并检查了 canvas 属性不为 None，与 Issue 的触发流程高度相似。",
+        "reusable_parts": [
+          "完整的 pickle/unpickle 流程: dump -> seek(0) -> load",
+          "使用 BytesIO 作为内存流，避免文件操作",
+          "断言风格: assert fig2.canvas is not None"
+        ],
+        "possible_gap": "该测试只断言了 canvas 存在，没有检查 DPI 属性。需要添加对 fig.dpi 和 fig2.dpi 的相等性断言。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "call_chain",
+        "current_pattern": "test_unpickle_canvas 中：创建 fig -> pickle.dump -> pickle.load -> 断言 canvas 存在。",
+        "target_pattern": "创建 fig -> 记录初始 dpi -> pickle.dump -> pickle.load -> 获取新 fig 的 dpi -> 比较前后 dpi。",
+        "reason": "Issue 的核心错误是 DPI 变化，因此测试需要在 unpickle 后增加对 DPI 值的观测和比较。",
+        "confidence": "high"
+      },
+      {
+        "slot": "config",
+        "current_pattern": "相关测试通常使用默认后端（可能不是 MacOSX）在通用环境中运行。",
+        "target_pattern": "在测试中显式设置或确保后端为 'MacOSX'，并在 M1 Mac 或类似架构的模拟环境下运行。",
+        "reason": "Issue 明确指出问题只发生在 M1 Mac 的 MacOSX 后端上。改变后端配置可能触发缺陷路径。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "return_value",
+        "expression_hint": "fig.dpi (unpickle 前) 和 fig2.dpi (unpickle 后)",
+        "reason": "DPI 值是 Issue 中直接观察到的错误症状，比较这两个公开属性可以判断 DPI 是否翻倍。"
+      },
+      {
+        "kind": "state",
+        "expression_hint": "fig.canvas.manager 和 fig2.canvas.manager 的状态（如 manager 是否存在、是否相同）",
+        "reason": "__setstate__ 中涉及 manager 的创建，manager 的状态可能影响 DPI 的恢复。"
+      },
+      {
+        "kind": "exception",
+        "expression_hint": "在循环多次 pickle/unpickle 后是否引发 OverflowError",
+        "reason": "DPI 翻倍的累积效应最终导致溢出错误，这是缺陷的严重表现。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "unpickle 后得到的 Figure 对象的 DPI 值应与原始对象的 DPI 值相等。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言完整的 repr(fig) 或私有属性如 _dpi。避免断言 DPI 等于固定值 200，应断言等于原始值。",
+        "reason": "DPI 是 Figure 的公开属性，直接比较其数值是稳定且与 Issue 核心对齐的断言。"
+      },
+      {
+        "assertion_goal": "多次 pickle/unpickle 循环后，DPI 值应保持稳定，不引发 OverflowError。",
+        "preferred_assertion_style": "before_after_relation",
+        "avoid": "断言内部缓存或画布尺寸的精确像素值。",
+        "reason": "Issue 描述了循环导致错误，断言循环前后 DPI 关系可以捕捉到累积效应。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "使用 BytesIO 作为内存流进行 pickle 操作，避免文件系统依赖。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要模拟或检测 M1 Mac 环境和 MacOSX 后端，但测试应尽量保持可移植性。",
+        "source": "issue",
+        "confidence": "medium"
+      },
+      {
+        "hint": "参考 test_pickle.py 中的导入和测试结构。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "DPI 翻倍的确切计算发生在代码的哪个具体位置（__setstate__ 内部、new_figure_manager_given_figure 中，还是后端画布初始化时）。",
+      "是否所有 DPI 设置方式（如 plt.figure(dpi=...)、fig.set_dpi()）都会触发此问题。",
+      "除了 MacOSX 后端，其他后端（如 Agg）在 unpickling 时是否也有 DPI 处理问题。",
+      "问题是否与特定的 pickle 协议版本有关。"
+    ]
+  }
+}

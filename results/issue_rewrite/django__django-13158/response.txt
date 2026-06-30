@@ -1,0 +1,196 @@
+```json
+{
+    "original_issue": {
+        "text": "QuerySet.none() on combined queries returns all results.\nDescription\n\nI came across this issue on Stack Overflow. I'm not 100% sure it's a bug, but it does seem strange. With this code (excuse the bizarre example filtering):\nclass Publication(models.Model):\n\tpass\nclass Article(models.Model):\n\tpublications = models.ManyToManyField(to=Publication, blank=True, null=True)\nclass ArticleForm(forms.ModelForm):\n\tpublications = forms.ModelMultipleChoiceField(\n\t\tPublication.objects.filter(id__lt=2) | Publication.objects.filter(id__gt=5),\n\t\trequired=False,\n\t)\n\tclass Meta:\n\t\tmodel = Article\n\t\tfields = [\"publications\"]\nclass ArticleAdmin(admin.ModelAdmin):\n\tform = ArticleForm\nThis works well. However, changing the ModelMultipleChoiceField queryset to use union() breaks things.\npublications = forms.ModelMultipleChoiceField(\n\tPublication.objects.filter(id__lt=2).union(\n\t\tPublication.objects.filter(id__gt=5)\n\t),\n\trequired=False,\n)\nThe form correctly shows only the matching objects. However, if you submit this form while empty (i.e. you didn't select any publications), ALL objects matching the queryset will be added. Using the OR query, NO objects are added, as I'd expect.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当 Django 的 ModelMultipleChoiceField 使用 QuerySet.union() 方法组合查询集时，如果表单提交时用户没有选择任何选项（空提交），会导致所有匹配该组合查询集的对象被错误地添加到关联的 ManyToMany 关系中。而使用 OR 操作符（|）组合查询集时，空提交则不会添加任何对象，行为符合预期。问题可能涉及 ModelMultipleChoiceField.clean() 方法处理 union 查询集时的逻辑，或 QuerySet.none() 方法在组合查询集上的行为。",
+        "facts_from_issue": [
+            "ModelMultipleChoiceField 使用 QuerySet.union() 组合查询集时，空表单提交会导致所有匹配对象被添加。",
+            "ModelMultipleChoiceField 使用 OR 操作符（|）组合查询集时，空表单提交不会添加任何对象。",
+            "Issue 中提供了使用 Publication 和 Article 模型的示例代码。",
+            "表单字段 required=False。"
+        ],
+        "facts_from_retrieved_context": [
+            "ModelMultipleChoiceField 类位于 django/forms/models.py。",
+            "QuerySet 类有 none() 方法，返回一个空的 QuerySet。",
+            "QuerySet 类有 union() 方法，用于组合查询集。",
+            "检索到的测试显示 ModelMultipleChoiceField.clean([]) 应返回 EmptyQuerySet。"
+        ],
+        "inferences": [
+            "问题可能与 union() 方法生成的查询集在特定条件下（如空值处理）的行为有关。",
+            "ModelMultipleChoiceField.clean() 方法在处理空输入时，对于 union 查询集可能没有正确返回空结果集。",
+            "QuerySet.none() 方法在组合查询集（如 union 结果）上的行为可能与预期不符。"
+        ],
+        "do_not_assume": [
+            "具体的内部实现错误位置（是 union 方法、none 方法还是 ModelMultipleChoiceField 的 clean 方法）。",
+            "这是否是 QuerySet.none() 方法的普遍问题，还是仅在与 union 结合时出现。",
+            "修复后 empty() 或类似方法的确切行为变化。"
+        ]
+    },
+    "issue_summary": "使用 QuerySet.union() 组合查询集的 ModelMultipleChoiceField 在空提交时错误地添加了所有匹配对象，而使用 OR 操作符则行为正确。",
+    "trigger_condition": {
+        "text": "创建一个 ModelMultipleChoiceField，其 queryset 参数是通过 QuerySet.union() 方法组合的查询集（例如 Publication.objects.filter(id__lt=2).union(Publication.objects.filter(id__gt=5))），并且字段的 required=False。然后，使用一个空列表（[]）或空元组（()）作为数据提交表单，并调用 clean() 方法。",
+        "evidence": [
+            "Issue 中描述了使用 union() 组合查询集并设置 required=False。",
+            "Issue 中提到“submit this form while empty (i.e. you didn't select any publications)”。",
+            "检索测试 2 显示 f.clean([]) 和 f.clean(()) 是测试空提交的常见方式。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "当使用 union() 组合查询集的 ModelMultipleChoiceField 处理空提交（clean([])）时，没有返回一个空的查询集（如 EmptyQuerySet），而是可能返回了原始的组合查询集，导致后续逻辑（如 ManyToMany 关系的 add 操作）错误地添加了所有匹配对象。",
+        "symptom_type": "wrong_return",
+        "evidence": [
+            "Issue 描述：“ALL objects matching the queryset will be added.”",
+            "检索测试 2 表明，对于普通查询集，f.clean([]) 应返回 EmptyQuerySet 实例。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "对于使用 QuerySet.union() 组合查询集的 ModelMultipleChoiceField，当字段 required=False 且提交空数据（clean([])）时，应返回一个空的查询集（例如 EmptyQuerySet 实例），从而不会向关联的 ManyToMany 关系添加任何对象。其行为应与使用 OR 操作符（|）组合查询集时一致。",
+        "evidence": [
+            "Issue 中明确期望：“Using the OR query, NO objects are added, as I'd expect.”",
+            "检索测试 2 为普通查询集建立了预期：self.assertIsInstance(f.clean([]), EmptyQuerySet)。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "ModelMultipleChoiceField",
+            "kind": "class",
+            "source_path": "django/forms/models.py",
+            "reason": "Issue 的核心是 ModelMultipleChoiceField 在使用 union 查询集时的行为异常。"
+        },
+        {
+            "name": "QuerySet.union",
+            "kind": "method",
+            "source_path": "django/db/models/query.py",
+            "reason": "Issue 指出将 queryset 改为使用 union() 方法会触发问题。"
+        },
+        {
+            "name": "QuerySet.none",
+            "kind": "method",
+            "source_path": "django/db/models/query.py",
+            "reason": "Issue 标题直接提及 QuerySet.none()，且问题可能与空查询集处理有关。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/forms/models.py",
+            "object": "ModelMultipleChoiceField.clean",
+            "lines": "",
+            "reason": "该方法负责处理表单输入并返回清理后的查询集。问题可能在于它如何处理 union 查询集的空输入。"
+        },
+        {
+            "path": "django/db/models/query.py",
+            "object": "QuerySet.union",
+            "lines": "",
+            "reason": "union() 方法生成的组合查询集可能在某种状态下（例如，当用于空值判断时）行为不符合预期。"
+        },
+        {
+            "path": "django/db/models/query.py",
+            "object": "QuerySet.none 或相关空查询集逻辑",
+            "lines": "",
+            "reason": "Issue 标题指向 none() 方法，可能该方法在组合查询集上下文中的行为有误。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "ModelMultipleChoiceFieldTests.test_model_multiple_choice_required_false",
+            "test_file": "tests/model_forms/tests.py",
+            "why_relevant": "该测试直接验证了 ModelMultipleChoiceField 在 required=False 时对空输入（[] 和 ()）的处理，断言 clean([]) 返回 EmptyQuerySet。这为验证预期行为提供了直接的测试协议和断言风格。",
+            "reusable_parts": [
+                "导入 forms 模块和 TestCase。",
+                "创建 ModelMultipleChoiceField 实例并设置 queryset。",
+                "调用 f.clean([]) 和 f.clean(())。",
+                "使用 assertIsInstance 检查返回值是否为 EmptyQuerySet。"
+            ],
+            "possible_gap": "该测试使用的 queryset 是简单的 Category.objects.all()，而不是通过 union() 方法组合的查询集。需要将 queryset 构造变异为使用 union()。"
+        },
+        {
+            "test_name": "ModelMultipleChoiceFieldTests.test_to_field_name_with_initial_data",
+            "test_file": "tests/model_forms/tests.py",
+            "why_relevant": "该测试展示了在 ModelForm 上下文中使用 ModelMultipleChoiceField，并涉及 ManyToMany 关系（Article.categories）。这提供了与 Issue 示例（ArticleForm 和 publications）相似的模型和表单集成场景。",
+            "reusable_parts": [
+                "在 ModelForm 内部定义 ModelMultipleChoiceField。",
+                "使用 Article 和 Category（类比 Publication）模型。",
+                "操作 ManyToMany 关系（add）。"
+            ],
+            "possible_gap": "测试焦点是 to_field_name 和初始数据，没有测试空提交或 union 查询集。需要变异查询集构造并添加空提交测试。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "argument",
+            "current_pattern": "Category.objects.all()",
+            "target_pattern": "Publication.objects.filter(id__lt=2).union(Publication.objects.filter(id__gt=5))",
+            "reason": "Issue 明确指出将 queryset 从 OR 操作符改为 union() 方法会触发缺陷。这是最关键的变异点。",
+            "confidence": "high"
+        },
+        {
+            "slot": "input",
+            "current_pattern": "测试中可能使用有效 ID 列表作为输入。",
+            "target_pattern": "空列表 [] 或空元组 ()。",
+            "reason": "Issue 描述的错误发生在表单空提交时。需要将测试输入变异为空值以触发错误路径。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "直接调用 f.clean([]) 并断言返回类型。",
+            "target_pattern": "在 ModelForm 的上下文中提交表单，并检查关联的 ManyToMany 关系是否被错误更新。",
+            "reason": "Issue 的最终症状是对象被错误添加到关系。这需要更完整的集成测试流程来观察副作用。",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "return_value",
+            "expression_hint": "field.clean([]) 的返回值，特别是其类型（如 isinstance(result, EmptyQuerySet)）或布尔值（如 bool(result)）。",
+            "reason": "核心错误是 clean 方法对 union 查询集返回了非空结果。观察返回值是判断问题是否触发的直接方式。"
+        },
+        {
+            "kind": "state",
+            "expression_hint": "提交表单后，关联的 ManyToMany 关系（如 article.publications.all()）中的对象集合。",
+            "reason": "Issue 描述的最终错误现象是错误添加了对象。观察关系状态可以验证缺陷的副作用。"
+        },
+        {
+            "kind": "repr",
+            "expression_hint": "repr(field.clean([])) 或查询集的字符串表示，可能包含提示其是否为空的线索。",
+            "reason": "EmptyQuerySet 可能有特定的 repr，有助于区分空和非空查询集。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "对于使用 union 查询集的字段，clean([]) 应返回一个空的查询集（例如 EmptyQuerySet 实例）。",
+            "preferred_assertion_style": "isinstance",
+            "avoid": "断言返回的查询集与某个具体的模型实例列表完全相等，因为数据库状态可能变化。",
+            "reason": "检索测试 2 已经使用了 assertIsInstance(f.clean([]), EmptyQuerySet)，这是稳定且与预期行为直接对齐的断言。"
+        },
+        {
+            "assertion_goal": "提交空表单后，关联的 ManyToMany 关系应保持不变（没有添加新对象）。",
+            "preferred_assertion_style": "before_after_relation",
+            "avoid": "断言关系中的对象数量为一个固定值，除非在受控的测试 fixture 中。",
+            "reason": "这直接对应 Issue 中“NO objects are added”的期望，并通过比较操作前后的状态来验证，对测试数据依赖较小。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要使用 Django 的 TestCase 来支持数据库操作。需要创建 Publication 和 Article 模型实例作为测试数据。",
+            "source": "issue|retrieved_test|inference",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试可能需要在 model_forms 或 many_to_many 测试模块的上下文中运行，以复用现有的模型定义（如 Category, Article, Writer）或导入路径。",
+            "source": "retrieved_test",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "错误的确切根源是在 ModelMultipleChoiceField.clean()、QuerySet.union() 还是 QuerySet.none() 中。",
+        "是否所有类型的组合查询（如 intersection, difference）都存在类似问题，还是仅限于 union。",
+        "修复后，union 查询集的 .none() 方法是否应返回一个行为完全一致的 EmptyQuerySet。"
+    ]
+}
+```

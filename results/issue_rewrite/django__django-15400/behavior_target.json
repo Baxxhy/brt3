@@ -1,0 +1,338 @@
+{
+  "instance_id": "django__django-15400",
+  "issue_summary": "SimpleLazyObject 类缺少 __radd__ 方法的实现，导致反向加法操作（如 `other + lazy_obj`）可能失败。",
+  "trigger_condition": {
+    "text": "对一个 SimpleLazyObject 实例使用反向加法操作符，例如执行 `some_object + lazy_instance`，其中 `lazy_instance` 是 SimpleLazyObject 的实例，且 `some_object` 是支持与 `lazy_instance._wrapped` 进行加法操作的对象。",
+    "evidence": [
+      "Issue 标题和描述明确指出 __radd__ 缺失。",
+      "用户提供的实现示例处理 `other + self._wrapped`。",
+      "相关源码 __proxy__.__radd__ 的实现也是 `other + self.__cast()`。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "当执行反向加法操作时，由于 SimpleLazyObject 实例没有 __radd__ 方法，可能导致 Python 抛出异常（如 TypeError 或 AttributeError），或者回退到其他未定义的行为，使得操作结果不符合预期。",
+    "symptom_type": "exception",
+    "evidence": [
+      "Issue 描述提到“__radd__ being missing is the one that's biting me”，暗示遇到了问题。",
+      "用户尝试的两种代理方案都因各种原因“won't work”。",
+      "Python 对象在缺少相应魔术方法时，相关操作通常会引发 TypeError。"
+    ],
+    "confidence": "medium"
+  },
+  "expected_behavior": {
+    "text": "SimpleLazyObject 实例应支持反向加法操作（`other + lazy_obj`）。该操作应能正确触发 lazy 对象的初始化（如果需要），并返回 `other` 与已初始化的包装对象 `_wrapped` 相加的结果，行为应与直接操作 `_wrapped` 对象一致。",
+    "evidence": [
+      "用户提供的实现示例展示了期望的逻辑：初始化后返回 `other + self._wrapped`。",
+      "相关源码 __proxy__ 类中的 __radd__ 方法实现了 `other + self.__cast()`，表明这是期望的代理行为。",
+      "SimpleLazyObject 的设计目标是透明代理包装对象。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "SimpleLazyObject",
+      "kind": "class",
+      "source_path": "django/utils/functional.py",
+      "reason": "这是缺陷报告直接针对的类，需要为其添加 __radd__ 方法。"
+    },
+    {
+      "name": "__radd__",
+      "kind": "method",
+      "source_path": "django/utils/functional.py",
+      "reason": "这是缺失并需要实现的方法。"
+    },
+    {
+      "name": "new_method_proxy",
+      "kind": "function",
+      "source_path": "django/utils/functional.py",
+      "reason": "Issue 中讨论的用于创建代理方法的工具函数，可能与实现方案有关。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/utils/functional.py",
+      "object": "SimpleLazyObject 类定义",
+      "lines": "385-433",
+      "reason": "Issue 明确指出 SimpleLazyObject 缺少 __radd__ 方法。检索的源码片段显示该类定义中未列出 __radd__。"
+    },
+    {
+      "path": "django/utils/functional.py",
+      "object": "__proxy__ 类中的 __radd__ 方法",
+      "lines": "197-198",
+      "reason": "该文件内存在一个实现了 __radd__ 的代理类（__proxy__），其逻辑（`other + self.__cast()`）可能与 SimpleLazyObject 所需的实现类似，可作为参考。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "SimpleLazyObjectTestCase.test_list_set",
+      "test_file": "tests/utils_tests/test_lazyobject.py",
+      "why_relevant": "该测试创建了 SimpleLazyObject 包装列表和集合，并测试了 `in` 操作符和 `len`。它展示了如何构造 SimpleLazyObject 实例、与 Python 内置类型交互以及进行断言，这些模式可用于构建测试 __radd__ 的测试。",
+      "reusable_parts": [
+        "测试类 SimpleLazyObjectTestCase",
+        "使用 lambda 函数构造 SimpleLazyObject 的模式：`SimpleLazyObject(lambda: [1, 2, 3])`",
+        "断言风格如 `self.assertIn`, `self.assertEqual`"
+      ],
+      "possible_gap": "该测试没有涉及任何加法操作，更没有测试反向加法 (`other + lazy_obj`)。需要变异测试操作，从测试 `in` 和 `len` 改为测试加法表达式。"
+    },
+    {
+      "test_name": "SimpleLazyObjectTestCase.test_none",
+      "test_file": "tests/utils_tests/test_lazyobject.py",
+      "why_relevant": "该测试验证了 SimpleLazyObject 包装 None 值时的字符串表示和行为。它展示了如何测试 SimpleLazyObject 与一个特定值（None）的交互，以及如何检查惰性初始化副作用（通过计数器 i）。",
+      "reusable_parts": [
+        "使用辅助函数来跟踪初始化次数的模式",
+        "对 `str(x)` 等公开行为进行断言"
+      ],
+      "possible_gap": "测试的是 `str()` 操作，而非算术运算。需要将观测点从字符串转换改为加法运算及其结果。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "operator",
+      "current_pattern": "测试中使用 `in` 操作符或 `len()` 函数（如 `self.assertIn(1, lazy_list)`）。",
+      "target_pattern": "将操作改为反向加法表达式，例如 `result = some_value + lazy_obj`，其中 `some_value` 是一个与 `lazy_obj` 包装对象类型兼容的值（如整数、列表、字符串）。",
+      "reason": "Issue 的核心是缺失 __radd__ 方法，该方法正是在反向加法操作（`other + lazy_obj`）时被调用。改变操作符是触发缺陷路径的最直接方式。",
+      "confidence": "high"
+    },
+    {
+      "slot": "object_state",
+      "current_pattern": "测试中包装的对象是简单的容器（列表、集合）或 None。",
+      "target_pattern": "包装支持加法操作的对象，例如整数、列表、字符串，或者自定义实现了 `__add__` 方法的对象。",
+      "reason": "为了有意义地测试 __radd__，包装的对象（`_wrapped`）必须支持与 `other` 进行加法操作。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "在执行 `other + lazy_obj` 表达式时是否引发异常（如 TypeError）。",
+      "reason": "缺失 __radd__ 最可能导致的直接错误现象就是异常。观察异常类型和消息可以确认问题是否被触发。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "`other + lazy_obj` 表达式的结果值，或其类型。",
+      "reason": "修复后，该表达式应返回一个有意义的结果。比较结果与 `other + wrapped_value` 的预期结果可以验证行为是否正确。"
+    },
+    {
+      "kind": "state",
+      "expression_hint": "执行操作前后 `lazy_obj._wrapped` 的状态（是否从 `empty` 变为初始化后的值）。",
+      "reason": "__radd__ 的实现应确保惰性对象在需要时被正确初始化（`_setup`）。观察 `_wrapped` 属性可以验证初始化逻辑是否被触发。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "表达式 `other + lazy_obj` 应成功执行而不引发 TypeError 等异常，并返回一个与 `other + wrapped_value` 相等的结果。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言完整的对象 repr 或内部私有属性的精确值（除非用于验证初始化）。避免依赖可能变化的对象ID。",
+      "reason": "核心期望是加法操作的结果正确。使用 `assertEquals` 比较公开的操作结果是最稳定且与 Issue 对齐的断言方式。"
+    },
+    {
+      "assertion_goal": "在执行反向加法后，惰性对象的包装值应被正确初始化（即 `_wrapped` 不再是 `empty` 标记）。",
+      "preferred_assertion_style": "before_after_relation",
+      "avoid": "直接断言 `_wrapped` 等于某个具体值，除非该值是测试构造的一部分且稳定。",
+      "reason": "这验证了惰性初始化机制在 __radd__ 调用中正常工作，是 SimpleLazyObject 正确代理行为的一部分。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "使用 SimpleLazyObjectTestCase 作为测试基类，或模仿其设置。使用 lambda 函数来延迟创建被包装的对象。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要导入 `empty` 标记（来自 `django.utils.functional`）来检查 `_wrapped` 的初始状态。",
+      "source": "retrieved_source",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "缺失 __radd__ 在具体哪些类型组合下会引发异常（是所有的 `other + lazy_obj`，还是仅当 `other` 没有 `__add__` 时？）。",
+    "错误的具体异常类型和消息是什么。",
+    "除了反向加法，是否还有其他常见的魔术方法缺失并可能导致类似问题。",
+    "用户提供的实现示例是否考虑了所有边界情况（例如，当 `other` 的类型也不支持加法时）。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "SimpleLazyObject doesn't implement __radd__\nDescription\n\nTechnically, there's a whole bunch of magic methods it doesn't implement, compared to a complete proxy implementation, like that of wrapt.ObjectProxy, but __radd__ being missing is the one that's biting me at the moment.\nAs far as I can tell, the implementation can't just be\n__radd__ = new_method_proxy(operator.radd)\nbecause that doesn't exist, which is rubbish.\n__radd__ = new_method_proxy(operator.attrgetter(\"__radd__\"))\nalso won't work because types may not have that attr, and attrgetter doesn't supress the exception (correctly)\nThe minimal implementation I've found that works for me is:\n\tdef __radd__(self, other):\n\t\tif self._wrapped is empty:\n\t\t\tself._setup()\n\t\treturn other + self._wrapped",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "SimpleLazyObject 类缺少 __radd__ 方法的实现。当使用反向加法操作符（例如 `other + lazy_obj`）时，由于缺失该方法，可能导致异常或错误行为。期望 SimpleLazyObject 能正确代理 __radd__ 操作，使其行为与包装的对象一致。相关文件是 django/utils/functional.py 中的 SimpleLazyObject 类。",
+      "facts_from_issue": [
+        "SimpleLazyObject 类没有实现 __radd__ 方法。",
+        "用户尝试使用 new_method_proxy 来代理 __radd__ 但遇到了困难，因为 operator.radd 不存在，且使用 attrgetter(\"__radd__\") 可能因对象没有该属性而失败。",
+        "用户提供了一个最小可行的 __radd__ 实现示例。"
+      ],
+      "facts_from_retrieved_context": [
+        "SimpleLazyObject 继承自 LazyObject，位于 django/utils/functional.py。",
+        "源码中存在一个 __proxy__ 类，其中定义了 __radd__ 方法：`return other + self.__cast()`。",
+        "new_method_proxy 函数用于创建代理方法，它会检查 _wrapped 是否为空并调用 _setup。",
+        "SimpleLazyObject 有 _setup 方法，用于初始化 _wrapped 属性。",
+        "现有测试（如 test_list_set）展示了 SimpleLazyObject 与列表和集合的交互，但未直接测试反向加法操作。"
+      ],
+      "inferences": [
+        "__radd__ 是 Python 的反向加法魔术方法，当左操作数不支持加法操作时被调用。",
+        "SimpleLazyObject 可能旨在透明地代理其包装对象的所有操作，包括魔术方法。",
+        "缺失 __radd__ 可能导致 `other + lazy_obj` 这样的表达式失败或行为不正确。",
+        "用户提供的实现示例表明，正确的行为应是在需要时初始化包装对象，然后执行 `other + self._wrapped`。"
+      ],
+      "do_not_assume": [
+        "缺失 __radd__ 一定会导致特定类型的异常（如 TypeError 或 AttributeError）。",
+        "哪些具体的类型组合（如 int + SimpleLazyObject(list)）会触发此问题。",
+        "除了 __radd__，还有哪些其他魔术方法也缺失。",
+        "用户提供的实现示例是否就是最终正确的修复方案。"
+      ]
+    },
+    "issue_summary": "SimpleLazyObject 类缺少 __radd__ 方法的实现，导致反向加法操作（如 `other + lazy_obj`）可能失败。",
+    "trigger_condition": {
+      "text": "对一个 SimpleLazyObject 实例使用反向加法操作符，例如执行 `some_object + lazy_instance`，其中 `lazy_instance` 是 SimpleLazyObject 的实例，且 `some_object` 是支持与 `lazy_instance._wrapped` 进行加法操作的对象。",
+      "evidence": [
+        "Issue 标题和描述明确指出 __radd__ 缺失。",
+        "用户提供的实现示例处理 `other + self._wrapped`。",
+        "相关源码 __proxy__.__radd__ 的实现也是 `other + self.__cast()`。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "当执行反向加法操作时，由于 SimpleLazyObject 实例没有 __radd__ 方法，可能导致 Python 抛出异常（如 TypeError 或 AttributeError），或者回退到其他未定义的行为，使得操作结果不符合预期。",
+      "symptom_type": "exception",
+      "evidence": [
+        "Issue 描述提到“__radd__ being missing is the one that's biting me”，暗示遇到了问题。",
+        "用户尝试的两种代理方案都因各种原因“won't work”。",
+        "Python 对象在缺少相应魔术方法时，相关操作通常会引发 TypeError。"
+      ],
+      "confidence": "medium"
+    },
+    "expected_behavior": {
+      "text": "SimpleLazyObject 实例应支持反向加法操作（`other + lazy_obj`）。该操作应能正确触发 lazy 对象的初始化（如果需要），并返回 `other` 与已初始化的包装对象 `_wrapped` 相加的结果，行为应与直接操作 `_wrapped` 对象一致。",
+      "evidence": [
+        "用户提供的实现示例展示了期望的逻辑：初始化后返回 `other + self._wrapped`。",
+        "相关源码 __proxy__ 类中的 __radd__ 方法实现了 `other + self.__cast()`，表明这是期望的代理行为。",
+        "SimpleLazyObject 的设计目标是透明代理包装对象。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "SimpleLazyObject",
+        "kind": "class",
+        "source_path": "django/utils/functional.py",
+        "reason": "这是缺陷报告直接针对的类，需要为其添加 __radd__ 方法。"
+      },
+      {
+        "name": "__radd__",
+        "kind": "method",
+        "source_path": "django/utils/functional.py",
+        "reason": "这是缺失并需要实现的方法。"
+      },
+      {
+        "name": "new_method_proxy",
+        "kind": "function",
+        "source_path": "django/utils/functional.py",
+        "reason": "Issue 中讨论的用于创建代理方法的工具函数，可能与实现方案有关。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/utils/functional.py",
+        "object": "SimpleLazyObject 类定义",
+        "lines": "385-433",
+        "reason": "Issue 明确指出 SimpleLazyObject 缺少 __radd__ 方法。检索的源码片段显示该类定义中未列出 __radd__。"
+      },
+      {
+        "path": "django/utils/functional.py",
+        "object": "__proxy__ 类中的 __radd__ 方法",
+        "lines": "197-198",
+        "reason": "该文件内存在一个实现了 __radd__ 的代理类（__proxy__），其逻辑（`other + self.__cast()`）可能与 SimpleLazyObject 所需的实现类似，可作为参考。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "SimpleLazyObjectTestCase.test_list_set",
+        "test_file": "tests/utils_tests/test_lazyobject.py",
+        "why_relevant": "该测试创建了 SimpleLazyObject 包装列表和集合，并测试了 `in` 操作符和 `len`。它展示了如何构造 SimpleLazyObject 实例、与 Python 内置类型交互以及进行断言，这些模式可用于构建测试 __radd__ 的测试。",
+        "reusable_parts": [
+          "测试类 SimpleLazyObjectTestCase",
+          "使用 lambda 函数构造 SimpleLazyObject 的模式：`SimpleLazyObject(lambda: [1, 2, 3])`",
+          "断言风格如 `self.assertIn`, `self.assertEqual`"
+        ],
+        "possible_gap": "该测试没有涉及任何加法操作，更没有测试反向加法 (`other + lazy_obj`)。需要变异测试操作，从测试 `in` 和 `len` 改为测试加法表达式。"
+      },
+      {
+        "test_name": "SimpleLazyObjectTestCase.test_none",
+        "test_file": "tests/utils_tests/test_lazyobject.py",
+        "why_relevant": "该测试验证了 SimpleLazyObject 包装 None 值时的字符串表示和行为。它展示了如何测试 SimpleLazyObject 与一个特定值（None）的交互，以及如何检查惰性初始化副作用（通过计数器 i）。",
+        "reusable_parts": [
+          "使用辅助函数来跟踪初始化次数的模式",
+          "对 `str(x)` 等公开行为进行断言"
+        ],
+        "possible_gap": "测试的是 `str()` 操作，而非算术运算。需要将观测点从字符串转换改为加法运算及其结果。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "operator",
+        "current_pattern": "测试中使用 `in` 操作符或 `len()` 函数（如 `self.assertIn(1, lazy_list)`）。",
+        "target_pattern": "将操作改为反向加法表达式，例如 `result = some_value + lazy_obj`，其中 `some_value` 是一个与 `lazy_obj` 包装对象类型兼容的值（如整数、列表、字符串）。",
+        "reason": "Issue 的核心是缺失 __radd__ 方法，该方法正是在反向加法操作（`other + lazy_obj`）时被调用。改变操作符是触发缺陷路径的最直接方式。",
+        "confidence": "high"
+      },
+      {
+        "slot": "object_state",
+        "current_pattern": "测试中包装的对象是简单的容器（列表、集合）或 None。",
+        "target_pattern": "包装支持加法操作的对象，例如整数、列表、字符串，或者自定义实现了 `__add__` 方法的对象。",
+        "reason": "为了有意义地测试 __radd__，包装的对象（`_wrapped`）必须支持与 `other` 进行加法操作。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "在执行 `other + lazy_obj` 表达式时是否引发异常（如 TypeError）。",
+        "reason": "缺失 __radd__ 最可能导致的直接错误现象就是异常。观察异常类型和消息可以确认问题是否被触发。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "`other + lazy_obj` 表达式的结果值，或其类型。",
+        "reason": "修复后，该表达式应返回一个有意义的结果。比较结果与 `other + wrapped_value` 的预期结果可以验证行为是否正确。"
+      },
+      {
+        "kind": "state",
+        "expression_hint": "执行操作前后 `lazy_obj._wrapped` 的状态（是否从 `empty` 变为初始化后的值）。",
+        "reason": "__radd__ 的实现应确保惰性对象在需要时被正确初始化（`_setup`）。观察 `_wrapped` 属性可以验证初始化逻辑是否被触发。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "表达式 `other + lazy_obj` 应成功执行而不引发 TypeError 等异常，并返回一个与 `other + wrapped_value` 相等的结果。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言完整的对象 repr 或内部私有属性的精确值（除非用于验证初始化）。避免依赖可能变化的对象ID。",
+        "reason": "核心期望是加法操作的结果正确。使用 `assertEquals` 比较公开的操作结果是最稳定且与 Issue 对齐的断言方式。"
+      },
+      {
+        "assertion_goal": "在执行反向加法后，惰性对象的包装值应被正确初始化（即 `_wrapped` 不再是 `empty` 标记）。",
+        "preferred_assertion_style": "before_after_relation",
+        "avoid": "直接断言 `_wrapped` 等于某个具体值，除非该值是测试构造的一部分且稳定。",
+        "reason": "这验证了惰性初始化机制在 __radd__ 调用中正常工作，是 SimpleLazyObject 正确代理行为的一部分。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "使用 SimpleLazyObjectTestCase 作为测试基类，或模仿其设置。使用 lambda 函数来延迟创建被包装的对象。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要导入 `empty` 标记（来自 `django.utils.functional`）来检查 `_wrapped` 的初始状态。",
+        "source": "retrieved_source",
+        "confidence": "medium"
+      }
+    ],
+    "uncertainties": [
+      "缺失 __radd__ 在具体哪些类型组合下会引发异常（是所有的 `other + lazy_obj`，还是仅当 `other` 没有 `__add__` 时？）。",
+      "错误的具体异常类型和消息是什么。",
+      "除了反向加法，是否还有其他常见的魔术方法缺失并可能导致类似问题。",
+      "用户提供的实现示例是否考虑了所有边界情况（例如，当 `other` 的类型也不支持加法时）。"
+    ]
+  }
+}

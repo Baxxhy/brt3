@@ -1,0 +1,305 @@
+{
+  "instance_id": "sympy__sympy-23117",
+  "issue_summary": "使用空列表 `Array([])` 构造数组时，因内部形状扫描函数无法处理空可迭代对象而引发 ValueError 异常。",
+  "trigger_condition": {
+    "text": "调用 `Array([])` 或 `ImmutableDenseNDimArray([])`，不提供 `shape` 参数。",
+    "evidence": [
+      "原始 Issue 中执行了 `a = Array([])`。",
+      "源码显示 `_handle_ndarray_creation_inputs` 在 `shape` 为 `None` 且 `iterable` 是 `Iterable` 时会调用 `_scan_iterable_shape`。",
+      "`_scan_iterable_shape` 函数代码显示其递归函数 `f` 对空列表进行 `zip(*[f(i) for i in pointer])` 操作。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "抛出 ValueError 异常，消息为 \"not enough values to unpack (expected 2, got 0)\"。",
+    "symptom_type": "exception",
+    "evidence": [
+      "原始 Issue 的堆栈跟踪显示了该异常。",
+      "异常发生在 `sympy/tensor/array/ndim_array.py` 第 120 行的 `zip(*[f(i) for i in pointer])`。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "`Array([])` 应该成功构造一个空数组对象，不抛出异常。",
+    "evidence": [
+      "原始 Issue 标题和描述暗示了与 `Matrix([])` 行为一致的期望。",
+      "相关测试中 `arr_with_no_elements = ImmutableDenseNDimArray([], shape=(0,))` 展示了成功构造空数组（通过显式提供形状）的可能性。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "Array",
+      "kind": "function",
+      "source_path": "sympy/tensor/array/__init__.py",
+      "reason": "Issue 中直接调用的 API，是 `ImmutableDenseNDimArray` 的别名。"
+    },
+    {
+      "name": "ImmutableDenseNDimArray",
+      "kind": "class",
+      "source_path": "sympy/tensor/array/dense_ndim_array.py",
+      "reason": "`Array` 的实际实现类，其 `_new` 和继承的方法涉及缺陷逻辑。"
+    },
+    {
+      "name": "NDimArray._scan_iterable_shape",
+      "kind": "method",
+      "source_path": "sympy/tensor/array/ndim_array.py",
+      "reason": "堆栈跟踪中直接引发错误的函数。"
+    },
+    {
+      "name": "NDimArray._handle_ndarray_creation_inputs",
+      "kind": "method",
+      "source_path": "sympy/tensor/array/ndim_array.py",
+      "reason": "调用 `_scan_iterable_shape` 的函数，负责处理输入参数。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sympy/tensor/array/ndim_array.py",
+      "object": "NDimArray._scan_iterable_shape",
+      "lines": "192-205",
+      "reason": "堆栈跟踪指向此处，函数内部的递归逻辑无法处理空的可迭代对象（空列表），导致 `zip` 解包失败。"
+    },
+    {
+      "path": "sympy/tensor/array/ndim_array.py",
+      "object": "NDimArray._handle_ndarray_creation_inputs",
+      "lines": "208-252",
+      "reason": "该方法在 `shape` 为 `None` 且 `iterable` 是 `Iterable` 时决定调用 `_scan_iterable_shape`，可能需要对空迭代器的边界情况进行特殊处理。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_ndim_array_initiation",
+      "test_file": "sympy/tensor/array/tests/test_immutable_ndim_array.py",
+      "why_relevant": "该测试包含了 `ImmutableDenseNDimArray` 的各种初始化场景，包括使用空列表和显式形状构造空数组 (`arr_with_no_elements = ImmutableDenseNDimArray([], shape=(0,))`)。它复用了相同的类、导入和断言风格。",
+      "reusable_parts": [
+        "从 `sympy.tensor.array` 导入 `ImmutableDenseNDimArray`",
+        "使用 `ImmutableDenseNDimArray` 构造函数",
+        "使用 `assert` 检查 `len`、`rank`、`shape` 等属性",
+        "使用 `raises` 上下文管理器测试异常"
+      ],
+      "possible_gap": "该测试在构造空数组时显式提供了 `shape=(0,)` 参数，而 Issue 中的触发条件是仅传递空列表 `[]`（不提供 `shape`）。因此，需要变异测试，移除 `shape` 参数，仅使用 `ImmutableDenseNDimArray([])` 来触发缺陷路径。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "ImmutableDenseNDimArray([], shape=(0,))",
+      "target_pattern": "ImmutableDenseNDimArray([])",
+      "reason": "相似测试通过提供 `shape` 参数绕过了 `_scan_iterable_shape` 的调用。移除 `shape` 参数将迫使代码进入 `_handle_ndarray_creation_inputs` 中 `shape` 为 `None` 且 `iterable` 为 `Iterable` 的分支，从而调用有缺陷的 `_scan_iterable_shape` 函数。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "调用 `Array([])` 或 `ImmutableDenseNDimArray([])` 时是否抛出 `ValueError` 及其消息。",
+      "reason": "Issue 的核心症状是抛出特定异常。观测异常类型和消息片段（如 \"not enough values to unpack\"）可以直接判断缺陷是否被触发。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "成功构造后返回的数组对象的 `shape` 属性（例如 `()` 或 `(0,)`）和 `len`。",
+      "reason": "修复后，函数应返回一个数组对象。检查其公开属性可以验证构造是否成功以及结果是否符合预期（例如是零维标量还是长度为0的一维数组）。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "调用 `Array([])` 不应抛出任何异常。",
+      "preferred_assertion_style": "raises",
+      "avoid": "断言具体的异常消息字符串完全相等，因为修复后消息可能变化。",
+      "reason": "Issue 的核心是异常发生与否。使用 `pytest.raises` 或类似上下文管理器来断言没有异常被抛出，是稳定且与期望行为对齐的验证方式。"
+    },
+    {
+      "assertion_goal": "成功构造的数组对象应具有合理的形状（例如 `()` 或 `(0,)`）。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言内部私有字段 `_array` 或 `_shape` 的具体值。",
+      "reason": "形状 (`shape`) 是数组的公开属性。断言其等于一个预期的元组（如 `()` 或 `(0,)`）可以验证构造逻辑的正确性，且不依赖于内部实现细节。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要导入 `Array` 或 `ImmutableDenseNDimArray`。测试可以放在现有的 `sympy/tensor/array/tests/` 目录下的某个测试文件中，遵循现有的测试结构和导入惯例。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可以使用 `pytest` 或 SymPy 自己的测试运行器。测试函数应为普通函数，无需特殊 fixture。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "修复后 `Array([])` 返回的数组的确切形状是零维 `()` 还是一维空数组 `(0,)`。这需要参考 `Matrix([])` 的行为或项目设计规范来确定。",
+    "除了 `_scan_iterable_shape`，是否还有其他代码路径（如在 `_handle_ndarray_creation_inputs` 中对空迭代器的早期处理）需要调整。",
+    "`Array([], shape=())` 当前的行为（测试显示会引发 ValueError）是否也是缺陷的一部分，或者是有意为之。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "sympy.Array([]) fails, while sympy.Matrix([]) works\nSymPy 1.4 does not allow to construct empty Array (see code below). Is this the intended behavior?\n\n```\n>>> import sympy\nKeyboardInterrupt\n>>> import sympy\n>>> from sympy import Array\n>>> sympy.__version__\n'1.4'\n>>> a = Array([])\nTraceback (most recent call last):\n  File \"<stdin>\", line 1, in <module>\n  File \"/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/dense_ndim_array.py\", line 130, in __new__\n    return cls._new(iterable, shape, **kwargs)\n  File \"/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/dense_ndim_array.py\", line 136, in _new\n    shape, flat_list = cls._handle_ndarray_creation_inputs(iterable, shape, **kwargs)\n  File \"/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/ndim_array.py\", line 142, in _handle_ndarray_creation_inputs\n    iterable, shape = cls._scan_iterable_shape(iterable)\n  File \"/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/ndim_array.py\", line 127, in _scan_iterable_shape\n    return f(iterable)\n  File \"/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/ndim_array.py\", line 120, in f\n    elems, shapes = zip(*[f(i) for i in pointer])\nValueError: not enough values to unpack (expected 2, got 0)\n```\n\n@czgdp1807",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 SymPy 1.4 中，使用空列表 `[]` 作为参数调用 `Array([])` 会引发 ValueError 异常，而使用相同参数调用 `sympy.Matrix([])` 却能正常工作。错误发生在 `_scan_iterable_shape` 函数中，当处理空的可迭代对象时，`zip(*[f(i) for i in pointer])` 遇到空列表导致解包失败。期望 `Array([])` 能够成功构造一个空数组，与 `Matrix([])` 的行为保持一致。",
+      "facts_from_issue": [
+        "调用 `Array([])` 会抛出 ValueError 异常，堆栈跟踪显示错误发生在 `_scan_iterable_shape` 函数中。",
+        "调用 `sympy.Matrix([])` 可以正常工作。",
+        "使用的 SymPy 版本是 1.4。",
+        "错误信息是 \"ValueError: not enough values to unpack (expected 2, got 0)\"。"
+      ],
+      "facts_from_retrieved_context": [
+        "`Array` 是 `ImmutableDenseNDimArray` 的别名。",
+        "`Matrix` 是 `MutableDenseMatrix` 的别名。",
+        "`_scan_iterable_shape` 是 `NDimArray` 类的一个类方法，用于从可迭代对象扫描形状。",
+        "`_handle_ndarray_creation_inputs` 方法在 `shape` 为 `None` 且 `iterable` 是 `Iterable` 时会调用 `_scan_iterable_shape`。",
+        "存在测试用例 `arr_with_no_elements = ImmutableDenseNDimArray([], shape=(0,))` 可以成功构造一个形状为 `(0,)` 的空数组。",
+        "测试用例 `raises(ValueError, lambda: ImmutableDenseNDimArray([], shape=()))` 表明传递空形状 `()` 和空列表 `[]` 会引发 ValueError。"
+      ],
+      "inferences": [
+        "`Array([])` 调用时未指定 `shape` 参数，因此 `shape` 为 `None`。",
+        "由于 `iterable` 是一个空列表 `[]`，它被识别为 `Iterable`，因此 `_handle_ndarray_creation_inputs` 会调用 `_scan_iterable_shape([])`。",
+        "`_scan_iterable_shape` 内部的递归函数 `f` 在处理空列表 `pointer` 时，列表推导 `[f(i) for i in pointer]` 产生空列表，导致 `zip(*)` 失败。",
+        "`Matrix([])` 可能使用了不同的构造逻辑，因此不受此错误影响。",
+        "修复后，`Array([])` 应该能够成功构造一个空数组，其形状可能为 `(0,)` 或 `()`，具体取决于设计意图。"
+      ],
+      "do_not_assume": [
+        "修复后 `Array([])` 返回的数组的确切形状（是 `(0,)` 还是 `()`）。",
+        "`Matrix([])` 返回的矩阵的内部表示或形状。",
+        "修复是否会修改 `_scan_iterable_shape` 函数或其他相关函数。",
+        "是否存在其他构造空数组的方式（如 `Array([], shape=(0,))`）及其当前行为。"
+      ]
+    },
+    "issue_summary": "使用空列表 `Array([])` 构造数组时，因内部形状扫描函数无法处理空可迭代对象而引发 ValueError 异常。",
+    "trigger_condition": {
+      "text": "调用 `Array([])` 或 `ImmutableDenseNDimArray([])`，不提供 `shape` 参数。",
+      "evidence": [
+        "原始 Issue 中执行了 `a = Array([])`。",
+        "源码显示 `_handle_ndarray_creation_inputs` 在 `shape` 为 `None` 且 `iterable` 是 `Iterable` 时会调用 `_scan_iterable_shape`。",
+        "`_scan_iterable_shape` 函数代码显示其递归函数 `f` 对空列表进行 `zip(*[f(i) for i in pointer])` 操作。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "抛出 ValueError 异常，消息为 \"not enough values to unpack (expected 2, got 0)\"。",
+      "symptom_type": "exception",
+      "evidence": [
+        "原始 Issue 的堆栈跟踪显示了该异常。",
+        "异常发生在 `sympy/tensor/array/ndim_array.py` 第 120 行的 `zip(*[f(i) for i in pointer])`。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "`Array([])` 应该成功构造一个空数组对象，不抛出异常。",
+      "evidence": [
+        "原始 Issue 标题和描述暗示了与 `Matrix([])` 行为一致的期望。",
+        "相关测试中 `arr_with_no_elements = ImmutableDenseNDimArray([], shape=(0,))` 展示了成功构造空数组（通过显式提供形状）的可能性。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "Array",
+        "kind": "function",
+        "source_path": "sympy/tensor/array/__init__.py",
+        "reason": "Issue 中直接调用的 API，是 `ImmutableDenseNDimArray` 的别名。"
+      },
+      {
+        "name": "ImmutableDenseNDimArray",
+        "kind": "class",
+        "source_path": "sympy/tensor/array/dense_ndim_array.py",
+        "reason": "`Array` 的实际实现类，其 `_new` 和继承的方法涉及缺陷逻辑。"
+      },
+      {
+        "name": "NDimArray._scan_iterable_shape",
+        "kind": "method",
+        "source_path": "sympy/tensor/array/ndim_array.py",
+        "reason": "堆栈跟踪中直接引发错误的函数。"
+      },
+      {
+        "name": "NDimArray._handle_ndarray_creation_inputs",
+        "kind": "method",
+        "source_path": "sympy/tensor/array/ndim_array.py",
+        "reason": "调用 `_scan_iterable_shape` 的函数，负责处理输入参数。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sympy/tensor/array/ndim_array.py",
+        "object": "NDimArray._scan_iterable_shape",
+        "lines": "192-205",
+        "reason": "堆栈跟踪指向此处，函数内部的递归逻辑无法处理空的可迭代对象（空列表），导致 `zip` 解包失败。"
+      },
+      {
+        "path": "sympy/tensor/array/ndim_array.py",
+        "object": "NDimArray._handle_ndarray_creation_inputs",
+        "lines": "208-252",
+        "reason": "该方法在 `shape` 为 `None` 且 `iterable` 是 `Iterable` 时决定调用 `_scan_iterable_shape`，可能需要对空迭代器的边界情况进行特殊处理。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_ndim_array_initiation",
+        "test_file": "sympy/tensor/array/tests/test_immutable_ndim_array.py",
+        "why_relevant": "该测试包含了 `ImmutableDenseNDimArray` 的各种初始化场景，包括使用空列表和显式形状构造空数组 (`arr_with_no_elements = ImmutableDenseNDimArray([], shape=(0,))`)。它复用了相同的类、导入和断言风格。",
+        "reusable_parts": [
+          "从 `sympy.tensor.array` 导入 `ImmutableDenseNDimArray`",
+          "使用 `ImmutableDenseNDimArray` 构造函数",
+          "使用 `assert` 检查 `len`、`rank`、`shape` 等属性",
+          "使用 `raises` 上下文管理器测试异常"
+        ],
+        "possible_gap": "该测试在构造空数组时显式提供了 `shape=(0,)` 参数，而 Issue 中的触发条件是仅传递空列表 `[]`（不提供 `shape`）。因此，需要变异测试，移除 `shape` 参数，仅使用 `ImmutableDenseNDimArray([])` 来触发缺陷路径。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "ImmutableDenseNDimArray([], shape=(0,))",
+        "target_pattern": "ImmutableDenseNDimArray([])",
+        "reason": "相似测试通过提供 `shape` 参数绕过了 `_scan_iterable_shape` 的调用。移除 `shape` 参数将迫使代码进入 `_handle_ndarray_creation_inputs` 中 `shape` 为 `None` 且 `iterable` 为 `Iterable` 的分支，从而调用有缺陷的 `_scan_iterable_shape` 函数。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "调用 `Array([])` 或 `ImmutableDenseNDimArray([])` 时是否抛出 `ValueError` 及其消息。",
+        "reason": "Issue 的核心症状是抛出特定异常。观测异常类型和消息片段（如 \"not enough values to unpack\"）可以直接判断缺陷是否被触发。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "成功构造后返回的数组对象的 `shape` 属性（例如 `()` 或 `(0,)`）和 `len`。",
+        "reason": "修复后，函数应返回一个数组对象。检查其公开属性可以验证构造是否成功以及结果是否符合预期（例如是零维标量还是长度为0的一维数组）。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "调用 `Array([])` 不应抛出任何异常。",
+        "preferred_assertion_style": "raises",
+        "avoid": "断言具体的异常消息字符串完全相等，因为修复后消息可能变化。",
+        "reason": "Issue 的核心是异常发生与否。使用 `pytest.raises` 或类似上下文管理器来断言没有异常被抛出，是稳定且与期望行为对齐的验证方式。"
+      },
+      {
+        "assertion_goal": "成功构造的数组对象应具有合理的形状（例如 `()` 或 `(0,)`）。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言内部私有字段 `_array` 或 `_shape` 的具体值。",
+        "reason": "形状 (`shape`) 是数组的公开属性。断言其等于一个预期的元组（如 `()` 或 `(0,)`）可以验证构造逻辑的正确性，且不依赖于内部实现细节。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要导入 `Array` 或 `ImmutableDenseNDimArray`。测试可以放在现有的 `sympy/tensor/array/tests/` 目录下的某个测试文件中，遵循现有的测试结构和导入惯例。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可以使用 `pytest` 或 SymPy 自己的测试运行器。测试函数应为普通函数，无需特殊 fixture。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "修复后 `Array([])` 返回的数组的确切形状是零维 `()` 还是一维空数组 `(0,)`。这需要参考 `Matrix([])` 的行为或项目设计规范来确定。",
+      "除了 `_scan_iterable_shape`，是否还有其他代码路径（如在 `_handle_ndarray_creation_inputs` 中对空迭代器的早期处理）需要调整。",
+      "`Array([], shape=())` 当前的行为（测试显示会引发 ValueError）是否也是缺陷的一部分，或者是有意为之。"
+    ]
+  }
+}

@@ -1,0 +1,137 @@
+instance_id: scikit-learn__scikit-learn-15512
+
+issue_summary: AffinityPropagation 在未收敛时，其 cluster_centers_indices_ 和 labels_ 属性未按文档和设计返回空数组和 -1 标签。
+
+trigger_condition:
+{
+  "text": "使用 AffinityPropagation 模型，配置参数使其在 fit 过程中无法收敛（例如设置较小的 max_iter，如 1 或 2），然后检查拟合后模型的 cluster_centers_indices_ 和 labels_ 属性。",
+  "evidence": [
+    "Issue 示例：AffinityPropagation(affinity='euclidean', verbose=True, copy=False, max_iter=2).fit(data)。",
+    "相关测试 1：AffinityPropagation(preference=-10, max_iter=1).fit(X)。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "当算法未收敛时，cluster_centers_indices_ 不是空数组，labels_ 不是全为 -1 的数组。具体在示例中，得到了 [2] 和 [0,0,0]。同时，可能缺失了应伴随非收敛状态发出的 ConvergenceWarning。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue 描述：\"I get [2] as cluster center and [0,0,0] as cluster labels\"，而期望是空列表和 [-1,-1,-1]。",
+    "相关测试 1 和 2 在类似非收敛条件下，使用 assert_warns(ConvergenceWarning, ...)，暗示非收敛应触发警告。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当 AffinityPropagation.fit 因未收敛而终止时，拟合后的模型应具有：1) cluster_centers_indices_ 为空数组；2) labels_ 为所有元素都是 -1 的数组；3) 应发出 ConvergenceWarning 警告。",
+  "evidence": [
+    "Issue 引用的文档：\"When the algorithm does not converge, it returns an empty array as cluster_center_indices and -1 as label for each training sample.\"",
+    "源码中 AffinityPropagation 类的文档字符串（Notes 部分）有相同描述。",
+    "相关测试 1 和 2 的断言明确验证了这些行为。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "AffinityPropagation",
+    "kind": "class",
+    "source_path": "sklearn/cluster/_affinity_propagation.py",
+    "reason": "这是问题报告的核心类，用户调用了它的构造函数和 fit 方法。"
+  },
+  {
+    "name": "AffinityPropagation.fit",
+    "kind": "method",
+    "source_path": "sklearn/cluster/_affinity_propagation.py",
+    "reason": "触发缺陷的关键方法，负责调用底层算法并设置 cluster_centers_indices_ 和 labels_ 属性。"
+  },
+  {
+    "name": "affinity_propagation",
+    "kind": "function",
+    "source_path": "",
+    "reason": "根据源码，fit 方法调用了这个函数，它返回中心索引、标签和迭代次数，可能是缺陷的源头。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "preference=-10, max_iter=1",
+    "target_pattern": "使用默认 preference (None), max_iter=2, affinity='euclidean', copy=False, 并使用 Issue 中提供的特定 DataFrame 数据。",
+    "reason": "Issue 示例使用了不同的参数和数据触发了缺陷，而现有测试用例可能因参数不同而通过了断言。改变这些参数可能使测试走向缺陷路径。",
+    "confidence": "medium"
+  },
+  {
+    "slot": "input",
+    "current_pattern": "X = np.array([[0, 0], [1, 1], [-2, -2]])",
+    "target_pattern": "data = pd.DataFrame([[1,0,0,0,0,0],[0,1,1,1,0,0],[0,0,1,0,0,1]]) 或等价的 numpy 数组。",
+    "reason": "不同的输入数据可能导致算法内部状态不同，影响非收敛时的返回值。使用 Issue 中的具体数据可能更易复现问题。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "af.cluster_centers_indices_, af.labels_",
+    "reason": "这是 Issue 直接报告的错误症状所在，观察这些公开属性的值可以判断算法是否按预期处理了非收敛。"
+  },
+  {
+    "kind": "warning",
+    "expression_hint": "warnings.catch_warnings 记录到的 ConvergenceWarning",
+    "reason": "相关测试表明非收敛应伴随 ConvergenceWarning。观察是否发出此警告可以辅助判断算法是否识别出非收敛状态。"
+  },
+  {
+    "kind": "state",
+    "expression_hint": "af.n_iter_",
+    "reason": "Issue 提到用户曾考虑用 max_iter == n_iter_ 判断收敛，观察此属性有助于理解算法执行迭代次数。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "cluster_centers_indices_ 的长度应为 0（空数组）。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的数组表示，如 repr(af.cluster_centers_indices_) == 'array([], dtype=int64)'，因为具体 dtype 可能变化。",
+    "reason": "直接检查数组形状或长度是稳定且与文档描述（空数组）对齐的公共行为断言。"
+  },
+  {
+    "assertion_goal": "labels_ 的所有元素应等于 -1。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言 labels_ 的完整字符串表示。",
+    "reason": "检查数组内容是否全为 -1 是文档和测试中明确指定的公共行为。"
+  },
+  {
+    "assertion_goal": "调用 fit 时应发出 ConvergenceWarning 警告。",
+    "preferred_assertion_style": "warns",
+    "avoid": "仅通过 verbose 输出判断。",
+    "reason": "相关测试使用了 assert_warns(ConvergenceWarning, ...)，这是检查非收敛状态的稳定公开接口。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 numpy、pandas（或使用等价的 numpy 数组）、sklearn.cluster.AffinityPropagation、sklearn.exceptions.ConvergenceWarning、以及用于断言的相关工具（如 assert_array_equal）。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要在 pytest 框架下运行，并使用 warnings.catch_warnings 或 pytest.warns 来捕获警告。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "是否所有导致非收敛的参数组合（如不同的 preference 值、阻尼因子、收敛迭代次数）都会表现出此缺陷，还是仅特定组合？",
+  "缺陷是否仅在 affinity='euclidean' 时出现？affinity='precomputed' 时行为如何？",
+  "在未收敛情况下，cluster_centers_ 属性（如果存在）的行为是否也符合预期（为空数组）？"
+]

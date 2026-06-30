@@ -1,0 +1,158 @@
+instance_id: scikit-learn__scikit-learn-13779
+
+issue_summary: VotingClassifier 在 estimator 被设为 None 且传入 sample_weight 参数调用 fit 时，会抛出 AttributeError。
+
+trigger_condition:
+{
+  "text": "1. 创建一个 VotingClassifier，其 estimators 列表包含至少两个具名 estimator。2. 调用 fit 一次（可带 sample_weight）以拟合模型。3. 使用 set_params 将其中一个 estimator 设置为 None。4. 再次调用 fit 方法，并传入 sample_weight 参数（例如 np.ones(y.shape)）。",
+  "evidence": [
+    "Issue 中的代码片段展示了触发步骤。",
+    "源码片段 3 显示 set_params 可以设置 estimator 为 None。",
+    "相关测试 1 (test_set_estimator_none) 展示了 set_params 设置 estimator 为 None 并 fit 的模式（但未使用 sample_weight）。",
+    "相关测试 2 (test_sample_weight) 展示了 fit 时传入 sample_weight 的模式。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "调用 fit 时抛出 AttributeError: 'NoneType' object has no attribute 'fit'。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中提供了错误堆栈信息。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "VotingClassifier 在 fit 时，即使某些 estimator 被设置为 None 且传入了 sample_weight 参数，也应成功执行，跳过 None estimator 的拟合过程，并正常拟合剩余的 estimator。",
+  "evidence": [
+    "Issue 标题和描述暗示期望 fit 不失败。",
+    "源码片段 1 的文档说明 \"An estimator can be set to `None` using `set_params`\"，暗示此操作应被支持。",
+    "相关测试 1 (test_set_estimator_none) 展示了在不传 sample_weight 时，设置 estimator 为 None 后 fit 可以成功。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "VotingClassifier",
+    "kind": "class",
+    "source_path": "sklearn/ensemble/voting.py",
+    "reason": "缺陷发生的核心类。"
+  },
+  {
+    "name": "VotingClassifier.fit",
+    "kind": "method",
+    "source_path": "sklearn/ensemble/voting.py",
+    "reason": "触发缺陷的方法调用。"
+  },
+  {
+    "name": "VotingClassifier.set_params",
+    "kind": "method",
+    "source_path": "sklearn/ensemble/voting.py",
+    "reason": "用于将 estimator 设置为 None 的方法。"
+  },
+  {
+    "name": "_BaseVoting.fit",
+    "kind": "method",
+    "source_path": "sklearn/ensemble/voting.py",
+    "reason": "VotingClassifier.fit 调用的父类方法，可能包含缺陷逻辑。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "在 test_set_estimator_none 中，调用 eclf2.fit(X, y) 时不带 sample_weight 参数。",
+    "target_pattern": "在调用 set_params 将某个 estimator 设置为 None 后，调用 fit 时传入 sample_weight 参数，例如 fit(X, y, sample_weight=np.ones(y.shape))。",
+    "reason": "Issue 表明 sample_weight 参数的存在与 None estimator 结合触发了缺陷。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "在 test_sample_weight 中，VotingClassifier 的 estimators 在 fit 前都是有效的对象。",
+    "target_pattern": "在调用 fit 前，使用 set_params 将其中一个 estimator 设置为 None。",
+    "reason": "Issue 表明 estimator 为 None 是触发缺陷的必要条件。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "常见模式：构造 VotingClassifier -> fit (可选) -> set_params -> fit。",
+    "target_pattern": "构造 VotingClassifier -> fit (带 sample_weight) -> set_params(estimator=None) -> fit (带 sample_weight)。",
+    "reason": "Issue 的复现步骤展示了这个特定的调用链，其中第一次 fit 可能初始化了某些内部状态。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 fit 方法时是否抛出 AttributeError，以及错误信息是否包含 'NoneType' 和 'fit'。",
+    "reason": "这是 Issue 描述的直接错误现象。"
+  },
+  {
+    "kind": "state",
+    "expression_hint": "fit 调用后，self.estimators_ 列表的长度和内容，以及是否包含 None。",
+    "reason": "修复后，self.estimators_ 应只包含非 None 的已拟合 estimator，而 None 应被过滤掉。观测此状态可判断内部处理是否正确。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "fit 方法是否正常返回 self（即不抛出异常）。",
+    "reason": "修复后，fit 应成功执行并返回。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "在 estimator 为 None 且传入 sample_weight 的情况下调用 fit，方法应正常执行而不抛出 AttributeError。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言具体的异常消息字符串完全相等，因为消息可能微调。",
+    "reason": "Issue 的核心是避免特定的 AttributeError。使用 raises 配合适当的异常类型（或断言不抛出）可以稳定验证。"
+  },
+  {
+    "assertion_goal": "fit 成功后，VotingClassifier 应能进行预测（如 predict），表明模型被正确拟合。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言 predict 结果与某个固定值完全相等，因为可能涉及随机性。可比较两次预测的一致性。",
+    "reason": "验证 fit 不仅没崩溃，而且产生了有效的模型。"
+  },
+  {
+    "assertion_goal": "self.estimators_ 列表不应包含 None，且长度应与非 None 的原始 estimator 数量一致。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "直接断言私有属性或内部数据结构。self.estimators_ 是公开属性。",
+    "reason": "这可以间接验证内部逻辑是否正确跳过了 None estimator。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 numpy, sklearn.datasets.load_iris, sklearn.ensemble.VotingClassifier, sklearn.linear_model.LogisticRegression, sklearn.ensemble.RandomForestClassifier。",
+    "source": "issue|retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可以使用 pytest 作为测试运行器，并利用其 fixture 或标记（如 @pytest.mark.filterwarnings）来过滤相关警告。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试数据可以使用 load_iris(return_X_y=True) 或类似的小型数据集。",
+    "source": "issue|retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "缺陷是否只发生在第二次调用 fit 时？第一次 fit 是否必须带 sample_weight？",
+  "缺陷是否与 voting 类型（'hard'/'soft'）有关？",
+  "缺陷的确切代码位置在 _BaseVoting.fit 的哪一部分？",
+  "sample_weight 参数的值是否必须为非 None？是否必须为特定形状？",
+  "是否所有底层 estimator 都支持 sample_weight 才会触发此路径？"
+]

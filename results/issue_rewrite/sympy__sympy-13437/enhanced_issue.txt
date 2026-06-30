@@ -1,0 +1,125 @@
+instance_id: sympy__sympy-13437
+
+issue_summary: `bell(n).limit(n, oo)` 错误地返回未求值的 `bell(oo)`，而不是正无穷 `oo`。
+
+trigger_condition:
+{
+  "text": "导入 sympy，创建符号 `n`，对表达式 `bell(n)` 调用 `limit(n, oo)` 方法。",
+  "evidence": [
+    "原始 Issue 中的代码示例：`from sympy import *; n = symbols('n'); bell(n).limit(n,oo)`。",
+    "相关测试 `test_fibonacci` 中使用了类似的 `limit` 调用模式。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "`bell(n).limit(n, oo)` 返回未求值的表达式 `bell(oo)`，而不是数值结果 `oo`。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "原始 Issue 描述：\"current output is `bell(oo)`\"。",
+    "原始 Issue 中的代码输出示例。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`bell(n).limit(n, oo)` 应成功计算极限并返回 `oo`（正无穷）。",
+  "evidence": [
+    "原始 Issue 描述：\"should take the value infinity\"。",
+    "相关测试 `test_fibonacci` 中 `fibonacci(n).limit(n, S.Infinity) == S.Infinity` 展示了类似函数的正确行为。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "bell",
+    "kind": "class",
+    "source_path": "sympy/functions/combinatorial/numbers.py",
+    "reason": "Issue 的核心是 `bell` 函数的极限行为。"
+  },
+  {
+    "name": "limit",
+    "kind": "method",
+    "source_path": "",
+    "reason": "触发缺陷需要调用表达式的 `limit` 方法。"
+  },
+  {
+    "name": "symbols",
+    "kind": "function",
+    "source_path": "",
+    "reason": "用于创建符号 `n`，这是触发条件的一部分。"
+  },
+  {
+    "name": "oo",
+    "kind": "global_var",
+    "source_path": "sympy/stats/crv_types.py",
+    "reason": "极限的目标点是正无穷。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "在 `test_fibonacci` 中：`fibonacci(n).limit(n, S.Infinity)`。",
+    "target_pattern": "`bell(n).limit(n, oo)`。",
+    "reason": "将测试对象从 `fibonacci` 改为 `bell`，这是触发缺陷的关键变化。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_bell` 中，`bell` 的调用多为具体整数或符号参数，如 `bell(5, x)`。",
+    "target_pattern": "`bell(n)`，其中 `n` 是一个符号（`Symbol('n')`）。",
+    "reason": "极限操作需要符号参数，而不是具体数值。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "`result = bell(n).limit(n, oo)` 的返回值。观察其是 `oo` 还是 `bell(oo)`。",
+    "reason": "这是 Issue 直接描述的错误现象，通过比较返回值与 `oo` 可以判断缺陷是否触发。"
+  },
+  {
+    "kind": "repr",
+    "expression_hint": "`repr(result)` 或 `str(result)`。观察输出字符串是否包含 `'bell(oo)'` 或 `'oo'`。",
+    "reason": "原始 Issue 展示了输出格式，字符串表示能清晰区分未求值表达式和数值结果。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`bell(n).limit(n, oo)` 的结果应等于 `oo`。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的、未简化的表达式树结构或内部属性。避免断言 `bell(oo)` 的某种内部表示。",
+    "reason": "Issue 明确期望结果为 `oo`。使用 `==` 进行相等性断言是 SymPy 测试中常见且稳定的方式，直接对应期望行为。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要导入 `bell`, `symbols`, `oo`（或 `S.Infinity`）。可能需要在 `sympy.functions.combinatorial.tests.test_comb_numbers` 测试类的上下文中运行。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 `Symbol('n')` 创建符号变量，而不是 `Dummy`，以匹配 Issue 示例。",
+    "source": "issue",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "`bell` 类中具体是哪个方法（如 `_eval_evalf`, `_eval_rewrite_as_Sum`, `eval`）需要修改以实现正确的极限行为。",
+  "修复是否涉及 `limit` 函数的通用逻辑，还是仅针对 `bell` 的特殊处理。",
+  "`bell(oo)` 在其他计算上下文（如直接调用 `bell(oo)`）中是否也应该被求值为 `oo`，还是仅限 `limit` 场景。"
+]

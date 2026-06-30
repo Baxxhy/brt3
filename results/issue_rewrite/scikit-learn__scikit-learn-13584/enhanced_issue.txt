@@ -1,0 +1,138 @@
+instance_id: scikit-learn__scikit-learn-13584
+
+issue_summary: 当 `print_changed_only=True` 时，使用 `np.array` 作为 `Cs` 参数创建 `LogisticRegressionCV` 并打印会引发 `ValueError`。
+
+trigger_condition:
+{
+  "text": "1. 调用 `sklearn.set_config(print_changed_only=True)`。\n2. 使用 `np.array([0.1, 1])` 作为 `Cs` 参数实例化 `LogisticRegressionCV`。\n3. 调用 `print(estimator)` 或 `estimator.__repr__()`。",
+  "evidence": [
+    "原始 Issue 中的代码片段。",
+    "`set_config` 函数文档说明 `print_changed_only` 控制打印行为。",
+    "`LogisticRegressionCV` 的 `__init__` 接受 `Cs` 参数。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "调用 `print(LogisticRegressionCV(Cs=np.array([0.1, 1])))` 时引发 `ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()`。",
+  "symptom_type": "exception",
+  "evidence": [
+    "原始 Issue 中的错误信息和代码。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "在 `print_changed_only=True` 配置下，使用 `np.array([0.1, 1])` 作为 `Cs` 参数创建 `LogisticRegressionCV` 对象后，调用 `print(estimator)` 或 `estimator.__repr__()` 应成功执行并返回一个字符串表示，而不引发任何异常。",
+  "evidence": [
+    "`set_config` 文档说明 `print_changed_only=True` 时，只打印设置为非默认值的参数。",
+    "测试 `test_changed_only` 展示了 `print_changed_only=True` 时 `__repr__` 的正常工作场景。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "sklearn.set_config",
+    "kind": "function",
+    "source_path": "sklearn/_config.py",
+    "reason": "用于设置 `print_changed_only` 全局配置，这是触发 bug 的必要条件。"
+  },
+  {
+    "name": "sklearn.linear_model.LogisticRegressionCV",
+    "kind": "class",
+    "source_path": "sklearn/linear_model/logistic.py",
+    "reason": "Issue 中引发异常的对象类。"
+  },
+  {
+    "name": "__repr__",
+    "kind": "method",
+    "source_path": "",
+    "reason": "打印对象时调用的方法，是错误发生的直接位置。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_changed_only` 中，`LogisticRegression` 使用标量参数如 `C=99`。",
+    "target_pattern": "使用 `LogisticRegressionCV` 并设置 `Cs=np.array([0.1, 1])`。",
+    "reason": "Issue 表明当 `Cs` 参数为 `np.array` 时，在 `print_changed_only=True` 下会触发错误。将参数从标量变为数组可能暴露参数比较逻辑中的缺陷。",
+    "confidence": "high"
+  },
+  {
+    "slot": "config",
+    "current_pattern": "在 `test_logistic_cv` 中，没有设置 `print_changed_only` 配置（默认为 `False`）。",
+    "target_pattern": "在测试开始时调用 `set_config(print_changed_only=True)`。",
+    "reason": "`print_changed_only=True` 是触发 bug 的必要条件，它改变了 `__repr__` 的行为，使其只比较非默认参数。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试中可能只调用 `fit` 或检查属性，不调用 `print` 或 `__repr__`。",
+    "target_pattern": "在创建对象后，调用 `print(estimator)` 或 `estimator.__repr__()`。",
+    "reason": "错误症状直接发生在打印或获取字符串表示时，因此必须包含此调用。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 `estimator.__repr__()` 时是否引发 `ValueError` 及其消息。",
+    "reason": "Issue 的核心症状是引发特定 `ValueError`。观测异常是判断缺陷是否触发的直接方式。"
+  },
+  {
+    "kind": "repr",
+    "expression_hint": "成功执行时 `estimator.__repr__()` 返回的字符串。可以观察其是否包含 `Cs=` 片段。",
+    "reason": "在 `print_changed_only=True` 下，`Cs` 被设置为非默认值，其表示应包含 `Cs=`。观测输出内容可以验证行为是否正确。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "调用 `estimator.__repr__()` 不应引发 `ValueError`（或任何异常）。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言完整的 `__repr__` 输出字符串，因为具体格式可能变化。",
+    "reason": "修复后应正常执行而不崩溃。使用 `pytest.raises` 验证无异常更稳定。"
+  },
+  {
+    "assertion_goal": "`estimator.__repr__()` 返回的字符串应包含 `Cs=` 片段（因为 `Cs` 被设置为非默认值）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的 `repr` 字符串相等，因为参数顺序、空格等可能变化。",
+    "reason": "在 `print_changed_only=True` 下，非默认参数应被打印。检查 `Cs=` 片段可以验证此逻辑正常工作，且不依赖完整格式。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试可能需要导入 `sklearn`, `numpy as np`, `LogisticRegressionCV`, 和 `set_config`。",
+    "source": "issue|retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 `pytest` 作为测试运行器，并可能使用 `pytest.raises` 来断言异常。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试后可能需要重置全局配置（如 `set_config(print_changed_only=False)`）以避免影响其他测试。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "错误是否特定于 `LogisticRegressionCV` 类，还是影响所有将数组作为参数且 `print_changed_only=True` 的估计器。",
+  "`Cs` 参数为列表（如 `[0.1, 1]`）时是否也会触发同样错误，还是仅限 `np.array`。",
+  "错误发生的精确代码行和函数（例如，是在 `BaseEstimator.__repr__` 中，还是在某个参数比较辅助函数中）。",
+  "修复后 `__repr__` 对于数组参数的确切输出格式（例如，是 `Cs=array([0.1, 1])` 还是 `Cs=[0.1, 1]`）。"
+]

@@ -1,0 +1,88 @@
+instance_id: sympy__sympy-21612
+
+issue_summary: parse_latex 函数在解析特定嵌套分数 LaTeX 表达式时，生成的分母缺少括号，导致 SymPy 表达式语义错误。
+
+trigger_condition:
+{
+  "text": "调用 parse_latex(\"\\frac{\\frac{a^3+b}{c}}{\\frac{1}{c^2}}\")。",
+  "evidence": [
+    "原始 Issue 中的 Reproduce 部分提供了确切的调用代码。",
+    "相关测试代码中使用了 parse_latex 函数。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "parse_latex 返回的 SymPy 表达式字符串表示（如通过 str() 或 repr()）为 ((a**3 + b)/c)/1/(c**2)，而期望的是 ((a**3 + b)/c)/(1/(c**2))。分母部分 \"1/(c**2)\" 没有被括号正确包裹。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "原始 Issue 中明确给出了错误的输出和期望的输出。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "parse_latex 函数应正确解析该嵌套分数 LaTeX 表达式，返回的 SymPy 表达式在语义上等价于 ((a**3 + b)/c)/(1/(c**2))，即分母 \"\\frac{1}{c^2}\" 应被括号正确分组。",
+  "evidence": [
+    "原始 Issue 中明确给出了期望的输出 ((a**3 + b)/c)/(1/(c**2))。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "parse_latex",
+    "kind": "function",
+    "source_path": "sympy/parsing/latex/_parse_latex_antlr.py",
+    "reason": "这是 Issue 中直接调用的、触发缺陷的 API。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "test_parseable 中 GOOD_PAIRS 列表里的任意 LaTeX 字符串。",
+    "target_pattern": "\"\\frac{\\frac{a^3+b}{c}}{\\frac{1}{c^2}}\"",
+    "reason": "将测试输入变异为 Issue 中报告的问题表达式，是触发缺陷路径的最直接方式。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "str(parse_latex(...)) 或 repr(parse_latex(...)) 返回的字符串。",
+    "reason": "Issue 中展示的错误现象和期望行为都是基于解析后表达式的字符串表示。观察这个公开输出可以直接判断括号是否正确。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "解析返回的表达式在语义上等价于期望的表达式 ((a**3 + b)/c)/(1/(c**2))，即分母部分应被括号分组。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的、未经简化的 SymPy 表达式字符串完全相等，因为 SymPy 的内部表示或简化可能在不同版本间变化。应使用 SymPy 的 equality (==) 进行语义比较。",
+    "reason": "SymPy 的 equality 操作符 (==) 检查数学等价性，比依赖具体的字符串表示更稳定，且能捕捉分母括号缺失导致的语义差异。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 parse_latex 函数。测试环境可能需要 antlr4 运行时。可以参考现有测试文件 sympy/parsing/tests/test_latex.py 的导入和结构。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "缺陷是否只影响这一种特定的嵌套分数模式，还是影响更广泛的 LaTeX 分数解析。",
+  "除了 parse_latex 的返回值，是否还有其他公开的 API 行为（如求值结果）会表现出错误。",
+  "convert_relation 函数内部的具体实现和导致括号缺失的确切位置。"
+]

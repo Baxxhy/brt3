@@ -1,0 +1,105 @@
+```json
+{
+    "original_issue": {
+        "text": "_print_SingularityFunction() got an unexpected keyword argument 'exp'\nOn a Jupyter Notebook cell, type the following:\n\n```python\nfrom sympy import *\nfrom sympy.physics.continuum_mechanics import Beam\n# Young's modulus\nE = symbols(\"E\")\n# length of the beam\nL = symbols(\"L\")\n# concentrated load at the end tip of the beam\nF = symbols(\"F\")\n# square cross section\nB, H = symbols(\"B, H\")\nI = B * H**3 / 12\n# numerical values (material: steel)\nd = {B: 1e-02, H: 1e-02, E: 210e09, L: 0.2, F: 100}\n\nb2 = Beam(L, E, I)\nb2.apply_load(-F, L / 2, -1)\nb2.apply_support(0, \"fixed\")\nR0, M0 = symbols(\"R_0, M_0\")\nb2.solve_for_reaction_loads(R0, M0)\n```\n\nThen:\n\n```\nb2.shear_force()\n```\n\nThe following error appears:\n```\n---------------------------------------------------------------------------\nTypeError                                 Traceback (most recent call last)\n/usr/local/lib/python3.8/dist-packages/IPython/core/formatters.py in __call__(self, obj)\n    343             method = get_real_method(obj, self.print_method)\n    344             if method is not None:\n--> 345                 return method()\n    346             return None\n    347         else:\n\n/usr/local/lib/python3.8/dist-packages/sympy/interactive/printing.py in _print_latex_png(o)\n    184         \"\"\"\n    185         if _can_print(o):\n--> 186             s = latex(o, mode=latex_mode, **settings)\n    187             if latex_mode == 'plain':\n    188                 s = '$\\displaystyle %s$' % s\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in __call__(self, *args, **kwargs)\n    371 \n    372     def __call__(self, *args, **kwargs):\n--> 373         return self.__wrapped__(*args, **kwargs)\n    374 \n    375     @property\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in latex(expr, **settings)\n   2913 \n   2914     \"\"\"\n-> 2915     return LatexPrinter(settings).doprint(expr)\n   2916 \n   2917 \n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in doprint(self, expr)\n    252 \n    253     def doprint(self, expr):\n--> 254         tex = Printer.doprint(self, expr)\n    255 \n    256         if self._settings['mode'] == 'plain':\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in doprint(self, expr)\n    289     def doprint(self, expr):\n    290         \"\"\"Returns printer's representation for expr (as a string)\"\"\"\n--> 291         return self._str(self._print(expr))\n    292 \n    293     def _print(self, expr, **kwargs):\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)\n    327                 printmethod = '_print_' + cls.__name__\n    328                 if hasattr(self, printmethod):\n--> 329                     return getattr(self, printmethod)(expr, **kwargs)\n    330             # Unknown object, fall back to the emptyPrinter.\n    331             return self.emptyPrinter(expr)\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Add(self, expr, order)\n    381             else:\n    382                 tex += \" + \"\n--> 383             term_tex = self._print(term)\n    384             if self._needs_add_brackets(term):\n    385                 term_tex = r\"\\left(%s\\right)\" % term_tex\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)\n    327                 printmethod = '_print_' + cls.__name__\n    328                 if hasattr(self, printmethod):\n--> 329                     return getattr(self, printmethod)(expr, **kwargs)\n    330             # Unknown object, fall back to the emptyPrinter.\n    331             return self.emptyPrinter(expr)\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Mul(self, expr)\n    565             # use the original expression here, since fraction() may have\n    566             # altered it when producing numer and denom\n--> 567             tex += convert(expr)\n    568 \n    569         else:\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in convert(expr)\n    517                                isinstance(x.base, Quantity)))\n    518 \n--> 519                 return convert_args(args)\n    520 \n    521         def convert_args(args):\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in convert_args(args)\n    523 \n    524                 for i, term in enumerate(args):\n--> 525                     term_tex = self._print(term)\n    526 \n    527                     if self._needs_mul_brackets(term, first=(i == 0),\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)\n    327                 printmethod = '_print_' + cls.__name__\n    328                 if hasattr(self, printmethod):\n--> 329                     return getattr(self, printmethod)(expr, **kwargs)\n    330             # Unknown object, fall back to the emptyPrinter.\n    331             return self.emptyPrinter(expr)\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Add(self, expr, order)\n    381             else:\n    382                 tex += \" + \"\n--> 383             term_tex = self._print(term)\n    384             if self._needs_add_brackets(term):\n    385                 term_tex = r\"\\left(%s\\right)\" % term_tex\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)\n    327                 printmethod = '_print_' + cls.__name__\n    328                 if hasattr(self, printmethod):\n--> 329                     return getattr(self, printmethod)(expr, **kwargs)\n    330             # Unknown object, fall back to the emptyPrinter.\n    331             return self.emptyPrinter(expr)\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Mul(self, expr)\n    569         else:\n    570             snumer = convert(numer)\n--> 571             sdenom = convert(denom)\n    572             ldenom = len(sdenom.split())\n    573             ratio = self._settings['long_frac_ratio']\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in convert(expr)\n    505         def convert(expr):\n    506             if not expr.is_Mul:\n--> 507                 return str(self._print(expr))\n    508             else:\n    509                 if self.order not in ('old', 'none'):\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)\n    327                 printmethod = '_print_' + cls.__name__\n    328                 if hasattr(self, printmethod):\n--> 329                     return getattr(self, printmethod)(expr, **kwargs)\n    330             # Unknown object, fall back to the emptyPrinter.\n    331             return self.emptyPrinter(expr)\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Add(self, expr, order)\n    381             else:\n    382                 tex += \" + \"\n--> 383             term_tex = self._print(term)\n    384             if self._needs_add_brackets(term):\n    385                 term_tex = r\"\\left(%s\\right)\" % term_tex\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)\n    327                 printmethod = '_print_' + cls.__name__\n    328                 if hasattr(self, printmethod):\n--> 329                     return getattr(self, printmethod)(expr, **kwargs)\n    330             # Unknown object, fall back to the emptyPrinter.\n    331             return self.emptyPrinter(expr)\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Pow(self, expr)\n    649         else:\n    650             if expr.base.is_Function:\n--> 651                 return self._print(expr.base, exp=self._print(expr.exp))\n    652             else:\n    653                 tex = r\"%s^{%s}\"\n\n/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)\n    327                 printmethod = '_print_' + cls.__name__\n    328                 if hasattr(self, printmethod):\n--> 329                     return getattr(self, printmethod)(expr, **kwargs)\n    330             # Unknown object, fall back to the emptyPrinter.\n    331             return self.emptyPrinter(expr)\n\nTypeError: _print_SingularityFunction() got an unexpected keyword argument 'exp'\n```",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用 sympy.physics.continuum_mechanics.Beam 类进行梁分析，并调用 shear_force() 方法时，在 Jupyter Notebook 环境中（或任何触发 latex 打印的场景）会引发 TypeError。错误发生在 latex 打印过程中，具体是 _print_SingularityFunction 方法收到了一个意外的关键字参数 'exp'。触发条件包括：创建 Beam 对象，应用点载荷（order=-1）和固定支撑，求解反力，然后调用 shear_force()。期望行为是 shear_force() 能正常返回一个包含 SingularityFunction 的表达式，并且该表达式能够被 latex 或其他打印机正常处理，而不引发 TypeError。可能相关的 API 包括 Beam.shear_force、SingularityFunction 以及 sympy 打印模块中的 _print_SingularityFunction 方法。",
+        "facts_from_issue": [
+            "在 Jupyter Notebook 中执行给定的代码片段会触发错误。",
+            "错误发生在调用 b2.shear_force() 时。",
+            "错误栈显示错误源自 latex 打印过程。",
+            "最终错误是 TypeError: _print_SingularityFunction() got an unexpected keyword argument 'exp'。",
+            "代码中使用了 Beam 类，并调用了 apply_load、apply_support、solve_for_reaction_loads 和 shear_force 方法。",
+            "apply_load 使用了 order=-1（点载荷）。",
+            "apply_support 使用了 type=\"fixed\"。"
+        ],
+        "facts_from_retrieved_context": [
+            "Beam.shear_force() 返回一个包含 SingularityFunction 表达式的 sympy 表达式（源码片段5）。",
+            "SingularityFunction 是 sympy 中的一个函数，用于表示梁分析中的奇异函数。",
+            "检索到的测试代码（相关测试1）展示了 Beam 的正常使用，包括调用 shear_force() 并断言其返回值。",
+            "检索到的源码片段6显示在 mathml.py 中存在一个 _print_SingularityFunction 方法，它接受 expr 参数，但没有 exp 关键字参数。",
+            "错误栈中提到了 sympy/printing/latex.py 中的 _print_Pow 方法，它尝试以 exp 关键字参数调用 _print_SingularityFunction（第651行）。"
+        ],
+        "inferences": [
+            "错误可能源于 latex 打印机（LatexPrinter）在处理 SingularityFunction 的幂运算（Pow）时，错误地将 exp 参数传递给了 _print_SingularityFunction 方法。",
+            "在 Beam 分析中，shear_force() 返回的表达式可能包含 SingularityFunction(x, a, n) 的形式，其中 n 可能为 0 或负数。当这些表达式被 latex 渲染时，可能会触发 Pow 的打印逻辑。",
+            "_print_SingularityFunction 方法可能没有设计为接受 exp 关键字参数，而 _print_Pow 方法在处理基为 Function 的幂时，会尝试传递 exp 参数。",
+            "问题可能出现在 sympy/printing/latex.py 的 _print_Pow 方法中，或者 _print_SingularityFunction 方法在某个打印机类中缺少对 exp 参数的处理。"
+        ],
+        "do_not_assume": [
+            "具体的修复方式（例如是修改 _print_Pow 还是 _print_SingularityFunction）。",
+            "除了 latex 打印机外，其他打印机（如 mathml）是否也有同样的问题。",
+            "是否所有包含 SingularityFunction 的 Beam 操作都会触发此错误，还是特定载荷组合。",
+            "错误是否只发生在 Jupyter Notebook 中，还是任何调用 latex() 的场景。"
+        ]
+    },
+    "issue_summary": "在特定 Beam 载荷配置下调用 shear_force() 并尝试 latex 打印时，因 _print_SingularityFunction 收到意外参数 'exp' 而引发 TypeError。",
+    "trigger_condition": {
+        "text": "创建一个 sympy.physics.continuum_mechanics.Beam 对象，对其应用一个点载荷（order=-1）和一个固定支撑，求解反力，然后调用其 shear_force() 方法，并在一个会触发 latex 打印的上下文中（如 Jupyter Notebook、调用 latex() 函数）评估或显示该返回值。",
+        "evidence": [
+            "原始 Issue 提供了完整的触发代码。",
+            "测试代码（相关测试1）展示了类似的 Beam 对象构造、载荷应用和 shear_force() 调用模式。",
+            "错误栈显示 latex 打印是触发错误的直接上下文。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 b2.shear_force() 后，在尝试进行 latex 打印时引发 TypeError，具体错误信息为：_print_SingularityFunction() got an unexpected keyword argument 'exp'。",
+        "symptom_type": "exception",
+        "evidence": [
+            "原始 Issue 中包含了完整的错误信息和调用栈。",
+            "调用栈指向 sympy/printing/latex.py 的 _print_Pow 方法（第651行）尝试以 exp 关键字参数调用 _print_SingularityFunction。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "在修复后，Beam.shear_force() 方法应能正常返回一个 sympy 表达式（包含 SingularityFunction），并且该表达式能够被 latex 打印机（以及可能的其他打印机）成功处理，生成相应的表示（如 LaTeX 字符串），而不引发 TypeError。",
+        "evidence": [
+            "测试代码（相关测试1）表明 shear_force() 在正常情况下应返回有效的 sympy 表达式。",
+            "Beam 类的文档和示例（源码片段1）表明 shear_force() 是用于计算和返回剪切力表达式的核心功能。",
+            "sympy 的打印系统应能处理包含 SingularityFunction 的表达式。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "Beam",
+            "kind": "class",
+            "source_path": "sympy/physics/continuum_mechanics/beam.py",
+            "reason": "Issue 的核心是 Beam 类的使用，特别是其 shear_force() 方法。"
+        },
+        {
+            "name": "Beam.shear_force",
+            "kind": "method",
+            "source_path": "sympy/physics/continuum_mechanics/beam.py",
+            "reason": "直接触发错误的方法调用。"
+        },
+        {
+            "name": "Beam.apply_load",
+            "kind": "method",
+            "source_path": "sympy/physics/continuum_mechanics/beam.py",
+            "reason": "用于设置触发缺陷的载荷条件（order=-1）。"
+        },
+        {
+            "name": "Beam.apply_support",
+            "kind": "method",
+            "source_path": "sympy/physics/continuum_mechanics/beam.py",
+            "reason": "用于设置固定支撑，这是触发条件的一部分。"
+        },
+        {
+            "name": "Beam.solve_for_reaction_loads",
+            "kind": "method",
+            "source_path": "sympy/physics/continuum_mechanics/beam.py",
+            "reason": "求解反力，是触发缺陷的步骤之一。"
+        },
+        {
+            "name": "SingularityFunction",
+            "kind": "function",
+            "source_path": "",
+            "reason": "shear_force() 返回的表达式中包含此函数，是打印错误的核心对象。"
+        },
+        {
+            "name": "latex",
+            "kind": "

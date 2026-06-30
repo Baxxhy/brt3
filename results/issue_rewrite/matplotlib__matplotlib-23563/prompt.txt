@@ -1,0 +1,706 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+[Bug]: 'Line3D' object has no attribute '_verts3d'
+### Bug summary
+
+I use matplotlib 3D to visualize some lines in 3D. When I first run the following code, the code can run right. But, if I give `x_s_0[n]` a numpy array, it will report the error 'input operand has more dimensions than allowed by the axis remapping'. The point is when next I give  `x_s_0[n]` and other variables an int number, the AttributeError: 'Line3D' object has no attribute '_verts3d' will appear and can not be fixed whatever I change the variables or delete them. The error can be only fixed when I restart the kernel of ipython console. I don't know why it happens, so I come here for help.
+
+### Code for reproduction
+
+```python
+x_s_0 = np.array(['my int number list'])
+x_e_0 = np.array(['my int number list'])
+y_s_0 = np.array(['my int number list'])
+y_e_0 = np.array(['my int number list'])
+z_s_0 = np.array(['my int number list'])
+z_e_0 = np.array(['my int number list'])
+
+fig = plt.figure()
+        ax = fig.gca(projection='3d')
+        ax.view_init(elev=90, azim=0)
+        ax.set_zlim3d(-10, 10)
+        clr_list = 'r-'
+
+        for n in range(np.size(z_s_0, axis=0)):
+            ax.plot([int(x_s_0[n]), int(x_e_0[n])],
+                    [int(y_s_0[n]), int(y_e_0[n])],
+                    [int(z_s_0[n]), int(z_e_0[n])], clr_list)
+
+        plt.xlabel('x')
+        plt.ylabel('y')
+        # ax.zlabel('z')
+        plt.title('90-0')
+        plt.show()
+```
+
+
+### Actual outcome
+
+Traceback (most recent call last):
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/IPython/core/interactiveshell.py", line 3444, in run_code
+    exec(code_obj, self.user_global_ns, self.user_ns)
+  File "<ipython-input-80-e04907066a16>", line 20, in <module>
+    plt.show()
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/pyplot.py", line 368, in show
+    return _backend_mod.show(*args, **kwargs)
+  File "/home/hanyaning/.pycharm_helpers/pycharm_matplotlib_backend/backend_interagg.py", line 29, in __call__
+    manager.show(**kwargs)
+  File "/home/hanyaning/.pycharm_helpers/pycharm_matplotlib_backend/backend_interagg.py", line 112, in show
+    self.canvas.show()
+  File "/home/hanyaning/.pycharm_helpers/pycharm_matplotlib_backend/backend_interagg.py", line 68, in show
+    FigureCanvasAgg.draw(self)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/backends/backend_agg.py", line 436, in draw
+    self.figure.draw(self.renderer)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/artist.py", line 73, in draw_wrapper
+    result = draw(artist, renderer, *args, **kwargs)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/artist.py", line 50, in draw_wrapper
+    return draw(artist, renderer)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/figure.py", line 2803, in draw
+    mimage._draw_list_compositing_images(
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/image.py", line 132, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/artist.py", line 50, in draw_wrapper
+    return draw(artist, renderer)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/mpl_toolkits/mplot3d/axes3d.py", line 469, in draw
+    super().draw(renderer)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/artist.py", line 50, in draw_wrapper
+    return draw(artist, renderer)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/axes/_base.py", line 3082, in draw
+    mimage._draw_list_compositing_images(
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/image.py", line 132, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/matplotlib/artist.py", line 50, in draw_wrapper
+    return draw(artist, renderer)
+  File "/home/hanyaning/anaconda3/envs/SBeA/lib/python3.8/site-packages/mpl_toolkits/mplot3d/art3d.py", line 215, in draw
+    xs3d, ys3d, zs3d = self._verts3d
+AttributeError: 'Line3D' object has no attribute '_verts3d'
+
+### Expected outcome
+
+Some 3D lines
+
+### Additional information
+
+_No response_
+
+### Operating system
+
+Local: windows + pycharm, Remote: Ubuntu 20.04
+
+### Matplotlib Version
+
+3.5.0
+
+### Matplotlib Backend
+
+module://backend_interagg
+
+### Python version
+
+3.8.12
+
+### Jupyter version
+
+_No response_
+
+### Installation
+
+pip
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：lib/mpl_toolkits/mplot3d/art3d.py
+对象名称：Line3D
+节点类型：class
+父节点：art3d
+行号范围：159-218
+代码：
+class Line3D(lines.Line2D):
+    """
+    3D line object.
+    """
+    def __init__(self, xs, ys, zs, *args, **kwargs):
+    def set_3d_properties(self, zs=0, zdir='z'):
+    def set_data_3d(self, *args):
+    def get_data_3d(self):
+    @artist.allow_rasterization
+    def draw(self, renderer):
+
+
+【源码片段 2】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：figure
+节点类型：top-level function
+父节点：pyplot
+行号范围：655-793
+代码：
+def figure(num=None,  # autoincrement if None, else integer from 1-N
+           figsize=None,  # defaults to rc figure.figsize
+           dpi=None,  # defaults to rc figure.dpi
+           facecolor=None,  # defaults to rc figure.facecolor
+           edgecolor=None,  # defaults to rc figure.edgecolor
+           frameon=True,
+           FigureClass=Figure,
+           clear=False,
+           **kwargs
+           ):
+    """
+    Create a new figure, or activate an existing figure.
+
+    Parameters
+    ----------
+    num : int or str or `.Figure` or `.SubFigure`, optional
+        A unique identifier for the figure.
+
+        If a figure with that identifier already exists, this figure is made
+        active and returned. An integer refers to the ``Figure.number``
+        attribute, a string refers to the figure label.
+
+        If there is no figure with the identifier or *num* is not given, a new
+        figure is created, made active and returned.  If *num* is an int, it
+        will be used for the ``Figure.number`` attribute, otherwise, an
+        auto-generated integer value is used (starting at 1 and incremented
+        for each new figure). If *num* is a string, the figure label and the
+        window title is set to this value.  If num is a ``SubFigure``, its
+        parent ``Figure`` is activated.
+
+    figsize : (float, float), default: :rc:`figure.figsize`
+        Width, height in inches.
+
+    dpi : float, default: :rc:`figure.dpi`
+        The resolution of the figure in dots-per-inch.
+
+    facecolor : color, default: :rc:`figure.facecolor`
+        The background color.
+
+    edgecolor : color, default: :rc:`figure.edgecolor`
+        The border color.
+
+    frameon : bool, default: True
+        If False, suppress drawing the figure frame.
+
+    FigureClass : subclass of `~matplotlib.figure.Figure`
+        If set, an instance of this subclass will be created, rather than a
+        plain `.Figure`.
+
+    clear : bool, default: False
+        If True and the figure already exists, then it is cleared.
+
+    layout : {'constrained', 'tight', `.LayoutEngine`, None}, default: None
+        The layout mechanism for positioning of plot elements to avoid
+        overlapping Axes decorations (labels, ticks, etc). Note that layout
+        managers can measurably slow down figure display. Defaults to *None*
+        (but see the documentation of the `.Figure` constructor regarding the
+        interaction with rcParams).
+
+    **kwargs
+        Additional keyword arguments are passed to the `.Figure` constructor.
+
+    Returns
+    -------
+    `~matplotlib.figure.Figure`
+
+    Notes
+    -----
+    Newly created figures are passed to the `~.FigureCanvasBase.new_manager`
+    method or the `new_figure_manager` function provided by the current
+    backend, which install a canvas and a manager on the figure.
+
+    If you are creating many figures, make sure you explicitly call
+    `.pyplot.close` on the figures you are not using, because this will
+    enable pyplot to properly clean up the memory.
+
+    `~matplotlib.rcParams` defines the default values, which can be modified
+    in the matplotlibrc file.
+    """
+    if isinstance(num, FigureBase):
+        if num.canvas.manager is None:
+            raise ValueError("The passed figure is not managed by pyplot")
+        _pylab_helpers.Gcf.set_active(num.canvas.manager)
+        return num.figure
+
+    allnums = get_fignums()
+    next_num = max(allnums) + 1 if allnums else 1
+    fig_label = ''
+    if num is None:
+        num = next_num
+    elif isinstance(num, str):
+        fig_label = num
+        all_labels = get_figlabels()
+        if fig_label not in all_labels:
+            if fig_label == 'all':
+                _api.warn_external("close('all') closes all existing figures.")
+            num = next_num
+        else:
+            inum = all_labels.index(fig_label)
+            num = allnums[inum]
+    else:
+        num = int(num)  # crude validation of num argument
+
+    manager = _pylab_helpers.Gcf.get_fig_manager(num)
+    if manager is None:
+        max_open_warning = rcParams['figure.max_open_warning']
+        if len(allnums) == max_open_warning >= 1:
+            _api.warn_external(
+                f"More than {max_open_warning} figures have been opened. "
+                f"Figures created through the pyplot interface "
+                f"(`matplotlib.pyplot.figure`) are retained until explicitly "
+                f"closed and may consume too much memory. (To control this "
+                f"warning, see the rcParam `figure.max_open_warning`). "
+                f"Consider using `matplotlib.pyplot.close()`.",
+                RuntimeWarning)
+
+        manager = new_figure_manager(
+            num, figsize=figsize, dpi=dpi,
+            facecolor=facecolor, edgecolor=edgecolor, frameon=frameon,
+            FigureClass=FigureClass, **kwargs)
+        fig = manager.canvas.figure
+        if fig_label:
+            fig.set_label(fig_label)
+
+        _pylab_helpers.Gcf._set_new_active_manager(manager)
+
+        # make sure backends (inline) that we don't ship that expect this
+        # to be called in plotting commands to make the figure call show
+        # still work.  There is probably a better way to do this in the
+        # FigureManager base class.
+        draw_if_interactive()
+
+        if _REPL_DISPLAYHOOK is _ReplDisplayHook.PLAIN:
+            fig.stale_callback = _auto_draw_if_interactive
+
+    if clear:
+        manager.canvas.figure.clear()
+
+    return manager.canvas.figure
+
+
+【源码片段 3】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：gca
+节点类型：top-level function
+父节点：pyplot
+行号范围：2211-2212
+代码：
+def gca():
+    return gcf().gca()
+
+
+【源码片段 4】
+文件路径：lib/mpl_toolkits/mplot3d/axes3d.py
+对象名称：view_init
+节点类型：class_function
+父节点：Axes3D
+行号范围：735-788
+代码：
+    def view_init(self, elev=None, azim=None, roll=None, vertical_axis="z"):
+        """
+        Set the elevation and azimuth of the axes in degrees (not radians).
+
+        This can be used to rotate the axes programmatically.
+
+        Parameters
+        ----------
+        elev : float, default: None
+            The elevation angle in degrees rotates the camera above the plane
+            pierced by the vertical axis, with a positive angle corresponding
+            to a location above that plane. For example, with the default
+            vertical axis of 'z', the elevation defines the angle of the camera
+            location above the x-y plane.
+            If None, then the initial value as specified in the `Axes3D`
+            constructor is used.
+        azim : float, default: None
+            The azimuthal angle in degrees rotates the camera about the
+            vertical axis, with a positive angle corresponding to a
+            right-handed rotation. For example, with the default vertical axis
+            of 'z', a positive azimuth rotates the camera about the origin from
+            its location along the +x axis towards the +y axis.
+            If None, then the initial value as specified in the `Axes3D`
+            constructor is used.
+        roll : float, default: None
+            The roll angle in degrees rotates the camera about the viewing
+            axis. A positive angle spins the camera clockwise, causing the
+            scene to rotate counter-clockwise.
+            If None, then the initial value as specified in the `Axes3D`
+            constructor is used.
+        vertical_axis : {"z", "x", "y"}, default: "z"
+            The axis to align vertically. *azim* rotates about this axis.
+        """
+
+        self._dist = 10  # The camera distance from origin. Behaves like zoom
+
+        if elev is None:
+            self.elev = self.initial_elev
+        else:
+            self.elev = elev
+
+        if azim is None:
+            self.azim = self.initial_azim
+        else:
+            self.azim = azim
+
+        if roll is None:
+            self.roll = self.initial_roll
+        else:
+            self.roll = roll
+
+        self._vertical_axis = _api.check_getitem(
+            dict(x=0, y=1, z=2), vertical_axis=vertical_axis
+        )
+
+
+【源码片段 5】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：plot
+节点类型：top-level function
+父节点：pyplot
+行号范围：2711-2714
+代码：
+def plot(*args, scalex=True, scaley=True, data=None, **kwargs):
+    return gca().plot(
+        *args, scalex=scalex, scaley=scaley,
+        **({"data": data} if data is not None else {}), **kwargs)
+
+
+【源码片段 6】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：xlabel
+节点类型：top-level function
+父节点：pyplot
+行号范围：2990-2993
+代码：
+def xlabel(xlabel, fontdict=None, labelpad=None, *, loc=None, **kwargs):
+    return gca().set_xlabel(
+        xlabel, fontdict=fontdict, labelpad=labelpad, loc=loc,
+        **kwargs)
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_line3d_set_get_data_3d
+测试代码：
+def test_line3d_set_get_data_3d():
+    x, y, z = [0, 1], [2, 3], [4, 5]
+    x2, y2, z2 = [6, 7], [8, 9], [10, 11]
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    lines = ax.plot(x, y, z)
+    line = lines[0]
+    np.testing.assert_array_equal((x, y, z), line.get_data_3d())
+    line.set_data_3d(x2, y2, z2)
+    np.testing.assert_array_equal((x2, y2, z2), line.get_data_3d())
+    line.set_xdata(x)
+    line.set_ydata(y)
+    line.set_3d_properties(zs=z, zdir='z')
+    np.testing.assert_array_equal((x, y, z), line.get_data_3d())
+    line.set_3d_properties(zs=0, zdir='z')
+    np.testing.assert_array_equal((x, y, np.zeros_like(z)), line.get_data_3d())
+
+【相关测试 2】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_lines3d
+测试代码：
+@mpl3d_image_comparison(['lines3d.png'])
+def test_lines3d():
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    theta = np.linspace(-4 * np.pi, 4 * np.pi, 100)
+    z = np.linspace(-2, 2, 100)
+    r = z ** 2 + 1
+    x = r * np.sin(theta)
+    y = r * np.cos(theta)
+    ax.plot(x, y, z)
+
+【相关测试 3】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_computed_zorder
+测试代码：
+@image_comparison(baseline_images=['computed_zorder'], remove_text=True,
+                  extensions=['png'])
+def test_computed_zorder():
+    fig = plt.figure()
+    ax1 = fig.add_subplot(221, projection='3d')
+    ax2 = fig.add_subplot(222, projection='3d')
+    ax2.computed_zorder = False
+
+    # create a horizontal plane
+    corners = ((0, 0, 0), (0, 5, 0), (5, 5, 0), (5, 0, 0))
+    for ax in (ax1, ax2):
+        tri = art3d.Poly3DCollection([corners],
+                                     facecolors='white',
+                                     edgecolors='black',
+                                     zorder=1)
+        ax.add_collection3d(tri)
+
+        # plot a vector
+        ax.plot((2, 2), (2, 2), (0, 4), c='red', zorder=2)
+
+        # plot some points
+        ax.scatter((3, 3), (1, 3), (1, 3), c='red', zorder=10)
+
+        ax.set_xlim((0, 5.0))
+        ax.set_ylim((0, 5.0))
+        ax.set_zlim((0, 2.5))
+
+    ax3 = fig.add_subplot(223, projection='3d')
+    ax4 = fig.add_subplot(224, projection='3d')
+    ax4.computed_zorder = False
+
+    dim = 10
+    X, Y = np.meshgrid((-dim, dim), (-dim, dim))
+    Z = np.zeros((2, 2))
+
+    angle = 0.5
+    X2, Y2 = np.meshgrid((-dim, dim), (0, dim))
+    Z2 = Y2 * angle
+    X3, Y3 = np.meshgrid((-dim, dim), (-dim, 0))
+    Z3 = Y3 * angle
+
+    r = 7
+    M = 1000
+    th = np.linspace(0, 2 * np.pi, M)
+    x, y, z = r * np.cos(th),  r * np.sin(th), angle * r * np.sin(th)
+    for ax in (ax3, ax4):
+        ax.plot_surface(X2, Y3, Z3,
+                        color='blue',
+                        alpha=0.5,
+                        linewidth=0,
+                        zorder=-1)
+        ax.plot(x[y < 0], y[y < 0], z[y < 0],
+                lw=5,
+                linestyle='--',
+                color='green',
+                zorder=0)
+
+        ax.plot_surface(X, Y, Z,
+                        color='red',
+                        alpha=0.5,
+                        linewidth=0,
+                        zorder=1)
+
+        ax.plot(r * np.sin(th), r * np.cos(th), np.zeros(M),
+                lw=5,
+                linestyle='--',
+                color='black',
+                zorder=2)
+
+        ax.plot_surface(X2, Y2, Z2,
+                        color='blue',
+                        alpha=0.5,
+                        linewidth=0,
+                        zorder=3)
+
+        ax.plot(x[y > 0], y[y > 0], z[y > 0], lw=5,
+                linestyle='--',
+                color='green',
+                zorder=4)
+        ax.view_init(elev=20, azim=-20, roll=0)
+        ax.axis('off')
+
+【相关测试 4】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_surface3d_masked
+测试代码：
+@mpl3d_image_comparison(['surface3d_masked.png'])
+def test_surface3d_masked():
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    y = [1, 2, 3, 4, 5, 6, 7, 8]
+
+    x, y = np.meshgrid(x, y)
+    matrix = np.array(
+        [
+            [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [-1, 1, 2, 3, 4, 4, 4, 3, 2, 1, 1],
+            [-1, -1., 4, 5, 6, 8, 6, 5, 4, 3, -1.],
+            [-1, -1., 7, 8, 11, 12, 11, 8, 7, -1., -1.],
+            [-1, -1., 8, 9, 10, 16, 10, 9, 10, 7, -1.],
+            [-1, -1., -1., 12, 16, 20, 16, 12, 11, -1., -1.],
+            [-1, -1., -1., -1., 22, 24, 22, 20, 18, -1., -1.],
+            [-1, -1., -1., -1., -1., 28, 26, 25, -1., -1., -1.],
+        ]
+    )
+    z = np.ma.masked_less(matrix, 0)
+    norm = mcolors.Normalize(vmax=z.max(), vmin=z.min())
+    colors = plt.get_cmap("plasma")(norm(z))
+    ax.plot_surface(x, y, z, facecolors=colors)
+    ax.view_init(30, -80, 0)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

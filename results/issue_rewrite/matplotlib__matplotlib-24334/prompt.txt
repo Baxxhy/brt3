@@ -1,0 +1,459 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+[ENH]: Axes.set_xticks/Axis.set_ticks only validates kwargs if ticklabels are set, but they should
+### Problem
+
+Per the doc of `Axis.set_ticks`:
+```
+        **kwargs
+            `.Text` properties for the labels. These take effect only if you
+            pass *labels*. In other cases, please use `~.Axes.tick_params`.
+```
+This means that in e.g. `ax.set_xticks([0, 1], xticklabels=["a", "b"])`, the incorrect `xticklabels` silently do nothing; they are not even validated (because `labels` has not been passed).
+
+### Proposed solution
+
+We should at least check that `kwargs` are valid Text properties in all cases; we could even consider making any kwargs an error if `labels` is not set.
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：lib/matplotlib/axis.py
+对象名称：set_ticks
+节点类型：class_function
+父节点：Axis
+行号范围：1990-2027
+代码：
+    def set_ticks(self, ticks, labels=None, *, minor=False, **kwargs):
+        """
+        Set this Axis' tick locations and optionally labels.
+
+        If necessary, the view limits of the Axis are expanded so that all
+        given ticks are visible.
+
+        Parameters
+        ----------
+        ticks : list of floats
+            List of tick locations.  The axis `.Locator` is replaced by a
+            `~.ticker.FixedLocator`.
+
+            Some tick formatters will not label arbitrary tick positions;
+            e.g. log formatters only label decade ticks by default. In
+            such a case you can set a formatter explicitly on the axis
+            using `.Axis.set_major_formatter` or provide formatted
+            *labels* yourself.
+        labels : list of str, optional
+            List of tick labels. If not set, the labels are generated with
+            the axis tick `.Formatter`.
+        minor : bool, default: False
+            If ``False``, set the major ticks; if ``True``, the minor ticks.
+        **kwargs
+            `.Text` properties for the labels. These take effect only if you
+            pass *labels*. In other cases, please use `~.Axes.tick_params`.
+
+        Notes
+        -----
+        The mandatory expansion of the view limits is an intentional design
+        choice to prevent the surprise of a non-visible tick. If you need
+        other limits, you should set the limits explicitly after setting the
+        ticks.
+        """
+        result = self._set_tick_locations(ticks, minor=minor)
+        if labels is not None:
+            self.set_ticklabels(labels, minor=minor, **kwargs)
+        return result
+
+
+【源码片段 2】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：tick_params
+节点类型：top-level function
+父节点：pyplot
+行号范围：2925-2926
+代码：
+def tick_params(axis='both', **kwargs):
+    return gca().tick_params(axis=axis, **kwargs)
+
+
+【源码片段 3】
+文件路径：lib/matplotlib/text.py
+对象名称：Text
+节点类型：class
+父节点：text
+行号范围：123-1371
+代码：
+class Text(Artist):
+    """Handle storing and drawing of text in window or data coordinates."""
+    zorder = 3
+    _charsize_cache = dict()
+    def __repr__(self):
+    @_api.make_keyword_only("3.6", name="color")
+    def __init__(self,
+                 x=0, y=0, text='',
+                 color=None,           # defaults to rc params
+                 verticalalignment='baseline',
+                 horizontalalignment='left',
+                 multialignment=None,
+                 fontproperties=None,  # defaults to FontProperties()
+                 rotation=None,
+                 linespacing=None,
+                 rotation_mode=None,
+                 usetex=None,          # defaults to rcParams['text.usetex']
+                 wrap=False,
+                 transform_rotates_text=False,
+                 *,
+                 parse_math=None,    # defaults to rcParams['text.parse_math']
+                 **kwargs
+                 ):
+    def _reset_visual_defaults(
+        self,
+        text='',
+        color=None,
+        fontproperties=None,
+        usetex=None,
+        parse_math=None,
+        wrap=False,
+        verticalalignment='baseline',
+        horizontalalignment='left',
+        multialignment=None,
+        rotation=None,
+        transform_rotates_text=False,
+        linespacing=None,
+        rotation_mode=None,
+    ):
+    def update(self, kwargs):
+    def __getstate__(self):
+    def contains(self, mouseevent):
+    def _get_xy_display(self):
+    def _get_multialignment(self):
+    def _char_index_at(self, x):
+    def get_rotation(self):
+    def get_transform_rotates_text(self):
+    def set_rotation_mode(self, m):
+    def get_rotation_mode(self):
+    def update_from(self, other):
+    def _get_layout(self, renderer):
+    def set_bbox(self, rectprops):
+    def get_bbox_patch(self):
+    def update_bbox_position_size(self, renderer):
+    def _update_clip_properties(self):
+    def set_clip_box(self, clipbox):
+    def set_clip_path(self, path, transform=None):
+    def set_clip_on(self, b):
+    def get_wrap(self):
+    def set_wrap(self, wrap):
+    def _get_wrap_line_width(self):
+    def _get_dist_to_box(self, rotation, x0, y0, figure_box):
+    def _get_rendered_text_width(self, text):
+    def _get_wrapped_text(self):
+    @artist.allow_rasterization
+    def draw(self, renderer):
+
+    def get_color(self):
+    def get_fontproperties(self):
+    def get_fontfamily(self):
+    def get_fontname(self):
+    def get_fontstyle(self):
+    def get_fontsize(self):
+    def get_fontvariant(self):
+    def get_fontweight(self):
+    def get_stretch(self):
+    def get_horizontalalignment(self):
+    def get_unitless_position(self):
+    def get_position(self):
+    def get_text(self):
+    def get_verticalalignment(self):
+    def get_window_extent(self, renderer=None, dpi=None):
+    def set_backgroundcolor(self, color):
+    def set_color(self, color):
+    def set_horizontalalignment(self, align):
+    def set_multialignment(self, align):
+    def set_linespacing(self, spacing):
+    def set_fontfamily(self, fontname):
+    def set_fontvariant(self, variant):
+    def set_fontstyle(self, fontstyle):
+    def set_fontsize(self, fontsize):
+    def get_math_fontfamily(self):
+    def set_math_fontfamily(self, fontfamily):
+    def set_fontweight(self, weight):
+    def set_fontstretch(self, stretch):
+    def set_position(self, xy):
+    def set_x(self, x):
+    def set_y(self, y):
+    def set_rotation(self, s):
+    def set_transform_rotates_text(self, t):
+    def set_verticalalignment(self, align):
+    def set_text(self, s):
+    def _preprocess_math(self, s):
+    def set_fontproperties(self, fp):
+    def set_usetex(self, usetex):
+    def get_usetex(self):
+    def set_parse_math(self, parse_math):
+    def get_parse_math(self):
+    def set_fontname(self, fontname):
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：lib/matplotlib/tests/test_axes.py
+测试名称：test_set_ticks_with_labels
+测试代码：
+@check_figures_equal(extensions=["png"])
+def test_set_ticks_with_labels(fig_test, fig_ref):
+    """
+    Test that these two are identical::
+
+        set_xticks(ticks); set_xticklabels(labels, **kwargs)
+        set_xticks(ticks, labels, **kwargs)
+
+    """
+    ax = fig_ref.subplots()
+    ax.set_xticks([1, 2, 4, 6])
+    ax.set_xticklabels(['a', 'b', 'c', 'd'], fontweight='bold')
+    ax.set_yticks([1, 3, 5])
+    ax.set_yticks([2, 4], minor=True)
+    ax.set_yticklabels(['A', 'B'], minor=True)
+
+    ax = fig_test.subplots()
+    ax.set_xticks([1, 2, 4, 6], ['a', 'b', 'c', 'd'], fontweight='bold')
+    ax.set_yticks([1, 3, 5])
+    ax.set_yticks([2, 4], ['A', 'B'], minor=True)
+
+【相关测试 2】
+测试文件：lib/matplotlib/tests/test_axes.py
+测试名称：test_set_noniterable_ticklabels
+测试代码：
+def test_set_noniterable_ticklabels():
+    # Ensure a useful TypeError message is raised
+    # when given a non-iterable ticklabels argument
+    # Pull request #22710
+    with pytest.raises(TypeError, match='must be a sequence'):
+        fig, ax = plt.subplots(2)
+        ax[1].set_xticks([2, 9], 3.1)
+
+【相关测试 3】
+测试文件：lib/matplotlib/tests/test_axes.py
+测试名称：test_spy_invalid_kwargs
+测试代码：
+def test_spy_invalid_kwargs():
+    fig, ax = plt.subplots()
+    for unsupported_kw in [{'interpolation': 'nearest'},
+                           {'marker': 'o', 'linestyle': 'solid'}]:
+        with pytest.raises(TypeError):
+            ax.spy(np.eye(3, 3), **unsupported_kw)
+
+【相关测试 4】
+测试文件：lib/matplotlib/tests/test_axes.py
+测试名称：test_set_get_ticklabels
+测试代码：
+@image_comparison(['set_get_ticklabels.png'])
+def test_set_get_ticklabels():
+    # test issue 2246
+    fig, ax = plt.subplots(2)
+    ha = ['normal', 'set_x/yticklabels']
+
+    ax[0].plot(np.arange(10))
+    ax[0].set_title(ha[0])
+
+    ax[1].plot(np.arange(10))
+    ax[1].set_title(ha[1])
+
+    # set ticklabel to 1 plot in normal way
+    ax[0].set_xticks(range(10))
+    ax[0].set_yticks(range(10))
+    ax[0].set_xticklabels(['a', 'b', 'c', 'd'] + 6 * [''])
+    ax[0].set_yticklabels(['11', '12', '13', '14'] + 6 * [''])
+
+    # set ticklabel to the other plot, expect the 2 plots have same label
+    # setting pass get_ticklabels return value as ticklabels argument
+    ax[1].set_xticks(ax[0].get_xticks())
+    ax[1].set_yticks(ax[0].get_yticks())
+    ax[1].set_xticklabels(ax[0].get_xticklabels())
+    ax[1].set_yticklabels(ax[0].get_yticklabels())
+
+【相关测试 5】
+测试文件：lib/matplotlib/tests/test_scale.py
+测试名称：test_extra_kwargs_raise
+测试代码：
+def test_extra_kwargs_raise():
+    fig, ax = plt.subplots()
+
+    for scale in ['linear', 'log', 'symlog']:
+        with pytest.raises(TypeError):
+            ax.set_yscale(scale, foo='mask')
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

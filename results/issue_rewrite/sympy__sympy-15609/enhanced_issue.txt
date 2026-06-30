@@ -1,0 +1,134 @@
+instance_id: sympy__sympy-15609
+
+issue_summary: latex() 函数在打印带索引的矩阵表达式时，生成包含非法双下划线的 LaTeX 字符串，导致编译和渲染失败。
+
+trigger_condition:
+{
+  "text": "创建 MatrixSymbol 对象，进行矩阵乘法运算，然后使用符号索引进行访问，最后调用 latex() 函数。具体代码：i, j, k = symbols(\"i j k\"); M = MatrixSymbol(\"M\", k, k); N = MatrixSymbol(\"N\", k, k); latex((M*N)[i, j])。",
+  "evidence": [
+    "原始 Issue 中提供了触发代码示例。",
+    "检索到的测试 test_MatrixElement_printing 显示了类似的对 MatrixSymbol 索引调用 latex() 的模式。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的 LaTeX 字符串包含 `_i_1` 这样的模式，其中下划线直接出现在索引变量名内部（如 `_i_1`），形成了连续的下划线字符，违反了 LaTeX 下标语法（应为 `_{i_1}`）。这导致 LaTeX 编译错误，且 MathJax 无法渲染。",
+  "symptom_type": "serialization_error",
+  "evidence": [
+    "原始 Issue 中给出了生成的错误 LaTeX 字符串：\\sum_{i_{1}=0}^{k - 1} M_{i, _i_1} N_{_i_1, j}，并指出 LaTeX 抱怨双下划线。",
+    "检索到的测试 test_latex_indexed 涉及 Indexed 的 LaTeX 打印，表明下标格式化是常见操作。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "latex((M*N)[i, j]) 应生成一个语法正确的 LaTeX 字符串，其中下标部分（如索引变量）应被正确格式化为 LaTeX 下标（例如使用 `_{...}` 包裹），不包含非法的连续下划线，使得该字符串可以被 LaTeX 编译器成功编译并被 MathJax 正确渲染。",
+  "evidence": [
+    "原始 Issue 隐含期望 LaTeX 字符串是“compilable”和可渲染的。",
+    "检索到的测试 test_MatrixElement_printing 中，类似操作 latex(A[0, 0]) 生成 `A_{0, 0}`，展示了正确的下标格式。",
+    "检索到的测试 test_latex_indexed 中，断言 latex(Indexed('x1',Symbol('i'))) == '{x_{1}}_{i}'，展示了多层下标的正确格式。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "latex",
+    "kind": "function",
+    "source_path": "sympy/printing/latex.py",
+    "reason": "Issue 中直接调用的函数，负责生成 LaTeX 字符串。"
+  },
+  {
+    "name": "MatrixSymbol",
+    "kind": "class",
+    "source_path": "",
+    "reason": "Issue 中用于创建矩阵符号对象的类。"
+  },
+  {
+    "name": "symbols",
+    "kind": "function",
+    "source_path": "",
+    "reason": "Issue 中用于创建索引符号的函数。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "test_MatrixElement_printing 中使用具体整数索引，如 A[0, 0]。",
+    "target_pattern": "使用符号索引，如 (M*N)[i, j]，其中 i, j 是 symbols(\"i j\") 创建的符号。",
+    "reason": "Issue 表明问题在符号索引时触发，整数索引可能不会暴露相同的格式化错误。使用符号索引会引入 Dummy 符号（如 i_1），其名称中的下划线可能导致错误的 LaTeX 生成。",
+    "confidence": "high"
+  },
+  {
+    "slot": "input",
+    "current_pattern": "test_MatrixElement_printing 中对单个 MatrixSymbol 进行索引，或对简单表达式（如 A - B）进行替换后索引。",
+    "target_pattern": "对矩阵乘法表达式 (M*N) 进行索引访问。",
+    "reason": "Issue 明确指出 (M*N)[i, j] 触发问题。矩阵乘法会引入求和与 Dummy 符号，这可能使得索引变量的 LaTeX 表示更加复杂，从而暴露格式化缺陷。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试中 MatrixSymbol 的维度通常是具体整数（如 3, 3 或 1, 3）。",
+    "target_pattern": "使用符号作为 MatrixSymbol 的维度，如 MatrixSymbol(\"M\", k, k)，其中 k 是符号。",
+    "reason": "Issue 中使用了符号维度 k。这可能导致生成的 LaTeX 求和上下限包含符号，但主要问题可能仍在于索引变量的格式化。不过，遵循 Issue 的精确条件有助于复现。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "serialization",
+    "expression_hint": "latex((M*N)[i, j]) 的返回值（字符串）。",
+    "reason": "错误直接体现在生成的 LaTeX 字符串中。观察返回的字符串是否包含 `_i_1` 这样的非法双下划线模式，是判断问题是否触发的直接方式。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "检查生成的 LaTeX 字符串中下标部分（特别是涉及 Dummy 符号如 i_1 的部分）的格式。",
+    "reason": "问题核心是下标格式化错误。可以检查字符串中是否出现连续下划线，或者下标是否被正确包裹在 `_{...}` 中。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的 LaTeX 字符串不应包含连续的下划线字符序列（如 `_i_1` 中的 `_` 后紧跟字母），因为这违反了 LaTeX 下标语法。下标应被正确包裹在花括号内，如 `_{i_1}`。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的、具体的 LaTeX 输出字符串相等，因为 Issue 未提供修复后的确切输出，且输出可能因符号顺序等因素变化。避免断言私有属性或内部 Dummy 符号对象的状态。",
+    "reason": "这种断言直接针对 Issue 报告的错误现象（非法双下划线），且不依赖于修复后输出的完整精确形式，更加稳定。它检查公开的、稳定的输出属性（字符串内容）。"
+  },
+  {
+    "assertion_goal": "生成的 LaTeX 字符串应是一个语法上有效的 LaTeX 数学表达式，能够被 LaTeX 解析器（如通过简单验证）接受，或者至少不包含明显的语法错误如非法连续下划线。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "依赖外部 LaTeX 编译器的完整编译结果作为断言，因为这可能引入环境依赖和不稳定性。",
+    "reason": "这符合 Issue 中“compilable”的期望。可以通过检查字符串是否遵循基本 LaTeX 下标模式（如 `_{...}`）来近似验证。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试可能需要从 sympy 导入 symbols, MatrixSymbol, latex。使用标准的 sympy 测试运行环境即可。",
+    "source": "issue|retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "遵循现有测试文件 sympy/printing/tests/test_latex.py 的测试类或模块结构。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "确切的错误代码位置和负责格式化包含下划线符号名的具体函数。",
+  "除了矩阵乘法，其他矩阵运算（如加法、幂运算）的索引访问是否也会触发相同问题。",
+  "修复后 latex((M*N)[i, j]) 生成的确切 LaTeX 字符串是什么（Issue 未提供）。",
+  "是否所有包含下划线的符号名（不仅是 Dummy 符号）在作为矩阵索引时都会出现此问题。"
+]

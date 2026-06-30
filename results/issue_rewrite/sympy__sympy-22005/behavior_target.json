@@ -1,0 +1,267 @@
+{
+  "instance_id": "sympy__sympy-22005",
+  "issue_summary": "solve_poly_system 函数对具有无限解的多项式系统检测不一致，当系统为单变量但涉及多个符号时，有时错误返回解而非抛出预期异常。",
+  "trigger_condition": {
+    "text": "调用 solve_poly_system，传入一个只包含一个单变量多项式（如 y - 1）的序列，但指定多个符号（如 x 和 y）作为生成元。",
+    "evidence": [
+      "原始 Issue 中的示例：solve_poly_system((y - 1,), x, y)",
+      "Issue 补丁中新增的测试用例：solve_poly_system(Poly(y - 1, x, y), (x, y))"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "函数返回了一个解列表（例如 [(1,)]），而不是抛出 NotImplementedError 异常。",
+    "symptom_type": "wrong_return",
+    "evidence": [
+      "原始 Issue 中的示例输出：solve_poly_system((y - 1,), x, y) 返回 [(1,)]",
+      "Issue 认为此行为是“not handled correctly”，而对称的用例 solve_poly_system((x - 1,), x, y) 会抛出异常。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "对于涉及多个符号但方程组只包含一个单变量多项式的输入，solve_poly_system 应一致地抛出 NotImplementedError，指示该系统不是零维的（具有无限解），因此不受支持。",
+    "evidence": [
+      "原始 Issue 中第一个示例的行为（抛出 NotImplementedError）被视为正确检测的参照。",
+      "Issue 补丁中在测试文件新增的用例预期抛出 NotImplementedError。",
+      "Issue 补丁对源码的修改意图是加强检测条件。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "solve_poly_system",
+      "kind": "function",
+      "source_path": "sympy/solvers/polysys.py",
+      "reason": "这是 Issue 直接讨论和触发缺陷的入口函数。"
+    },
+    {
+      "name": "Poly",
+      "kind": "class",
+      "source_path": "sympy/polys/polytools.py",
+      "reason": "Issue 示例和补丁中的测试用例使用了 Poly 对象作为输入。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sympy/solvers/polysys.py",
+      "object": "_solve_reduced_system",
+      "lines": "",
+      "reason": "Issue 提供的补丁直接修改了这个函数，在判断单变量多项式时增加了对生成元数量的检查，表明原逻辑在此处有缺陷。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_solve_poly_system",
+      "test_file": "sympy/solvers/tests/test_polysys.py",
+      "why_relevant": "该测试函数专门测试 solve_poly_system，包含了多种输入场景，包括成功案例和预期抛出 NotImplementedError 的失败案例。它提供了调用 solve_poly_system 的标准模式、符号定义（如 x, y, z）以及使用 raises 断言异常的测试协议。",
+      "reusable_parts": [
+        "从 sympy.abc 导入符号（如 x, y, z）",
+        "调用 solve_poly_system 的函数签名和参数传递方式",
+        "使用 raises(NotImplementedError, lambda: ...) 来断言异常",
+        "测试的整体结构和上下文"
+      ],
+      "possible_gap": "现有测试中可能没有包含“单变量多项式搭配多余符号”这种特定组合的用例。需要将测试输入变异为类似 (y - 1) 的多项式，同时指定 x 和 y 作为生成元，以触发缺陷路径。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "测试中引发 NotImplementedError 的输入，如 [x**3 - y**3], x, y（这是多变量多项式）。",
+      "target_pattern": "输入变为一个单变量多项式但指定多个符号，例如 [y - 1], x, y 或 Poly(y - 1, x, y), (x, y)。",
+      "reason": "这种变异将创造一种情况：方程组中只有一个多项式是单变量的（如只关于 y），但求解时却要求解 x 和 y 两个变量。根据 Issue，这应该被检测为无限解系统并抛出异常，但当前实现可能错误地尝试求解。",
+      "confidence": "high"
+    },
+    {
+      "slot": "argument",
+      "current_pattern": "将多项式作为表达式列表（如 [x - 1]）和符号参数（如 x）传递给 solve_poly_system。",
+      "target_pattern": "将多项式包装在 Poly 对象中，并显式指定生成元，例如 Poly(y - 1, x, y), (x, y)。",
+      "reason": "Issue 补丁中的测试用例使用了 Poly 对象，这可能影响内部处理路径。确保测试覆盖这种调用方式。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "调用 solve_poly_system(...) 是否引发 NotImplementedError 异常。",
+      "reason": "这是 Issue 的核心：错误症状是缺失了预期的异常。观测是否抛出异常可以直接判断缺陷是否被触发。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "当没有异常抛出时，观察 solve_poly_system 的返回值类型和内容（如是否为列表，列表元素是否为元组）。",
+      "reason": "在错误情况下，函数会返回一个解列表（如 [(1,)]），而不是 None 或其他值。观测返回值可以确认错误的具体表现。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "对于触发条件的输入，solve_poly_system 应抛出 NotImplementedError 异常。",
+      "preferred_assertion_style": "raises",
+      "avoid": "断言异常消息的完整精确字符串，因为 Issue 没有给出修复后的确切消息。避免断言返回值的具体内容。",
+      "reason": "使用 raises 断言异常是测试中已有的稳定模式，并且直接对应 expected_behavior（应抛出异常）。不依赖具体的异常消息文本可以使断言更健壮。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要从 sympy.abc 导入符号（如 x, y），并从 sympy.solvers.polysys 导入 solve_poly_system，可能还需要从 sympy 导入 Poly。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "测试应在一个能捕获并断言异常的环境中进行，例如使用 pytest.raises 或类似机制。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "除了 y - 1 和 x - 1 之外，是否还有其他单变量多项式（如 z - 2）与不同符号组合会触发相同问题？",
+    "当多项式以 Poly 对象形式传入时，内部处理路径是否与以表达式形式传入完全相同？",
+    "修复后，NotImplementedError 的具体错误信息是否会发生变化？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "detection of infinite solution request\n```python\n>>> solve_poly_system((x - 1,), x, y)\nTraceback (most recent call last):\n...\nNotImplementedError:\nonly zero-dimensional systems supported (finite number of solutions)\n>>> solve_poly_system((y - 1,), x, y)  <--- this is not handled correctly\n[(1,)]\n```\n```diff\ndiff --git a/sympy/solvers/polysys.py b/sympy/solvers/polysys.py\nindex b9809fd4e9..674322d4eb 100644\n--- a/sympy/solvers/polysys.py\n+++ b/sympy/solvers/polysys.py\n@@ -240,7 +240,7 @@ def _solve_reduced_system(system, gens, entry=False):\n \n         univariate = list(filter(_is_univariate, basis))\n \n-        if len(univariate) == 1:\n+        if len(univariate) == 1 and len(gens) == 1:\n             f = univariate.pop()\n         else:\n             raise NotImplementedError(filldedent('''\ndiff --git a/sympy/solvers/tests/test_polysys.py b/sympy/solvers/tests/test_polysys.py\nindex 58419f8762..9e674a6fe6 100644\n--- a/sympy/solvers/tests/test_polysys.py\n+++ b/sympy/solvers/tests/test_polysys.py\n@@ -48,6 +48,10 @@ def test_solve_poly_system():\n     raises(NotImplementedError, lambda: solve_poly_system(\n         [z, -2*x*y**2 + x + y**2*z, y**2*(-z - 4) + 2]))\n     raises(PolynomialError, lambda: solve_poly_system([1/x], x))\n+    raises(NotImplementedError, lambda: solve_poly_system(\n+        Poly(x - 1, x, y), (x, y)))\n+    raises(NotImplementedError, lambda: solve_poly_system(\n+        Poly(y - 1, x, y), (x, y)))\n \n \n def test_solve_biquadratic():\n```",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "函数 solve_poly_system 在处理某些多项式系统时，对无限解（非零维系统）的检测不一致。当系统包含一个单变量多项式但涉及多个符号时，例如 solve_poly_system((y - 1,), x, y)，它错误地返回了一个解 [(1,)]，而不是像处理 solve_poly_system((x - 1,), x, y) 那样抛出 NotImplementedError，提示“only zero-dimensional systems supported (finite number of solutions)”。这表明在 _solve_reduced_system 函数中，检查单变量多项式是否对应单个生成元（gens）的逻辑存在缺陷。",
+      "facts_from_issue": [
+        "调用 solve_poly_system((x - 1,), x, y) 会抛出 NotImplementedError，提示“only zero-dimensional systems supported (finite number of solutions)”。",
+        "调用 solve_poly_system((y - 1,), x, y) 会返回 [(1,)]，而 Issue 认为这是不正确的处理。",
+        "Issue 提供了一个补丁，修改了 sympy/solvers/polysys.py 中 _solve_reduced_system 函数内的一行代码，将条件从 `if len(univariate) == 1:` 改为 `if len(univariate) == 1 and len(gens) == 1:`。",
+        "Issue 还提供了一个补丁，在测试文件 sympy/solvers/tests/test_polysys.py 的 test_solve_poly_system 函数中增加了两个测试用例，预期它们都抛出 NotImplementedError。"
+      ],
+      "facts_from_retrieved_context": [
+        "函数 solve_poly_system 定义在 sympy/solvers/polysys.py 中，用于求解多项式方程组。",
+        "测试文件 sympy/solvers/tests/test_polysys.py 中的 test_solve_poly_system 函数包含多个对 solve_poly_system 的测试，包括一些会引发 NotImplementedError 的用例。",
+        "相关测试中使用了 raises(NotImplementedError, ...) 来断言某些输入应抛出 NotImplementedError。",
+        "类 Poly 用于表示多项式。"
+      ],
+      "inferences": [
+        "Issue 认为 solve_poly_system((y - 1,), x, y) 返回结果是不正确的，因为它应该检测到这是一个具有无限解（非零维）的系统，并抛出 NotImplementedError。",
+        "缺陷可能位于 _solve_reduced_system 函数中，该函数负责处理约简后的系统，并且在判断何时可以求解单变量多项式时，没有充分考虑生成元（gens）的数量。",
+        "修复后的行为应该是：对于涉及多个符号但只有一个单变量多项式的系统，应一致地抛出 NotImplementedError。"
+      ],
+      "do_not_assume": [
+        "补丁中给出的修改是唯一正确的修复方式。",
+        "除了给出的两个例子外，其他类似情况（如不同符号组合）的行为。",
+        "函数 _solve_reduced_system 内部 _is_univariate 的具体实现细节。",
+        "抛出 NotImplementedError 时具体的错误信息字符串。"
+      ]
+    },
+    "issue_summary": "solve_poly_system 函数对具有无限解的多项式系统检测不一致，当系统为单变量但涉及多个符号时，有时错误返回解而非抛出预期异常。",
+    "trigger_condition": {
+      "text": "调用 solve_poly_system，传入一个只包含一个单变量多项式（如 y - 1）的序列，但指定多个符号（如 x 和 y）作为生成元。",
+      "evidence": [
+        "原始 Issue 中的示例：solve_poly_system((y - 1,), x, y)",
+        "Issue 补丁中新增的测试用例：solve_poly_system(Poly(y - 1, x, y), (x, y))"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "函数返回了一个解列表（例如 [(1,)]），而不是抛出 NotImplementedError 异常。",
+      "symptom_type": "wrong_return",
+      "evidence": [
+        "原始 Issue 中的示例输出：solve_poly_system((y - 1,), x, y) 返回 [(1,)]",
+        "Issue 认为此行为是“not handled correctly”，而对称的用例 solve_poly_system((x - 1,), x, y) 会抛出异常。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "对于涉及多个符号但方程组只包含一个单变量多项式的输入，solve_poly_system 应一致地抛出 NotImplementedError，指示该系统不是零维的（具有无限解），因此不受支持。",
+      "evidence": [
+        "原始 Issue 中第一个示例的行为（抛出 NotImplementedError）被视为正确检测的参照。",
+        "Issue 补丁中在测试文件新增的用例预期抛出 NotImplementedError。",
+        "Issue 补丁对源码的修改意图是加强检测条件。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "solve_poly_system",
+        "kind": "function",
+        "source_path": "sympy/solvers/polysys.py",
+        "reason": "这是 Issue 直接讨论和触发缺陷的入口函数。"
+      },
+      {
+        "name": "Poly",
+        "kind": "class",
+        "source_path": "sympy/polys/polytools.py",
+        "reason": "Issue 示例和补丁中的测试用例使用了 Poly 对象作为输入。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sympy/solvers/polysys.py",
+        "object": "_solve_reduced_system",
+        "lines": "",
+        "reason": "Issue 提供的补丁直接修改了这个函数，在判断单变量多项式时增加了对生成元数量的检查，表明原逻辑在此处有缺陷。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_solve_poly_system",
+        "test_file": "sympy/solvers/tests/test_polysys.py",
+        "why_relevant": "该测试函数专门测试 solve_poly_system，包含了多种输入场景，包括成功案例和预期抛出 NotImplementedError 的失败案例。它提供了调用 solve_poly_system 的标准模式、符号定义（如 x, y, z）以及使用 raises 断言异常的测试协议。",
+        "reusable_parts": [
+          "从 sympy.abc 导入符号（如 x, y, z）",
+          "调用 solve_poly_system 的函数签名和参数传递方式",
+          "使用 raises(NotImplementedError, lambda: ...) 来断言异常",
+          "测试的整体结构和上下文"
+        ],
+        "possible_gap": "现有测试中可能没有包含“单变量多项式搭配多余符号”这种特定组合的用例。需要将测试输入变异为类似 (y - 1) 的多项式，同时指定 x 和 y 作为生成元，以触发缺陷路径。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "测试中引发 NotImplementedError 的输入，如 [x**3 - y**3], x, y（这是多变量多项式）。",
+        "target_pattern": "输入变为一个单变量多项式但指定多个符号，例如 [y - 1], x, y 或 Poly(y - 1, x, y), (x, y)。",
+        "reason": "这种变异将创造一种情况：方程组中只有一个多项式是单变量的（如只关于 y），但求解时却要求解 x 和 y 两个变量。根据 Issue，这应该被检测为无限解系统并抛出异常，但当前实现可能错误地尝试求解。",
+        "confidence": "high"
+      },
+      {
+        "slot": "argument",
+        "current_pattern": "将多项式作为表达式列表（如 [x - 1]）和符号参数（如 x）传递给 solve_poly_system。",
+        "target_pattern": "将多项式包装在 Poly 对象中，并显式指定生成元，例如 Poly(y - 1, x, y), (x, y)。",
+        "reason": "Issue 补丁中的测试用例使用了 Poly 对象，这可能影响内部处理路径。确保测试覆盖这种调用方式。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "调用 solve_poly_system(...) 是否引发 NotImplementedError 异常。",
+        "reason": "这是 Issue 的核心：错误症状是缺失了预期的异常。观测是否抛出异常可以直接判断缺陷是否被触发。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "当没有异常抛出时，观察 solve_poly_system 的返回值类型和内容（如是否为列表，列表元素是否为元组）。",
+        "reason": "在错误情况下，函数会返回一个解列表（如 [(1,)]），而不是 None 或其他值。观测返回值可以确认错误的具体表现。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "对于触发条件的输入，solve_poly_system 应抛出 NotImplementedError 异常。",
+        "preferred_assertion_style": "raises",
+        "avoid": "断言异常消息的完整精确字符串，因为 Issue 没有给出修复后的确切消息。避免断言返回值的具体内容。",
+        "reason": "使用 raises 断言异常是测试中已有的稳定模式，并且直接对应 expected_behavior（应抛出异常）。不依赖具体的异常消息文本可以使断言更健壮。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要从 sympy.abc 导入符号（如 x, y），并从 sympy.solvers.polysys 导入 solve_poly_system，可能还需要从 sympy 导入 Poly。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "测试应在一个能捕获并断言异常的环境中进行，例如使用 pytest.raises 或类似机制。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "除了 y - 1 和 x - 1 之外，是否还有其他单变量多项式（如 z - 2）与不同符号组合会触发相同问题？",
+      "当多项式以 Poly 对象形式传入时，内部处理路径是否与以表达式形式传入完全相同？",
+      "修复后，NotImplementedError 的具体错误信息是否会发生变化？"
+    ]
+  }
+}

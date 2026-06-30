@@ -1,0 +1,136 @@
+instance_id: scikit-learn__scikit-learn-15535
+
+issue_summary: `mutual_info_score` 函数对 object 类型数组（包含字符串元素）的输入处理存在回归，抛出 ValueError 而非正常工作。
+
+trigger_condition:
+{
+  "text": "使用 `mutual_info_score` 函数，传入两个相同的、元素为字符串的 object 类型 NumPy 数组作为 `labels_true` 和 `labels_pred` 参数。例如：`x = np.array(['a', 'b', 'a', 'b'], dtype=object); mutual_info_score(x, x)`。",
+  "evidence": [
+    "原始 Issue 代码：`x = np.random.choice(['a', 'b'], size=20).astype(object); mutual_info_score(x, x)` 导致错误。",
+    "源码显示 `mutual_info_score` 接受 `labels_true` 和 `labels_pred` 参数。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "抛出 ValueError: could not convert string to float: 'b'。",
+  "symptom_type": "exception",
+  "evidence": [
+    "原始 Issue 明确给出错误信息：ValueError: could not convert string to float: 'b'。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`mutual_info_score` 应能成功处理 object 类型数组（包含字符串元素）作为有效的聚类标签输入，并返回一个浮点数的互信息分数，而不抛出 ValueError。",
+  "evidence": [
+    "原始 Issue 提到在 0.21.1 版本中能正常工作。",
+    "Issue 作者认为应该能工作（\"as I think it should\"）。",
+    "相关测试 `test_adjusted_mutual_info_score` 和 `test_v_measure_and_mutual_information` 显示函数预期对整数数组工作正常，但未明确排除字符串标签。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "mutual_info_score",
+    "kind": "function",
+    "source_path": "sklearn/metrics/cluster/_supervised.py",
+    "reason": "这是 Issue 中直接调用的函数，其输入验证行为是问题的核心。"
+  },
+  {
+    "name": "check_clusterings",
+    "kind": "function",
+    "source_path": "",
+    "reason": "`mutual_info_score` 在 `contingency` 为 None 时会调用它，可能涉及输入验证。"
+  },
+  {
+    "name": "contingency_matrix",
+    "kind": "function",
+    "source_path": "",
+    "reason": "`mutual_info_score` 在 `contingency` 为 None 时会调用它，可能涉及对标签的处理和转换。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "相似测试 `test_adjusted_mutual_info_score` 中使用整数数组作为输入，例如 `labels_a = np.array([1, 1, 1, 1, ...])`。",
+    "target_pattern": "将输入变异为 object 类型的字符串数组，例如 `labels_a = np.array(['a', 'b', 'a', 'b'], dtype=object)`。",
+    "reason": "Issue 表明 object 类型字符串数组会触发 ValueError，而整数数组不会。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "相似测试中调用 `mutual_info_score(labels_a, labels_b)`，其中 `labels_a` 和 `labels_b` 都是整数数组。",
+    "target_pattern": "调用 `mutual_info_score(x, x)`，其中 `x` 是 object 类型字符串数组，且两个参数相同（或不同但都是字符串）。",
+    "reason": "Issue 中使用了相同的数组作为两个参数，并且错误信息指向字符串 'b'。使用相同数组可以简化复现。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 `mutual_info_score(x, x)` 时是否抛出 ValueError，以及异常消息是否包含类似 \"could not convert string to float\" 的片段。",
+    "reason": "Issue 的核心错误症状是 ValueError，观察异常类型和消息片段可以直接判断缺陷是否触发。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "如果函数成功执行，观察返回的互信息分数是否为浮点数（float）。",
+    "reason": "修复后函数应正常返回一个浮点数结果，观察返回值类型和合理性可以验证正确行为。"
+  },
+  {
+    "kind": "warning",
+    "expression_hint": "调用函数时是否产生任何警告（例如 FutureWarning, UserWarning）。",
+    "reason": "Issue 提到没有 `.astype(object)` 的输入会工作但可能有警告，观察警告有助于理解行为差异。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`mutual_info_score` 在传入 object 类型字符串数组时不应抛出 ValueError。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言完整的异常消息字符串完全相等，因为消息可能微调。",
+    "reason": "当前缺陷表现为异常，修复后应不再抛出。使用 `pytest.raises` 配合匹配错误消息片段（如 \"could not convert string to float\"）可以稳定检测问题。"
+  },
+  {
+    "assertion_goal": "`mutual_info_score` 应成功返回一个浮点数结果。",
+    "preferred_assertion_style": "isinstance",
+    "avoid": "断言返回值的精确数值，因为对于随机或特定字符串输入，正确值可能未知或不稳定。",
+    "reason": "修复后函数应正常计算并返回结果。检查返回类型为 float 是一个稳定且公开的断言。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 `numpy` 和 `sklearn.metrics.cluster.mutual_info_score`。",
+    "source": "issue|retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要在 `sklearn/metrics/cluster/tests/` 目录下或类似环境中运行，以正确导入模块。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  },
+  {
+    "hint": "可以使用 `pytest` 作为测试运行器，并利用其 `raises` 和 `warns` 上下文管理器。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "错误具体发生在 `mutual_info_score`、`check_clusterings` 还是 `contingency_matrix` 中。",
+  "修复后，对于 object 类型字符串数组输入，是否应该产生警告（Issue 作者认为不应有，但当前行为不确定）。",
+  "除了字符串 'a' 和 'b'，其他字符串或 object 类型元素（如混合类型）是否也会触发类似错误。",
+  "`contingency` 参数不为 None 时，是否也能绕过错误。"
+]

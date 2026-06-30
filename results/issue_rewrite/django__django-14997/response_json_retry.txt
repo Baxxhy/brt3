@@ -1,0 +1,146 @@
+```json
+{
+    "original_issue": {
+        "text": "Remaking table with unique constraint crashes on SQLite.\nDescription\n\nIn Django 4.0a1, this model:\nclass Tag(models.Model):\n\tname = models.SlugField(help_text=\"The tag key.\")\n\tvalue = models.CharField(max_length=150, help_text=\"The tag value.\")\n\tclass Meta:\n\t\tordering = [\"name\", \"value\"]\n\t\tconstraints = [\n\t\t\tmodels.UniqueConstraint(\n\t\t\t\t\"name\",\n\t\t\t\t\"value\",\n\t\t\t\tname=\"unique_name_value\",\n\t\t\t)\n\t\t]\n\tdef __str__(self):\n\t\treturn f\"{self.name}={self.value}\"\nwith these migrations, using sqlite:\nclass Migration(migrations.Migration):\n\tinitial = True\n\tdependencies = [\n\t]\n\toperations = [\n\t\tmigrations.CreateModel(\n\t\t\tname='Tag',\n\t\t\tfields=[\n\t\t\t\t('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),\n\t\t\t\t('name', models.SlugField(help_text='The tag key.')),\n\t\t\t\t('value', models.CharField(help_text='The tag value.', max_length=200)),\n\t\t\t],\n\t\t\toptions={\n\t\t\t\t'ordering': ['name', 'value'],\n\t\t\t},\n\t\t),\n\t\tmigrations.AddConstraint(\n\t\t\tmodel_name='tag',\n\t\t\tconstraint=models.UniqueConstraint(django.db.models.expressions.F('name'), django.db.models.expressions.F('value'), name='unique_name_value'),\n\t\t),\n\t]\nclass Migration(migrations.Migration):\n\tdependencies = [\n\t\t('myapp', '0001_initial'),\n\t]\n\toperations = [\n\t\tmigrations.AlterField(\n\t\t\tmodel_name='tag',\n\t\t\tname='value',\n\t\t\tfield=models.CharField(help_text='The tag value.', max_length=150),\n\t\t),\n\t]\nraises this error:\nmanage.py migrate\nOperations to perform:\n Apply all migrations: admin, auth, contenttypes, myapp, sessions\nRunning migrations:\n Applying myapp.0002_alter_tag_value...python-BaseException\nTraceback (most recent call last):\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\utils.py\", line 84, in _execute\n\treturn self.cursor.execute(sql, params)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\sqlite3\\base.py\", line 416, in execute\n\treturn Database.Cursor.execute(self, query, params)\nsqlite3.OperationalError: the \".\" operator prohibited in index expressions\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\core\\management\\base.py\", line 373, in run_from_argv\n\tself.execute(*args, **cmd_options)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\core\\management\\base.py\", line 417, in execute\n\toutput = self.handle(*args, **options)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\core\\management\\base.py\", line 90, in wrapped\n\tres = handle_func(*args, **kwargs)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\core\\management\\commands\\migrate.py\", line 253, in handle\n\tpost_migrate_state = executor.migrate(\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\migrations\\executor.py\", line 126, in migrate\n\tstate = self._migrate_all_forwards(state, plan, full_plan, fake=fake, fake_initial=fake_initial)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\migrations\\executor.py\", line 156, in _migrate_all_forwards\n\tstate = self.apply_migration(state, migration, fake=fake, fake_initial=fake_initial)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\migrations\\executor.py\", line 236, in apply_migration\n\tstate = migration.apply(state, schema_editor)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\migrations\\migration.py\", line 125, in apply\n\toperation.database_forwards(self.app_label, schema_editor, old_state, project_state)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\migrations\\operations\\fields.py\", line 225, in database_forwards\n\tschema_editor.alter_field(from_model, from_field, to_field)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\sqlite3\\schema.py\", line 140, in alter_field\n\tsuper().alter_field(model, old_field, new_field, strict=strict)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\base\\schema.py\", line 618, in alter_field\n\tself._alter_field(model, old_field, new_field, old_type, new_type,\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\sqlite3\\schema.py\", line 362, in _alter_field\n\tself._remake_table(model, alter_field=(old_field, new_field))\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\sqlite3\\schema.py\", line 303, in _remake_table\n\tself.execute(sql)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\base\\schema.py\", line 151, in execute\n\tcursor.execute(sql, params)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\utils.py\", line 98, in execute\n\treturn super().execute(sql, params)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\utils.py\", line 66, in execute\n\treturn self._execute_with_wrappers(sql, params, many=False, executor=self._execute)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\utils.py\", line 75, in _execute_with_wrappers\n\treturn executor(sql, params, many, context)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\utils.py\", line 84, in _execute\n\treturn self.cursor.execute(sql, params)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\utils.py\", line 90, in __exit__\n\traise dj_exc_value.with_traceback(traceback) from exc_value\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\utils.py\", line 84, in _execute\n\treturn self.cursor.execute(sql, params)\n File \"D:\\Projects\\Development\\sqliteerror\\.venv\\lib\\site-packages\\django\\db\\backends\\sqlite3\\base.py\", line 416, in execute\n\treturn Database.Cursor.execute(self, query, params)\ndjango.db.utils.OperationalError: the \".\" operator prohibited in index expressions",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "在 Django 4.0a1 中，当使用 SQLite 数据库时，对一个已存在 UniqueConstraint 的模型执行 AlterField 迁移操作会导致崩溃。具体场景：一个模型包含一个使用 F 表达式定义的 UniqueConstraint（字段为 F('name') 和 F('value')）。随后，对该模型的某个字段（例如 value 字段）执行 AlterField 操作（如修改 max_length）时，迁移过程会失败，抛出 sqlite3.OperationalError: the \".\" operator prohibited in index expressions。错误发生在 SQLite 后端尝试重建表（_remake_table）以应用字段变更的过程中。修复后，此类迁移应能正常执行，不引发异常。",
+        "facts_from_issue": [
+            "Django 版本为 4.0a1。",
+            "数据库后端为 SQLite。",
+            "模型 Tag 包含一个 UniqueConstraint，其字段参数为 F('name') 和 F('value')。",
+            "存在两个迁移：0001_initial（创建模型并添加约束）和 0002_alter_tag_value（修改 value 字段的 max_length）。",
+            "执行 `manage.py migrate` 应用 0002_alter_tag_value 迁移时失败。",
+            "抛出的异常是 `sqlite3.OperationalError: the \".\" operator prohibited in index expressions`。",
+            "堆栈跟踪显示错误发生在 `django/db/backends/sqlite3/schema.py` 的 `_remake_table` 方法中。"
+        ],
+        "facts_from_retrieved_context": [
+            "检索到的源码片段包括 `django/db/migrations/operations/fields.py` 中的 `AlterField` 类。",
+            "检索到的源码片段包括 `django/db/migrations/operations/models.py` 中的 `AddConstraint` 类。",
+            "检索到的测试 `test_func_unique_constraint_unsupported` 涉及对不支持表达式索引的数据库（如 SQLite）使用 `UniqueConstraint(F('name'), ...)` 的场景。",
+            "检索到的测试 `test_unique_no_unnecessary_fk_drops` 涉及 `AlterField` 操作与唯一约束的交互。"
+        ],
+        "inferences": [
+            "UniqueConstraint 使用 F 表达式定义，在 SQLite 上可能被转换为包含点运算符（如 `\"name\"`）的索引表达式，而 SQLite 禁止在索引表达式中使用点运算符。",
+            "`AlterField` 操作在 SQLite 后端上触发 `_remake_table`，该过程会尝试重新创建包含约束的表。",
+            "在重建表时，约束定义（可能包含 F 表达式）被错误地转换为 SQLite 不接受的索引表达式格式。"
+        ],
+        "do_not_assume": [
+            "具体哪个函数负责将 F 表达式转换为 SQL 索引表达式。",
+            "修复后的确切 SQL 语句或约束表示形式。",
+            "其他数据库后端（如 PostgreSQL、MySQL）是否也存在此问题。"
+        ]
+    },
+    "issue_summary": "在 SQLite 上，对包含使用 F 表达式定义的 UniqueConstraint 的模型执行 AlterField 迁移会因索引表达式包含禁止的 '.' 运算符而崩溃。",
+    "trigger_condition": {
+        "text": "使用 SQLite 数据库。创建一个模型，该模型包含一个使用 `models.UniqueConstraint(F('field1'), F('field2'), name='...')` 定义的唯一约束。然后，对该模型的某个字段执行 `migrations.AlterField` 操作（例如修改字段的 `max_length`），并运行迁移。",
+        "evidence": [
+            "Issue 中提供了完整的模型定义、迁移文件以及使用 `manage.py migrate` 的命令。",
+            "Issue 堆栈跟踪指向 `AlterField.database_forwards` 和 `sqlite3/schema.py` 中的 `_remake_table`。",
+            "检索到的测试 `test_func_unique_constraint_unsupported` 展示了使用 `UniqueConstraint(F('name'), ...)` 的构造。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "运行迁移时抛出 `django.db.utils.OperationalError`，其根本原因是 `sqlite3.OperationalError: the \".\" operator prohibited in index expressions`。迁移过程被中断。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中提供了完整的错误信息和堆栈跟踪。",
+            "堆栈跟踪明确显示了异常类型和错误消息。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "修复后，对包含使用 F 表达式定义的 UniqueConstraint 的模型执行 AlterField 迁移时，迁移应成功完成，不引发任何 OperationalError。数据库表应被正确重建，约束应被保留或正确处理。",
+        "evidence": [
+            "Issue 标题和描述暗示这是一个崩溃（crash），期望行为是迁移正常执行。",
+            "检索到的测试 `test_func_unique_constraint_unsupported` 表明，在不支持表达式索引的数据库上，添加此类约束的操作应被忽略（`assertIsNone`），而不是崩溃。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "UniqueConstraint",
+            "kind": "class",
+            "source_path": "django.db.models",
+            "reason": "Issue 中用于定义约束的类。"
+        },
+        {
+            "name": "F",
+            "kind": "class",
+            "source_path": "django.db.models.expressions",
+            "reason": "在 UniqueConstraint 的字段参数中使用，是触发问题的关键。"
+        },
+        {
+            "name": "AlterField",
+            "kind": "class",
+            "source_path": "django.db.migrations.operations.fields",
+            "reason": "执行触发崩溃的迁移操作。"
+        },
+        {
+            "name": "schema_editor.alter_field",
+            "kind": "method",
+            "source_path": "django.db.backends.base.schema",
+            "reason": "堆栈跟踪中显示被调用的方法，负责字段变更。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/db/backends/sqlite3/schema.py",
+            "object": "_remake_table",
+            "lines": "303",
+            "reason": "堆栈跟踪显示错误发生在此方法中，它执行了生成非法 SQL 的 `self.execute(sql)`。"
+        },
+        {
+            "path": "django/db/backends/sqlite3/schema.py",
+            "object": "_alter_field",
+            "lines": "362",
+            "reason": "堆栈跟踪中调用 `_remake_table` 的方法。"
+        },
+        {
+            "path": "django/db/backends/sqlite3/schema.py",
+            "object": "alter_field",
+            "lines": "140",
+            "reason": "SQLite 特定的 `alter_field` 方法，调用了父类方法并最终触发 `_remake_table`。"
+        },
+        {
+            "path": "django/db/migrations/operations/fields.py",
+            "object": "AlterField.database_forwards",
+            "lines": "225",
+            "reason": "迁移操作中调用 `schema_editor.alter_field` 的地方。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_func_unique_constraint_unsupported",
+            "test_file": "tests/schema/tests.py",
+            "why_relevant": "该测试直接涉及在可能不支持表达式索引的数据库（如 SQLite）上使用 `UniqueConstraint(F('name'), ...)`。它使用了 `connection.schema_editor()` 和 `editor.add_constraint`，与 Issue 中约束创建的场景相似。",
+            "reusable_parts": [
+                "导入：`from django.db.models import F, UniqueConstraint`",
+                "测试类 `SchemaTests(TransactionTestCase)`",
+                "使用 `connection.schema_editor()` 上下文管理器",
+                "创建模型 `editor.create_model(Author)`",
+                "构造 `UniqueConstraint(F('name'), name='...')`",
+                "断言风格：`assertIsNone`"
+            ],
+            "possible_gap": "该测试只测试了直接添加和移除约束，没有测试在已有此类约束的模型上执行 `AlterField` 迁移。需要变异以添加一个 `AlterField` 操作并执行迁移。"
+        },
+        {
+            "test_name": "test_unique_no_unnecessary_fk_drops",
+            "test_file": "tests/schema/tests.py",
+            "why_relevant": "该测试涉及 `AlterField` 操作与唯一约束的交互，并检查 SQL 语句数量。它使用了 `editor.alter_field` 方法，与触发 bug 的 API 调用一致。",
+            "reusable_parts": [
+                "测试类 `SchemaTests(TransactionTestCase)`",
+                "使用 `@isolate_apps` 装饰器",
+                "内联定义模型类",
+                "`editor.create_model` 和 `editor.alter_field` 的调用模式",
+                "使用 `assertLogs` 检查执行的 SQL 语句"
+            ],
+            "possible_gap": "该测试中的唯一约束是使用 `unique=True` 定义的，而不是 `UniqueConstraint` 与 `F` 表达式。需要变异约束的定义方式。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "相似

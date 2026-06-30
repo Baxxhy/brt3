@@ -1,0 +1,229 @@
+```json
+{
+    "original_issue": {
+        "text": "Update colorbar after changing mappable.norm\nHow can I update a colorbar, after I changed the norm instance of the colorbar?\n\n`colorbar.update_normal(mappable)` has now effect and `colorbar.update_bruteforce(mappable)` throws a `ZeroDivsionError`-Exception.\n\nConsider this example:\n\n``` python\nimport matplotlib.pyplot as plt\nfrom matplotlib.colors import LogNorm\nimport numpy as np\n\nimg = 10**np.random.normal(1, 1, size=(50, 50))\n\nfig, ax = plt.subplots(1, 1)\nplot = ax.imshow(img, cmap='gray')\ncb = fig.colorbar(plot, ax=ax)\nplot.norm = LogNorm()\ncb.update_normal(plot)  # no effect\ncb.update_bruteforce(plot)  # throws ZeroDivisionError\nplt.show()\n```\n\nOutput for `cb.update_bruteforce(plot)`:\n\n```\nTraceback (most recent call last):\n  File \"test_norm.py\", line 12, in <module>\n    cb.update_bruteforce(plot)\n  File \"/home/maxnoe/.local/anaconda3/lib/python3.4/site-packages/matplotlib/colorbar.py\", line 967, in update_bruteforce\n    self.draw_all()\n  File \"/home/maxnoe/.local/anaconda3/lib/python3.4/site-packages/matplotlib/colorbar.py\", line 342, in draw_all\n    self._process_values()\n  File \"/home/maxnoe/.local/anaconda3/lib/python3.4/site-packages/matplotlib/colorbar.py\", line 664, in _process_values\n    b = self.norm.inverse(self._uniform_y(self.cmap.N + 1))\n  File \"/home/maxnoe/.local/anaconda3/lib/python3.4/site-packages/matplotlib/colors.py\", line 1011, in inverse\n    return vmin * ma.power((vmax / vmin), val)\nZeroDivisionError: division by zero\n```",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当通过 `mappable.norm = LogNorm()` 更改 mappable 的 norm 后，调用 colorbar 的 `update_normal(mappable)` 方法无法更新 colorbar，而调用 `update_bruteforce(mappable)` 方法会抛出 ZeroDivisionError 异常。期望在更改 norm 后，colorbar 能正确更新以反映新的 norm 设置，且相关更新方法不应抛出异常。",
+        "facts_from_issue": [
+            "用户创建了一个图像 (imshow) 和一个关联的 colorbar。",
+            "用户将图像的 norm 属性更改为 LogNorm() 实例。",
+            "调用 colorbar.update_normal(mappable) 后，colorbar 没有更新（无效果）。",
+            "调用 colorbar.update_bruteforce(mappable) 后，抛出了 ZeroDivisionError 异常。",
+            "异常堆栈指向 colorbar.py 的 _process_values 方法和 colors.py 的 inverse 方法。"
+        ],
+        "facts_from_retrieved_context": [
+            "LogNorm 在 matplotlib.colors 模块中定义。",
+            "pyplot.colorbar 函数内部调用 gcf().colorbar。",
+            "存在测试 test_colorbar_renorm 演示了通过 im.set_norm(norm) 更改 norm 并检查 colorbar 更新。",
+            "测试 test_colorbar_format 演示了在更改 norm 后调用 fig.canvas.draw() 来更新 colorbar。"
+        ],
+        "inferences": [
+            "问题可能与 colorbar 在 mappable 的 norm 被直接替换后，其内部状态（如 vmin, vmax）未正确同步有关。",
+            "update_bruteforce 方法在尝试处理新 norm 时，可能因为某些值（如 vmin 或 vmax）为零或未初始化而导致除以零。",
+            "update_normal 方法可能依赖于某些未更新的缓存或标志，导致更新无效。"
+        ],
+        "do_not_assume": [
+            "具体的修复方案或内部实现细节。",
+            "vmin 或 vmax 为零的确切原因。",
+            "update_normal 和 update_bruteforce 方法内部的所有逻辑差异。"
+        ]
+    },
+    "issue_summary": "在动态更改 mappable 的 norm 属性后，colorbar 的更新方法要么无效，要么抛出除以零异常。",
+    "trigger_condition": {
+        "text": "1. 创建一个带有 mappable（如 imshow 图像）的图形和坐标轴。2. 为该 mappable 创建一个 colorbar。3. 将 mappable.norm 属性更改为一个新的 LogNorm() 实例（或可能其他 norm）。4. 调用 colorbar.update_normal(mappable) 或 colorbar.update_bruteforce(mappable)。",
+        "evidence": [
+            "Issue 中的示例代码展示了完整的触发步骤。",
+            "相关测试 test_colorbar_renorm 也涉及更改 im.set_norm(norm)。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 colorbar.update_bruteforce(mappable) 时抛出 ZeroDivisionError 异常。调用 colorbar.update_normal(mappable) 后，colorbar 视觉上未更新（无效果）。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中提供了 ZeroDivisionError 的完整堆栈跟踪。",
+            "Issue 明确说明 update_normal 有 \"no effect\"。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "在更改 mappable.norm 后，调用 colorbar.update_normal(mappable) 或 colorbar.update_bruteforce(mappable) 应成功更新 colorbar 以匹配新的 norm，且不应抛出任何异常。colorbar 的刻度、标签和颜色映射应正确反映新 norm 的设置。",
+        "evidence": [
+            "Issue 标题和描述表明用户期望能够更新 colorbar。",
+            "相关测试 test_colorbar_renorm 展示了在调用 im.set_norm(norm) 后，colorbar 的刻度和 vmin/vmax 会相应更新。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "LogNorm",
+            "kind": "class",
+            "source_path": "lib/matplotlib/colors.py",
+            "reason": "Issue 中用于替换 mappable.norm 的 norm 类。"
+        },
+        {
+            "name": "colorbar",
+            "kind": "function",
+            "source_path": "lib/matplotlib/pyplot.py",
+            "reason": "用于创建 colorbar 的顶层函数。"
+        },
+        {
+            "name": "update_normal",
+            "kind": "method",
+            "source_path": "",
+            "reason": "Issue 中调用的、期望更新 colorbar 但无效的方法。"
+        },
+        {
+            "name": "update_bruteforce",
+            "kind": "method",
+            "source_path": "",
+            "reason": "Issue 中调用的、会抛出 ZeroDivisionError 的方法。"
+        },
+        {
+            "name": "imshow",
+            "kind": "function",
+            "source_path": "lib/matplotlib/pyplot.py",
+            "reason": "Issue 中创建 mappable 的方法。"
+        },
+        {
+            "name": "set_norm",
+            "kind": "method",
+            "source_path": "",
+            "reason": "相关测试中用于更改 norm 的方法，与直接赋值 mappable.norm 功能可能类似。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "lib/matplotlib/colorbar.py",
+            "object": "update_bruteforce 方法及其调用的 _process_values 方法",
+            "lines": "",
+            "reason": "异常堆栈指向这些方法，其中发生了除以零错误。"
+        },
+        {
+            "path": "lib/matplotlib/colorbar.py",
+            "object": "update_normal 方法",
+            "lines": "",
+            "reason": "Issue 报告此方法在 norm 更改后没有效果。"
+        },
+        {
+            "path": "lib/matplotlib/colors.py",
+            "object": "LogNorm.inverse 方法",
+            "lines": "",
+            "reason": "异常堆栈显示除以零发生在 colors.py 的 inverse 方法中。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_colorbar_renorm",
+            "test_file": "lib/matplotlib/tests/test_colorbar.py",
+            "why_relevant": "该测试直接涉及更改 imshow 对象的 norm 并检查 colorbar 的更新，包括刻度位置和 vmin/vmax 值。它使用了相似的图形、imshow、colorbar 构造和 set_norm 调用。",
+            "reusable_parts": [
+                "imports (plt, np)",
+                "图形和坐标轴创建 (plt.subplots)",
+                "imshow 和 colorbar 创建",
+                "使用 set_norm 更改 norm",
+                "对 colorbar.vmin, cbar.vmax, cbar.ax.yaxis.get_majorticklocs() 的断言"
+            ],
+            "possible_gap": "该测试使用 im.set_norm(norm) 而不是直接赋值 plot.norm = LogNorm()。它也没有调用 update_normal 或 update_bruteforce 方法，而是依赖 set_norm 的内部更新或后续的 canvas.draw()（在测试中未显式调用，但断言可能触发了更新）。需要变异以使用直接赋值和显式调用有问题的更新方法。"
+        },
+        {
+            "test_name": "test_colorbar_format",
+            "test_file": "lib/matplotlib/tests/test_colorbar.py",
+            "why_relevant": "该测试演示了在更改 norm 后调用 fig.canvas.draw() 来更新 colorbar 的标签。它涉及 norm 更改和 colorbar 状态更新。",
+            "reusable_parts": [
+                "图形和坐标轴创建",
+                "imshow 和 colorbar 创建",
+                "使用 set_norm 更改 norm",
+                "调用 fig.canvas.draw() 触发更新",
+                "检查 colorbar 刻度标签文本"
+            ],
+            "possible_gap": "该测试同样使用 set_norm，而不是直接赋值 norm 属性。它测试的是格式保留，而不是更新方法本身的有效性或异常。需要变异以测试直接赋值和 update_* 方法。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "object_state",
+            "current_pattern": "在相似测试中，使用 im.set_norm(norm) 来更改 norm。",
+            "target_pattern": "改为直接赋值 mappable.norm = LogNorm()，以匹配 Issue 中的触发条件。",
+            "reason": "Issue 明确指出是通过直接赋值更改 norm 属性。set_norm 方法可能包含额外的内部更新逻辑，而直接赋值可能绕过了这些逻辑，导致 colorbar 状态不同步。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "相似测试在更改 norm 后，通常通过断言间接触发更新，或调用 fig.canvas.draw()。",
+            "target_pattern": "在更改 norm 后，显式调用 colorbar.update_normal(mappable) 或 colorbar.update_bruteforce(mappable)。",
+            "reason": "Issue 的核心是这些显式更新方法在特定条件下失败。需要将测试变异为直接调用这些方法。",
+            "confidence": "high"
+        },
+        {
+            "slot": "argument",
+            "current_pattern": "相似测试中使用的 norm 实例通常使用数据相关的 vmin/vmax 初始化，如 LogNorm(z.min(), z.max())。",
+            "target_pattern": "使用默认初始化的 LogNorm()，即不指定 vmin 和 vmax，或使用可能导致 vmin=0 的数据。",
+            "reason": "ZeroDivisionError 可能源于 norm 的 vmin 或 vmax 为零或未正确设置。默认的 LogNorm() 或特定数据范围可能更容易触发此错误。",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "调用 cb.update_bruteforce(plot) 时是否抛出 ZeroDivisionError 或其子类。",
+            "reason": "这是 Issue 中报告的直接错误症状。"
+        },
+        {
+            "kind": "state",
+            "expression_hint": "调用 cb.update_normal(plot) 前后，colorbar 的视觉相关属性，如 cb.ax.yaxis.get_majorticklocs() 或 cb.vmin/cb.vmax 是否发生变化。",
+            "reason": "Issue 报告 update_normal 没有效果，需要观察 colorbar 的内部状态是否更新。"
+        },
+        {
+            "kind": "warning",
+            "expression_hint": "在操作过程中是否产生任何警告（例如，关于无效 norm 参数的警告）。",
+            "reason": "可能有助于诊断 norm 状态问题。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "调用 colorbar.update_bruteforce(mappable) 后，不应抛出 ZeroDivisionError 或任何异常。",
+            "preferred_assertion_style": "raises",
+            "avoid": "断言特定的异常消息文本，因为修复后可能改变。",
+            "reason": "直接对应 Issue 中的错误现象。修复后应正常执行。"
+        },
+        {
+            "assertion_goal": "调用 colorbar.update_normal(mappable) 后，colorbar 的某些公开状态（如刻度位置）应发生改变，以反映新的 norm。",
+            "preferred_assertion_style": "before_after_relation",
+            "avoid": "断言与特定数据值完全相等的刻度位置，因为 LogNorm 下的刻度计算可能复杂。可以断言刻度位置发生了变化，或者 vmin/vmax 被更新。",
+            "reason": "验证 update_normal 方法确实产生了效果。"
+        },
+        {
+            "assertion_goal": "在更改 norm 并成功更新后，colorbar 应能正常绘制而不崩溃。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言完整的图像输出或像素值。",
+            "reason": "验证整体功能的正确性。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "使用 matplotlib.pyplot.subplots 创建图形和坐标轴。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "使用 numpy 生成测试图像数据。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试可能需要调用 plt.close('all') 或在测试结束时清理图形，以避免测试间干扰。",
+            "source": "inference",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "导致 ZeroDivisionError 的精确条件（是 vmin=0，vmax=0，还是其他计算）？",
+        "update_normal 方法无效的具体原因是什么？是忽略了 norm 更改，还是更新了但视觉上没反映？",
+        "直接赋值 mappable.norm 与调用 mappable.set_norm(norm) 在内部状态更新上是否有本质区别？",
+        "修复后，update_normal 和 update_bruteforce 哪个是推荐的更新方式？或者两者都应工作？"
+    ]
+}
+```

@@ -1,0 +1,131 @@
+instance_id: django__django-15347
+
+issue_summary: Django 消息框架在序列化/反序列化 Message 对象时，将 extra_tags 的空字符串错误地转换为 None。
+
+trigger_condition:
+{
+  "text": "创建一个 Message 对象，其 extra_tags 参数为空字符串 \"\"，然后使用 MessageEncoder 对其进行编码，再使用 MessageDecoder 对编码结果进行解码。",
+  "evidence": [
+    "Issue 中的复现步骤：`original_message = Message(10, \"Here is a message\", extra_tags=\"\")`，然后调用 `MessageEncoder().encode(original_message)` 和 `MessageDecoder().decode(encoded_message)`。",
+    "相关测试 test_json_encoder_decoder 展示了使用 MessageEncoder 和 MessageDecoder 对包含 Message 对象的数据结构进行编码/解码的模式。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "解码后的 Message 对象的 extra_tags 属性为 None，而原始对象的 extra_tags 属性为空字符串 \"\"。在模板中使用 `if x not in message.extra_tags` 时，由于 None 值导致错误。",
+  "symptom_type": "serialization_error",
+  "evidence": [
+    "Issue 中：`original_message.extra_tags == \"\"` 为 True，`decoded_message.extra_tags is None` 为 True。",
+    "Issue 中描述了模板标签因 extra_tags 为 None 而报错。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "经过 MessageEncoder 编码和 MessageDecoder 解码后，Message 对象的 extra_tags 属性应保持其原始值。特别地，当 extra_tags 初始值为空字符串 \"\" 时，解码后仍应为空字符串 \"\"。",
+  "evidence": [
+    "Issue 中隐含的期望：原始 extra_tags 是空字符串，解码后也应是空字符串。",
+    "相关测试 test_json_encoder_decoder 的断言 `self.assertEqual(messages, decoded_messages)` 表明编码/解码过程应保持数据结构的相等性，这自然包括 Message 对象属性的相等性。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Message",
+    "kind": "class",
+    "source_path": "django/contrib/messages/storage/base.py",
+    "reason": "缺陷涉及 Message 对象的创建及其 extra_tags 属性。"
+  },
+  {
+    "name": "MessageEncoder",
+    "kind": "class",
+    "source_path": "django/contrib/messages/storage/cookie.py",
+    "reason": "负责序列化 Message 对象，其 default 方法可能是缺陷所在。"
+  },
+  {
+    "name": "MessageDecoder",
+    "kind": "class",
+    "source_path": "django/contrib/messages/storage/cookie.py",
+    "reason": "负责反序列化 Message 对象，其 process_messages 方法可能与缺陷相关。"
+  },
+  {
+    "name": "debug",
+    "kind": "function",
+    "source_path": "django/contrib/messages/api.py",
+    "reason": "Issue 提到该缺陷影响所有标准 API，如 messages.debug，其 extra_tags 默认值为空字符串。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "测试中构造 Message 时未显式设置 extra_tags，或使用默认值（可能为 None）。例如：`Message(constants.INFO, 'Test message')`。",
+    "target_pattern": "构造 Message 时显式设置 `extra_tags=\"\"`。例如：`Message(constants.INFO, 'Test message', extra_tags=\"\")`。",
+    "reason": "Issue 明确指出缺陷在 extra_tags 为空字符串时触发。将 extra_tags 参数从默认值或 None 变异为空字符串，可使测试走向缺陷路径。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试可能比较整个消息对象或消息列表的相等性。",
+    "target_pattern": "在断言中，除了整体对象相等，还应单独比较解码前后 Message 对象的 extra_tags 属性。",
+    "reason": "整体对象相等断言可能因其他属性正确而通过，掩盖 extra_tags 的特定错误。单独比较该属性能更精确地暴露缺陷。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "解码后 Message 对象的 extra_tags 属性值，例如 `decoded_message.extra_tags`。",
+    "reason": "这是缺陷的直接表现：extra_tags 从空字符串变成了 None。观察此属性可直接判断缺陷是否触发。"
+  },
+  {
+    "kind": "serialization",
+    "expression_hint": "MessageEncoder 编码后的 JSON 字符串片段，可能包含 extra_tags 字段。",
+    "reason": "缺陷可能源于编码阶段未正确输出空字符串值。观察序列化输出有助于定位问题是在编码还是解码阶段。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "解码后 Message 对象的 extra_tags 属性应等于原始的空字符串 \"\"。",
+    "preferred_assertion_style": "equals",
+    "avoid": "避免断言完整的 JSON 字符串相等或完整的 repr 相等，这些可能因格式细节而脆弱。",
+    "reason": "直接比较 extra_tags 属性值是最稳定且与 Issue 核心对齐的断言。它检查了公开属性在序列化/反序列化后的保真度。"
+  },
+  {
+    "assertion_goal": "编码/解码过程不应改变 Message 对象的 extra_tags 属性。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "避免断言私有字段或内部数据结构。",
+    "reason": "使用 before/after 关系断言（如 `assertEqual(original.extra_tags, decoded.extra_tags)`）能清晰地表达序列化/反序列化应保持属性不变的期望。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试可能需要继承自 SimpleTestCase 或 TestCase，并使用适当的 settings 配置（如相关测试中使用的 @override_settings）。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要导入 django.contrib.messages.storage.base.Message, django.contrib.messages.storage.cookie.MessageEncoder, django.contrib.messages.storage.cookie.MessageDecoder。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "MessageEncoder.default 方法内部处理 extra_tags 的确切逻辑。",
+  "MessageDecoder.process_messages 方法内部重建 Message 对象时处理 extra_tags 字段的确切逻辑。",
+  "除了 cookie 存储，其他存储后端（如 session）是否共享相同的编码/解码类，从而也存在此缺陷。"
+]

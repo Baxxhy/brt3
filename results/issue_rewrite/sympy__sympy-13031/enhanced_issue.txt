@@ -1,0 +1,96 @@
+instance_id: sympy__sympy-13031
+
+issue_summary: 在 sympy 1.1 中，`Matrix.hstack` 水平堆叠多个零行矩阵时，返回矩阵的列数计算错误，未正确累加各输入矩阵的列数。
+
+trigger_condition:
+{
+  "text": "调用 `Matrix.hstack`，传入两个或更多通过 `Matrix.zeros` 创建的、行数为 0 但列数不同的矩阵。例如：`Matrix.hstack(Matrix.zeros(0,0), Matrix.zeros(0,1), Matrix.zeros(0,2), Matrix.zeros(0,3))`。",
+  "evidence": [
+    "原始 Issue 中的代码示例。",
+    "相关测试 `test_hstack` 中的回归测试部分。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "`Matrix.hstack` 返回的矩阵形状的列数属性 (`cols`) 错误。对于零行矩阵的堆叠，返回的列数小于各输入矩阵列数之和（例如返回 3 而非 6）。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "原始 Issue 中展示了 sympy 1.1 返回 `(0,3)` 而 sympy 1.0 返回 `(0,6)`。",
+    "相关测试 `test_hstack` 的断言 `assert m.rows == 0 and m.cols == 6` 表明期望列数为 6。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`Matrix.hstack` 在堆叠多个矩阵时，无论其行数是否为 0，都应返回一个矩阵，其行数与输入矩阵的行数相同（对于零行矩阵，行数为 0），其列数应为所有输入矩阵列数的总和。",
+  "evidence": [
+    "原始 Issue 中 sympy 1.0 的行为和 sympy 1.1 中行数非零时的正确行为。",
+    "相关测试 `test_hstack` 中的断言 `assert m.rows == 0 and m.cols == 6`。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Matrix.hstack",
+    "kind": "class_function",
+    "source_path": "sympy/matrices/common.py",
+    "reason": "这是 Issue 中直接调用的、行为发生改变的方法。"
+  },
+  {
+    "name": "Matrix.zeros",
+    "kind": "class_function",
+    "source_path": "sympy/matrices/common.py",
+    "reason": "用于创建触发缺陷的特定输入矩阵（零行矩阵）。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "测试 `test_hstack` 中的回归测试部分直接使用了 `Matrix.zeros(0,0), Matrix.zeros(0,1), Matrix.zeros(0,2), Matrix.zeros(0,3)` 作为输入。",
+    "target_pattern": "保持相同的输入模式。由于该测试已经断言了正确行为，它可能在新版本（sympy 1.1）下会失败，从而直接复现 Issue。因此，变异可能不是必须的，但可以尝试改变列数的组合（例如使用 `(0,0), (0,2), (0,5)`）以验证问题的普遍性。",
+    "reason": "Issue 描述的现象表明，在 sympy 1.1 下，该特定输入会产生错误结果。如果现有测试在新版本下运行失败，则直接复现。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "`result = Matrix.hstack(M1, M2, M3, M4); result.shape` 或 `result.rows, result.cols`。",
+    "reason": "Issue 的核心错误是返回矩阵的形状（特别是列数）不正确。观察 `.shape` 属性或 `.cols` 属性可以直接捕获错误。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`Matrix.hstack` 返回的矩阵的列数应等于所有输入矩阵列数的总和。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的矩阵内容（如 `==` 比较整个矩阵），因为零矩阵的内容都是 0，无法区分形状错误。避免断言私有属性。",
+    "reason": "形状（特别是列数）是问题的直接体现，且 `.cols` 是公开属性，断言稳定。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 `sympy` 或直接从 `sympy.matrices` 导入 `Matrix`。测试可以在普通的 Python 函数中运行，无需特殊 fixture。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "缺陷是否也影响 `Matrix.vstack` 方法（如 Issue 标题所示）。",
+  "缺陷的确切触发边界条件：是否所有参与堆叠的矩阵都必须行数为 0？第一个矩阵是 `zeros(0,0)` 是否是必要条件？",
+  "`Matrix.hstack` 内部是调用 `row_join` 实现的，具体是 `hstack` 的逻辑错误还是 `row_join` 的逻辑错误。"
+]

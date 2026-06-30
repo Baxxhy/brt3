@@ -1,0 +1,364 @@
+{
+  "instance_id": "django__django-12908",
+  "issue_summary": "对经过 annotate 的两个 QuerySet 执行 union 后，再调用 distinct('field') 无法正确去重，导致返回结果数错误。",
+  "trigger_condition": {
+    "text": "创建两个 QuerySet，分别使用 filter 和 annotate 添加不同的注解，然后对它们执行 union 操作，最后对 union 后的结果调用 .order_by('field').distinct('field')。",
+    "evidence": [
+      "Issue 中的测试代码：qs1 = qs.filter(name='Dub').annotate(rank=Value(0, IntegerField())); qs2 = qs.filter(name='Sam1').annotate(rank=Value(1, IntegerField())); qs = qs1.union(qs2); qs = qs.order_by('name').distinct('name');",
+      "相关测试 3 展示了 union 与 annotated values_list 的结合使用。",
+      "相关测试 4 展示了 distinct('field') 的基本用法和与组合查询的交互。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": ".distinct('name') 调用后，查询结果没有按 'name' 字段去重，导致 qs.count() 返回的值大于预期（预期为 2）。生成的 SQL 可能没有正确地将 DISTINCT ON 应用于 UNION 子查询的外部。",
+    "symptom_type": "wrong_return",
+    "evidence": [
+      "Issue 中注释：\"THIS DISTINCT DOESN'T WORK\"。",
+      "Issue 中断言：self.assertEqual(qs.count(), 2)，暗示实际结果不等于 2。",
+      "Issue 中描述了期望的 SQL 结构，暗示实际生成的 SQL 不符合该结构。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "对经过 union 组合的 QuerySet 调用 .distinct('field') 应该正确生成 SQL，对 UNION 子查询的结果集按指定字段进行去重，使得查询返回的结果数量符合去重后的预期。",
+    "evidence": [
+      "Issue 中明确说明 \"expected to get wrapped union\" 并给出了期望的 SQL 片段。",
+      "相关测试 4 表明 .distinct('field') 在非 union 查询中正常工作。",
+      "Django 的 .distinct('field') 功能设计目的就是按字段去重。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "QuerySet.union",
+      "kind": "method",
+      "source_path": "django/db/models/query.py",
+      "reason": "Issue 的核心操作之一，用于组合两个 QuerySet。"
+    },
+    {
+      "name": "QuerySet.distinct",
+      "kind": "method",
+      "source_path": "",
+      "reason": "Issue 的核心操作，报告其在与 union 结合时失效。"
+    },
+    {
+      "name": "QuerySet.annotate",
+      "kind": "method",
+      "source_path": "django/db/models/query.py",
+      "reason": "Issue 中触发条件的关键步骤，用于给 QuerySet 添加注解。"
+    },
+    {
+      "name": "Value",
+      "kind": "class",
+      "source_path": "django/db/models/expressions.py",
+      "reason": "Issue 测试代码中用于 annotate 的表达式。"
+    },
+    {
+      "name": "IntegerField",
+      "kind": "class",
+      "source_path": "django/forms/fields.py",
+      "reason": "Issue 测试代码中 Value 表达式的 output_field 参数类型。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/db/models/query.py",
+      "object": "QuerySet._combinator_query 或与 union/distinct 组合处理相关的方法",
+      "lines": "",
+      "reason": "union 操作通过 _combinator_query 实现，而 distinct('field') 需要与组合查询的 SQL 生成逻辑正确交互。问题可能在于组合查询后，distinct on fields 的 SQL 包装逻辑有误。"
+    },
+    {
+      "path": "django/db/models/sql/query.py",
+      "object": "Query 类中处理 distinct on fields 和子查询（subquery）的方法",
+      "lines": "",
+      "reason": "SQL 查询的构建（包括 DISTINCT ON 和子查询包装）最终由 Query 类负责。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "QuerySetSetOperationTests.test_union_with_two_annotated_values_list",
+      "test_file": "tests/queries/test_qs_combinators.py",
+      "why_relevant": "该测试涉及两个 QuerySet 的 annotate 和 union 操作，并使用了 Value 和 IntegerField，与 Issue 的触发条件高度相似。它展示了 union 后对结果进行断言的基本模式。",
+      "reusable_parts": [
+        "测试类 QuerySetSetOperationTests 和装饰器 @skipUnlessDBFeature('supports_select_union')",
+        "使用 Number 模型作为测试数据",
+        "使用 .annotate() 与 Value/IntegerField",
+        "使用 .union() 组合查询",
+        "使用 assertCountEqual 对查询结果进行断言"
+      ],
+      "possible_gap": "该测试在 union 后直接使用 values_list 并断言整个结果集，没有测试 .distinct('field') 功能。需要变异为在 union 后调用 .distinct('field') 并检查去重效果。"
+    },
+    {
+      "test_name": "DistinctOnTests.test_basic_distinct_on",
+      "test_file": "tests/distinct_on_fields/tests.py",
+      "why_relevant": "该测试专门测试 .distinct('field') 功能，包括其基本行为以及与组合查询（使用 | 运算符）的交互。提供了 .distinct('field') 的正确用法和预期结果的示例。",
+      "reusable_parts": [
+        "测试类 DistinctOnTests 和相关的数据库特性跳过装饰器",
+        "使用 Staff, Celebrity 等模型",
+        ".distinct('field') 的调用方式",
+        "使用 assertQuerysetEqual 和 .count() 进行断言",
+        "展示了组合查询（queryset | queryset）与 distinct 的交互测试"
+      ],
+      "possible_gap": "该测试使用 |（OR）进行组合，而非 .union()。需要将组合方式变异为 .union()，并确保组合前的 QuerySet 经过了 .annotate() 操作。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "call_chain",
+      "current_pattern": "QuerySet.annotate(...).union(...).values_list(...) 或 QuerySet.distinct('field') 用于简单查询或 | 组合查询。",
+      "target_pattern": "QuerySet.filter(...).annotate(...).union(另一个 QuerySet.filter(...).annotate(...)).order_by('field').distinct('field')",
+      "reason": "Issue 表明特定的调用链（annotate -> union -> distinct('field')）会触发缺陷。需要将相似测试中的查询构建模式变异为此链。",
+      "confidence": "high"
+    },
+    {
+      "slot": "argument",
+      "current_pattern": ".distinct('field') 应用于单个 QuerySet 或由 | 组合的 QuerySet。",
+      "target_pattern": ".distinct('field') 应用于由 .union() 组合的 QuerySet，且组合前的 QuerySet 都包含注解（annotations）。",
+      "reason": "缺陷可能依赖于 union 操作数的状态（是否被注解）以及组合操作符的类型（union vs OR）。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "sql",
+      "expression_hint": "str(qs.query) 或 connection.queries 中捕获的原始 SQL 语句。",
+      "reason": "Issue 的核心是生成的 SQL 不正确。观察实际 SQL 是否包含 \"DISTINCT ON\" 以及是否正确地包装了 UNION 子查询，是判断问题是否触发的直接证据。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "qs.count() 的返回值，或者 list(qs.values_list('field', flat=True)) 的结果。",
+      "reason": "Issue 通过断言 count() 失败来展示症状。观察去重后的记录数量是否符合预期是验证功能是否正常的关键。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "对 union 并 distinct('field') 后的 QuerySet 执行 count()，结果应等于按指定字段去重后的预期记录数。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言完整的 SQL 字符串，因为 SQL 可能因数据库后端、Django 版本或模型定义而有细微差别。避免断言内部 Query 对象的私有属性。",
+      "reason": "count() 是公开的、稳定的 API，其返回值直接反映了去重功能是否生效，与 Issue 描述的症状（count 错误）完全对齐。"
+    },
+    {
+      "assertion_goal": "生成的 SQL 语句应包含 \"DISTINCT ON\" 关键字以及对 UNION 子查询的包装（即外层 SELECT 包含 DISTINCT ON，内层是 UNION）。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的、精确的 SQL 字符串匹配。",
+      "reason": "SQL 片段检查可以稳定地验证 DISTINCT ON 是否被正确应用到了 UNION 查询之上，而不依赖于具体的表名、别名或数据库引号风格。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要使用支持 SELECT UNION 和 DISTINCT ON 字段的数据库后端（如 PostgreSQL）。测试类应继承自 django.test.TestCase 以确保测试数据库的隔离。需要创建具有重复字段值的模型实例。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可以参考相关测试中 Number、Staff 等模型的用法，创建自己的测试模型或使用现有的测试模型，并插入包含重复 'name' 字段值的数据。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "是否所有数据库后端（如 PostgreSQL, SQLite, MySQL）都会表现出相同的问题，或者只有支持 DISTINCT ON 的后端才会触发。",
+    ".distinct() 不带字段参数时，在与 union 结合时是否工作正常。",
+    "除了 count()，其他查询集方法（如 values(), values_list(), exists()）是否也会表现出错误。",
+    "问题是否只出现在两个 QuerySet 都被 annotate 的情况下，还是只要 union 就会触发。",
+    "union 时使用 all=True 参数对 distinct('field') 行为的影响。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "Union queryset should raise on distinct().\nDescription\n\t \n\t\t(last modified by Sielc Technologies)\n\t \nAfter using\n.annotate() on 2 different querysets\nand then .union()\n.distinct() will not affect the queryset\n\tdef setUp(self) -> None:\n\t\tuser = self.get_or_create_admin_user()\n\t\tSample.h.create(user, name=\"Sam1\")\n\t\tSample.h.create(user, name=\"Sam2 acid\")\n\t\tSample.h.create(user, name=\"Sam3\")\n\t\tSample.h.create(user, name=\"Sam4 acid\")\n\t\tSample.h.create(user, name=\"Dub\")\n\t\tSample.h.create(user, name=\"Dub\")\n\t\tSample.h.create(user, name=\"Dub\")\n\t\tself.user = user\n\tdef test_union_annotated_diff_distinct(self):\n\t\tqs = Sample.objects.filter(user=self.user)\n\t\tqs1 = qs.filter(name='Dub').annotate(rank=Value(0, IntegerField()))\n\t\tqs2 = qs.filter(name='Sam1').annotate(rank=Value(1, IntegerField()))\n\t\tqs = qs1.union(qs2)\n\t\tqs = qs.order_by('name').distinct('name') # THIS DISTINCT DOESN'T WORK\n\t\tself.assertEqual(qs.count(), 2)\nexpected to get wrapped union\n\tSELECT DISTINCT ON (siebox_sample.name) * FROM (SELECT ... UNION SELECT ...) AS siebox_sample",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 Django 中，对两个经过 .annotate() 的 QuerySet 执行 .union() 后，再调用 .distinct('field') 不会产生预期的去重效果。具体表现为：对合并后的 QuerySet 按特定字段去重时，生成的 SQL 没有正确包装 UNION 子查询，导致 .distinct('field') 无效，返回的记录数多于预期。期望的行为是 .distinct('field') 应作用于 UNION 查询的结果集之上，生成类似 SELECT DISTINCT ON (field) * FROM (SELECT ... UNION SELECT ...) 的 SQL。",
+      "facts_from_issue": [
+        "对两个不同的 QuerySet 使用 .annotate() 后，再执行 .union()。",
+        "对 union 后的 QuerySet 调用 .distinct('field') 不会影响查询结果。",
+        "Issue 中提供了一个测试用例，展示了具体的操作步骤和失败的断言。",
+        "期望的 SQL 是 SELECT DISTINCT ON (siebox_sample.name) * FROM (SELECT ... UNION SELECT ...) AS siebox_sample。"
+      ],
+      "facts_from_retrieved_context": [
+        "QuerySet 类有 filter, annotate, union, distinct 等方法。",
+        "Value 和 IntegerField 是 Django 表达式和字段类。",
+        "存在测试文件 tests/queries/test_qs_combinators.py，其中包含 union 和 distinct 相关的测试。",
+        "存在测试文件 tests/distinct_on_fields/tests.py，其中包含 .distinct('field') 的测试。"
+      ],
+      "inferences": [
+        "Issue 中的 Sample 是一个 Django 模型。",
+        "操作涉及 QuerySet 的组合操作：filter -> annotate -> union -> order_by -> distinct('field')。",
+        "问题可能出在 union 查询与 distinct on fields 功能结合时的 SQL 生成逻辑上。",
+        "测试用例期望 qs.count() 返回 2，但实际返回了更多（可能是 3 或更多）。"
+      ],
+      "do_not_assume": [
+        "具体的数据库后端（PostgreSQL 等）是唯一影响因素。",
+        ".distinct() 不带参数时是否有效。",
+        "union 时使用 all=True 参数的影响。",
+        "除了 count() 之外的其他查询方法（如 values_list）的表现。"
+      ]
+    },
+    "issue_summary": "对经过 annotate 的两个 QuerySet 执行 union 后，再调用 distinct('field') 无法正确去重，导致返回结果数错误。",
+    "trigger_condition": {
+      "text": "创建两个 QuerySet，分别使用 filter 和 annotate 添加不同的注解，然后对它们执行 union 操作，最后对 union 后的结果调用 .order_by('field').distinct('field')。",
+      "evidence": [
+        "Issue 中的测试代码：qs1 = qs.filter(name='Dub').annotate(rank=Value(0, IntegerField())); qs2 = qs.filter(name='Sam1').annotate(rank=Value(1, IntegerField())); qs = qs1.union(qs2); qs = qs.order_by('name').distinct('name');",
+        "相关测试 3 展示了 union 与 annotated values_list 的结合使用。",
+        "相关测试 4 展示了 distinct('field') 的基本用法和与组合查询的交互。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": ".distinct('name') 调用后，查询结果没有按 'name' 字段去重，导致 qs.count() 返回的值大于预期（预期为 2）。生成的 SQL 可能没有正确地将 DISTINCT ON 应用于 UNION 子查询的外部。",
+      "symptom_type": "wrong_return",
+      "evidence": [
+        "Issue 中注释：\"THIS DISTINCT DOESN'T WORK\"。",
+        "Issue 中断言：self.assertEqual(qs.count(), 2)，暗示实际结果不等于 2。",
+        "Issue 中描述了期望的 SQL 结构，暗示实际生成的 SQL 不符合该结构。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "对经过 union 组合的 QuerySet 调用 .distinct('field') 应该正确生成 SQL，对 UNION 子查询的结果集按指定字段进行去重，使得查询返回的结果数量符合去重后的预期。",
+      "evidence": [
+        "Issue 中明确说明 \"expected to get wrapped union\" 并给出了期望的 SQL 片段。",
+        "相关测试 4 表明 .distinct('field') 在非 union 查询中正常工作。",
+        "Django 的 .distinct('field') 功能设计目的就是按字段去重。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "QuerySet.union",
+        "kind": "method",
+        "source_path": "django/db/models/query.py",
+        "reason": "Issue 的核心操作之一，用于组合两个 QuerySet。"
+      },
+      {
+        "name": "QuerySet.distinct",
+        "kind": "method",
+        "source_path": "",
+        "reason": "Issue 的核心操作，报告其在与 union 结合时失效。"
+      },
+      {
+        "name": "QuerySet.annotate",
+        "kind": "method",
+        "source_path": "django/db/models/query.py",
+        "reason": "Issue 中触发条件的关键步骤，用于给 QuerySet 添加注解。"
+      },
+      {
+        "name": "Value",
+        "kind": "class",
+        "source_path": "django/db/models/expressions.py",
+        "reason": "Issue 测试代码中用于 annotate 的表达式。"
+      },
+      {
+        "name": "IntegerField",
+        "kind": "class",
+        "source_path": "django/forms/fields.py",
+        "reason": "Issue 测试代码中 Value 表达式的 output_field 参数类型。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/db/models/query.py",
+        "object": "QuerySet._combinator_query 或与 union/distinct 组合处理相关的方法",
+        "lines": "",
+        "reason": "union 操作通过 _combinator_query 实现，而 distinct('field') 需要与组合查询的 SQL 生成逻辑正确交互。问题可能在于组合查询后，distinct on fields 的 SQL 包装逻辑有误。"
+      },
+      {
+        "path": "django/db/models/sql/query.py",
+        "object": "Query 类中处理 distinct on fields 和子查询（subquery）的方法",
+        "lines": "",
+        "reason": "SQL 查询的构建（包括 DISTINCT ON 和子查询包装）最终由 Query 类负责。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "QuerySetSetOperationTests.test_union_with_two_annotated_values_list",
+        "test_file": "tests/queries/test_qs_combinators.py",
+        "why_relevant": "该测试涉及两个 QuerySet 的 annotate 和 union 操作，并使用了 Value 和 IntegerField，与 Issue 的触发条件高度相似。它展示了 union 后对结果进行断言的基本模式。",
+        "reusable_parts": [
+          "测试类 QuerySetSetOperationTests 和装饰器 @skipUnlessDBFeature('supports_select_union')",
+          "使用 Number 模型作为测试数据",
+          "使用 .annotate() 与 Value/IntegerField",
+          "使用 .union() 组合查询",
+          "使用 assertCountEqual 对查询结果进行断言"
+        ],
+        "possible_gap": "该测试在 union 后直接使用 values_list 并断言整个结果集，没有测试 .distinct('field') 功能。需要变异为在 union 后调用 .distinct('field') 并检查去重效果。"
+      },
+      {
+        "test_name": "DistinctOnTests.test_basic_distinct_on",
+        "test_file": "tests/distinct_on_fields/tests.py",
+        "why_relevant": "该测试专门测试 .distinct('field') 功能，包括其基本行为以及与组合查询（使用 | 运算符）的交互。提供了 .distinct('field') 的正确用法和预期结果的示例。",
+        "reusable_parts": [
+          "测试类 DistinctOnTests 和相关的数据库特性跳过装饰器",
+          "使用 Staff, Celebrity 等模型",
+          ".distinct('field') 的调用方式",
+          "使用 assertQuerysetEqual 和 .count() 进行断言",
+          "展示了组合查询（queryset | queryset）与 distinct 的交互测试"
+        ],
+        "possible_gap": "该测试使用 |（OR）进行组合，而非 .union()。需要将组合方式变异为 .union()，并确保组合前的 QuerySet 经过了 .annotate() 操作。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "call_chain",
+        "current_pattern": "QuerySet.annotate(...).union(...).values_list(...) 或 QuerySet.distinct('field') 用于简单查询或 | 组合查询。",
+        "target_pattern": "QuerySet.filter(...).annotate(...).union(另一个 QuerySet.filter(...).annotate(...)).order_by('field').distinct('field')",
+        "reason": "Issue 表明特定的调用链（annotate -> union -> distinct('field')）会触发缺陷。需要将相似测试中的查询构建模式变异为此链。",
+        "confidence": "high"
+      },
+      {
+        "slot": "argument",
+        "current_pattern": ".distinct('field') 应用于单个 QuerySet 或由 | 组合的 QuerySet。",
+        "target_pattern": ".distinct('field') 应用于由 .union() 组合的 QuerySet，且组合前的 QuerySet 都包含注解（annotations）。",
+        "reason": "缺陷可能依赖于 union 操作数的状态（是否被注解）以及组合操作符的类型（union vs OR）。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "sql",
+        "expression_hint": "str(qs.query) 或 connection.queries 中捕获的原始 SQL 语句。",
+        "reason": "Issue 的核心是生成的 SQL 不正确。观察实际 SQL 是否包含 \"DISTINCT ON\" 以及是否正确地包装了 UNION 子查询，是判断问题是否触发的直接证据。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "qs.count() 的返回值，或者 list(qs.values_list('field', flat=True)) 的结果。",
+        "reason": "Issue 通过断言 count() 失败来展示症状。观察去重后的记录数量是否符合预期是验证功能是否正常的关键。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "对 union 并 distinct('field') 后的 QuerySet 执行 count()，结果应等于按指定字段去重后的预期记录数。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言完整的 SQL 字符串，因为 SQL 可能因数据库后端、Django 版本或模型定义而有细微差别。避免断言内部 Query 对象的私有属性。",
+        "reason": "count() 是公开的、稳定的 API，其返回值直接反映了去重功能是否生效，与 Issue 描述的症状（count 错误）完全对齐。"
+      },
+      {
+        "assertion_goal": "生成的 SQL 语句应包含 \"DISTINCT ON\" 关键字以及对 UNION 子查询的包装（即外层 SELECT 包含 DISTINCT ON，内层是 UNION）。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的、精确的 SQL 字符串匹配。",
+        "reason": "SQL 片段检查可以稳定地验证 DISTINCT ON 是否被正确应用到了 UNION 查询之上，而不依赖于具体的表名、别名或数据库引号风格。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要使用支持 SELECT UNION 和 DISTINCT ON 字段的数据库后端（如 PostgreSQL）。测试类应继承自 django.test.TestCase 以确保测试数据库的隔离。需要创建具有重复字段值的模型实例。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可以参考相关测试中 Number、Staff 等模型的用法，创建自己的测试模型或使用现有的测试模型，并插入包含重复 'name' 字段值的数据。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "是否所有数据库后端（如 PostgreSQL, SQLite, MySQL）都会表现出相同的问题，或者只有支持 DISTINCT ON 的后端才会触发。",
+      ".distinct() 不带字段参数时，在与 union 结合时是否工作正常。",
+      "除了 count()，其他查询集方法（如 values(), values_list(), exists()）是否也会表现出错误。",
+      "问题是否只出现在两个 QuerySet 都被 annotate 的情况下，还是只要 union 就会触发。",
+      "union 时使用 all=True 参数对 distinct('field') 行为的影响。"
+    ]
+  }
+}

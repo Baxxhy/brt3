@@ -1,0 +1,403 @@
+{
+  "instance_id": "django__django-16400",
+  "issue_summary": "使用 `--database` 参数调用 `migrate` 命令时，迁移后的某个数据库读取操作未使用指定数据库，错误地调用了数据库路由器。",
+  "trigger_condition": {
+    "text": "配置一个自定义数据库路由器（例如，依赖线程局部变量或引发异常的路由器），然后使用 `call_command(\"migrate\", app_label, database=\"specific_db\")` 或 `manage.py migrate --database=specific_db` 执行迁移命令。",
+    "evidence": [
+      "Issue 中提供了自定义路由器示例，并说明运行迁移时观察到 `\"read {}\"` 打印。",
+      "相关测试 `test_migrate_fake_initial` 和 `test_migrate_to_other_database` 展示了使用 `database` 参数调用迁移命令的模式。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "在迁移命令执行后，观察到自定义路由器的 `db_for_read` 方法被调用（打印了 `\"read {}\"`），并可能抛出异常（如 `InvalidTenantException`）。这表明一个未使用指定数据库参数的读取请求触发了路由器。",
+    "symptom_type": "exception",
+    "evidence": [
+      "Issue 描述：\"We see that 'read {}' is being printed before the exception message.\"",
+      "Issue 中的自定义路由器在 `db_for_read` 中打印并可能抛出 `InvalidTenantException`。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "当使用 `--database` 参数调用 `migrate` 命令时，该命令上下文中的所有数据库操作（包括迁移后可能进行的任何权限相关操作）都应使用指定的数据库，不应触发数据库路由器的 `db_for_read` 或 `db_for_write` 方法（或者调用时能正确使用指定数据库而不依赖路由器逻辑）。",
+    "evidence": [
+      "Issue 描述：\"When naming the db as a parameter, all DB calls in the context of the migrate command are expected to use the database specified.\"",
+      "Issue 描述：\"Ideally none of this code must be called as the DB was specified during management command.\""
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "call_command",
+      "kind": "function",
+      "source_path": "django.core.management",
+      "reason": "用于在测试中调用 `migrate` 管理命令。"
+    },
+    {
+      "name": "migrate",
+      "kind": "command",
+      "source_path": "django.core.management.commands.migrate",
+      "reason": "Issue 报告缺陷的管理命令。"
+    },
+    {
+      "name": "MigrationExecutor.migrate",
+      "kind": "method",
+      "source_path": "django/db/migrations/executor.py",
+      "reason": "检索到的源码显示这是执行迁移的核心方法。"
+    },
+    {
+      "name": "ConnectionRouter",
+      "kind": "class",
+      "source_path": "django/db/utils.py",
+      "reason": "检索到的源码包含路由器逻辑；Issue 涉及自定义路由器。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/db/migrations/executor.py",
+      "object": "MigrationExecutor.migrate 方法或其调用的下游方法",
+      "lines": "94-145",
+      "reason": "这是执行迁移的核心方法，可能未将数据库上下文正确传播到所有操作。"
+    },
+    {
+      "path": "django/contrib/auth/management/__init__.py 或相关权限处理代码",
+      "object": "创建或同步权限的代码",
+      "lines": "",
+      "reason": "Issue 标题提到 \"adding Permissions\"，推断迁移后可能涉及权限创建/同步，该操作可能未使用指定数据库。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_migrate_fake_initial",
+      "test_file": "tests/migrations/test_commands.py",
+      "why_relevant": "该测试直接使用 `call_command(\"migrate\", ..., database=\"other\")` 调用迁移命令，并检查多数据库行为，与 Issue 的触发条件高度相似。",
+      "reusable_parts": [
+        "使用 `call_command` 调用 `migrate` 命令的模式",
+        "`database` 参数的使用",
+        "`override_settings` 来配置 `DATABASE_ROUTERS`",
+        "`MigrationTestBase` 测试基类可能提供的数据库断言方法"
+      ],
+      "possible_gap": "该测试使用的 `TestRouter` 可能不会暴露 Issue 中描述的路由器调用问题。需要将路由器替换为类似 Issue 中的自定义路由器（例如，在 `db_for_read` 中打印或引发异常），并观察迁移后是否被调用。"
+    },
+    {
+      "test_name": "test_migrate_to_other_database",
+      "test_file": "tests/multiple_database/tests.py",
+      "why_relevant": "该测试使用 `call_command(\"migrate\", ..., database=\"other\")` 并验证迁移在指定数据库上生效，展示了迁移命令与数据库参数的基本交互。",
+      "reusable_parts": [
+        "使用 `call_command` 调用 `migrate` 命令并指定 `database` 参数",
+        "`management.call_command` 的导入和使用",
+        "在 `other` 数据库上执行迁移的上下文"
+      ],
+      "possible_gap": "该测试没有使用自定义数据库路由器，也没有检查迁移过程中是否有意外的路由器调用。需要添加自定义路由器并观测其方法是否被调用。"
+    },
+    {
+      "test_name": "test_createcachetable_observes_database_router",
+      "test_file": "tests/cache/tests.py",
+      "why_relevant": "该测试专门验证另一个管理命令（`createcachetable`）是否遵守数据库路由器，展示了如何测试管理命令对路由器的尊重情况。",
+      "reusable_parts": [
+        "使用 `@override_settings(DATABASE_ROUTERS=[...])` 配置自定义路由器",
+        "使用 `management.call_command` 并指定 `database` 参数",
+        "使用 `assertNumQueries` 观测数据库活动（可借鉴思路）"
+      ],
+      "possible_gap": "该测试针对的是 `createcachetable` 命令，而非 `migrate`。需要将测试目标改为 `migrate` 命令，并调整观测点以捕获迁移后的读取请求。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "config",
+      "current_pattern": "相关测试中可能使用简单的 `TestRouter` 或没有路由器。",
+      "target_pattern": "配置一个自定义数据库路由器，在其 `db_for_read` 方法中打印日志或引发异常（如 `InvalidTenantException`），以清晰观测是否被调用。",
+      "reason": "Issue 的核心是路由器被意外调用。使用一个主动报告被调用的路由器可以明确暴露问题。",
+      "confidence": "high"
+    },
+    {
+      "slot": "call_chain",
+      "current_pattern": "相似测试可能只迁移到特定迁移版本或使用 `fake` 参数。",
+      "target_pattern": "执行一个完整的迁移（例如，到最新版本），可能涉及权限表的创建或更新，以触发迁移后潜在的权限同步操作。",
+      "reason": "Issue 提到 \"adding Permissions\"，推断缺陷可能在迁移后处理权限时触发。完整迁移更可能覆盖该代码路径。",
+      "confidence": "medium"
+    },
+    {
+      "slot": "object_state",
+      "current_pattern": "测试可能在空数据库或已有特定表状态下运行。",
+      "target_pattern": "确保在迁移前，权限相关表（如 `auth_permission`）不存在于任何数据库，或处于需要同步的状态。",
+      "reason": "权限的创建或同步可能只在表不存在或模型变更时发生，这可能是触发缺陷读取请求的条件。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "warning",
+      "expression_hint": "自定义路由器 `db_for_read` 方法中的打印输出（如 `print(\"read\", hints)`）。",
+      "reason": "Issue 中通过打印观察到路由器被调用。这是最直接的错误症状。"
+    },
+    {
+      "kind": "exception",
+      "expression_hint": "是否捕获到 `InvalidTenantException`（或类似的自定义异常）。",
+      "reason": "如果路由器被调用且其逻辑引发异常，这将直接导致测试失败，与 Issue 描述一致。"
+    },
+    {
+      "kind": "sql",
+      "expression_hint": "使用 Django 的数据库连接包装器或查询日志来捕获迁移后执行的 SQL 查询，特别是读取 `auth_permission` 或相关表的查询。",
+      "reason": "可以帮助识别是哪个具体的查询触发了路由器调用，并验证其是否使用了正确的数据库别名。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "在执行指定数据库的迁移命令后，自定义路由器的 `db_for_read` 方法不应被调用（或调用时 hints 中包含正确的数据库别名）。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言完整的 SQL 字符串或精确的查询数量，因为实现可能变化。避免断言私有属性。",
+      "reason": "Issue 的期望是路由器代码不被调用。观测打印输出或异常是最稳定且与 Issue 对齐的方式。"
+    },
+    {
+      "assertion_goal": "迁移命令应成功完成，不因路由器的意外调用而引发异常。",
+      "preferred_assertion_style": "raises",
+      "avoid": "断言迁移后数据库的精确状态（如表行数），除非与缺陷直接相关。",
+      "reason": "修复后，迁移应正常执行，不会因路由器抛出异常而失败。使用 `assertNotRaises` 或类似方式验证。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要使用 `TestCase` 或 `TransactionTestCase`，并配置多个数据库（如 'default' 和 'other'）。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "使用 `@override_settings(DATABASE_ROUTERS=[...])` 来注入自定义数据库路由器。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要创建或修改一个迁移文件，以确保迁移操作会涉及权限模型。",
+      "source": "inference",
+      "confidence": "medium"
+    },
+    {
+      "hint": "使用 `io.StringIO` 捕获命令输出，或使用 `mock.patch` 来拦截打印语句，以便在断言中检查。",
+      "source": "retrieved_test",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "触发缺陷读取请求的确切代码路径和调用时机（是在 `MigrationExecutor.migrate` 内部，还是在命令执行的更外层？）。",
+    "缺陷是否只影响权限（Permissions）的添加，还是会影响迁移后其他类型的后续数据库操作。",
+    "修复后的正确行为是：1) 完全避免调用路由器，还是 2) 调用路由器但传递正确的 `using` 参数或 hints，使路由器能返回指定的数据库？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "migrate management command does not respect database parameter when adding Permissions.\nDescription\n\t \n\t\t(last modified by Vasanth)\n\t \nWhen invoking migrate with a database parameter, the migration runs successfully. However, there seems to be a DB read request that runs after the migration. This call does not respect the db param and invokes the db router .\nWhen naming the db as a parameter, all DB calls in the context of the migrate command are expected to use the database specified.\nI came across this as I am currently using a thread-local variable to get the active DB with a custom DB router for a multi-tenant service .\nMinimal example \nSetup the custom middleware and custom DB Router as show below. Then run any DB migration. We see that \"read {}\" is being printed before the exception message.\nIdeally none of this code must be called as the DB was specified during management command.\nfrom threading import local\nfrom django.conf import settings\nlocal_state = local()\nclass InvalidTenantException(Exception):\n\tpass\nclass TenantSubdomainMiddleware:\n\tdef __init__(self, get_response):\n\t\tself.get_response = get_response\n\tdef __call__(self, request):\n\t\t## Get Subdomain\n\t\thost = request.get_host().split(\":\")[0]\n\t\tlocal_state.subdomain = (\n\t\t\t# We assume single level of subdomain : app.service.com \n\t\t\t# HOST_IP : used to for local dev. \n\t\t\thost if host in settings.HOST_IP else host.split(\".\")[0]\n\t\t)\n\t\tresponse = self.get_response(request)\n\t\treturn response\nclass TenantDatabaseRouter:\n\tdef _default_db(self):\n\t\tsubdomain = getattr(local_state, \"subdomain\", None)\n\t\tif subdomain is not None and subdomain in settings.TENANT_MAP:\n\t\t\tdb_name = settings.TENANT_MAP[local_state.subdomain]\n\t\t\treturn db_name\n\t\telse:\n\t\t\traise InvalidTenantException()\n\tdef db_for_read(self, model, **hints):\n\t\tprint(\"read\", hints)\n\t\treturn self._default_db()\n\tdef db_for_write(self, model, **hints):\n\t\tprint(\"write\", hints)\n\t\treturn self._default_db()\n\tdef allow_relation(self, obj1, obj2, **hints):\n\t\treturn None\n\tdef allow_migrate(self, db, app_label, model_name=None, **hints):\n\t\treturn None\n## settings.py\nMIDDLEWARE = [\n\t\"utils.tenant_db_router.TenantSubdomainMiddleware\",\n\t\"django.middleware.security.SecurityMiddleware\",\n\t...\n]\nTENANT_MAP = {\"localhost\":\"default\", \"tenant_1\":\"default\"}\nDATABASE_ROUTERS = [\"utils.tenant_db_router.TenantDatabaseRouter\"]",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当使用 `--database` 参数调用 `migrate` 管理命令时，迁移操作本身成功执行，但随后会触发一个数据库读取请求。这个读取请求没有使用指定的数据库参数，而是调用了数据库路由器（`db_for_read`）。根据 Issue 描述，当指定了数据库参数时，`migrate` 命令上下文中的所有数据库调用都应使用该指定数据库，而不应触发路由器。用户通过自定义路由器（依赖线程局部变量）观察到 `\"read {}\"` 被打印，并最终抛出 `InvalidTenantException`。这表明在迁移后处理权限（Permissions）时，存在一个未尊重 `--database` 参数的数据库查询。",
+      "facts_from_issue": [
+        "使用 `--database` 参数调用 `migrate` 命令时，迁移成功。",
+        "迁移后有一个数据库读取请求被触发。",
+        "该读取请求没有使用指定的数据库参数，而是调用了数据库路由器。",
+        "用户期望：当指定了数据库参数时，`migrate` 命令上下文中的所有数据库调用都应使用该指定数据库。",
+        "用户使用了自定义数据库路由器，该路由器依赖线程局部变量来确定数据库。",
+        "运行迁移时，观察到 `\"read {}\"` 被打印，随后抛出异常。"
+      ],
+      "facts_from_retrieved_context": [
+        "`django/db/migrations/executor.py` 中的 `MigrationExecutor.migrate` 方法是执行迁移的核心。",
+        "`django/db/utils.py` 中的 `ConnectionRouter` 类包含 `allow_migrate` 和 `allow_relation` 方法。",
+        "相关测试 `test_migrate_fake_initial` 展示了使用 `call_command(\"migrate\", ..., database=\"other\")` 调用迁移命令。",
+        "相关测试 `test_migrate_to_other_database` 也使用了 `call_command(\"migrate\", ..., database=\"other\")`。",
+        "相关测试 `test_createcachetable_observes_database_router` 测试了其他管理命令（`createcachetable`）对数据库路由器的遵守情况。"
+      ],
+      "inferences": [
+        "缺陷可能与迁移后处理权限（Permissions）的代码路径有关，该路径可能未正确传递或使用 `database` 参数。",
+        "触发路由器调用的数据库查询可能与权限模型的创建或同步有关。",
+        "`MigrationExecutor.migrate` 方法或其调用的某个下游函数可能没有将 `database` 上下文正确传播到所有数据库操作。"
+      ],
+      "do_not_assume": [
+        "缺陷的确切代码位置（除了可能与权限处理相关）。",
+        "触发读取请求的具体模型或查询是什么。",
+        "修复后是否完全不会调用路由器，还是调用时能正确使用指定数据库。"
+      ]
+    },
+    "issue_summary": "使用 `--database` 参数调用 `migrate` 命令时，迁移后的某个数据库读取操作未使用指定数据库，错误地调用了数据库路由器。",
+    "trigger_condition": {
+      "text": "配置一个自定义数据库路由器（例如，依赖线程局部变量或引发异常的路由器），然后使用 `call_command(\"migrate\", app_label, database=\"specific_db\")` 或 `manage.py migrate --database=specific_db` 执行迁移命令。",
+      "evidence": [
+        "Issue 中提供了自定义路由器示例，并说明运行迁移时观察到 `\"read {}\"` 打印。",
+        "相关测试 `test_migrate_fake_initial` 和 `test_migrate_to_other_database` 展示了使用 `database` 参数调用迁移命令的模式。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "在迁移命令执行后，观察到自定义路由器的 `db_for_read` 方法被调用（打印了 `\"read {}\"`），并可能抛出异常（如 `InvalidTenantException`）。这表明一个未使用指定数据库参数的读取请求触发了路由器。",
+      "symptom_type": "exception",
+      "evidence": [
+        "Issue 描述：\"We see that 'read {}' is being printed before the exception message.\"",
+        "Issue 中的自定义路由器在 `db_for_read` 中打印并可能抛出 `InvalidTenantException`。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "当使用 `--database` 参数调用 `migrate` 命令时，该命令上下文中的所有数据库操作（包括迁移后可能进行的任何权限相关操作）都应使用指定的数据库，不应触发数据库路由器的 `db_for_read` 或 `db_for_write` 方法（或者调用时能正确使用指定数据库而不依赖路由器逻辑）。",
+      "evidence": [
+        "Issue 描述：\"When naming the db as a parameter, all DB calls in the context of the migrate command are expected to use the database specified.\"",
+        "Issue 描述：\"Ideally none of this code must be called as the DB was specified during management command.\""
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "call_command",
+        "kind": "function",
+        "source_path": "django.core.management",
+        "reason": "用于在测试中调用 `migrate` 管理命令。"
+      },
+      {
+        "name": "migrate",
+        "kind": "command",
+        "source_path": "django.core.management.commands.migrate",
+        "reason": "Issue 报告缺陷的管理命令。"
+      },
+      {
+        "name": "MigrationExecutor.migrate",
+        "kind": "method",
+        "source_path": "django/db/migrations/executor.py",
+        "reason": "检索到的源码显示这是执行迁移的核心方法。"
+      },
+      {
+        "name": "ConnectionRouter",
+        "kind": "class",
+        "source_path": "django/db/utils.py",
+        "reason": "检索到的源码包含路由器逻辑；Issue 涉及自定义路由器。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/db/migrations/executor.py",
+        "object": "MigrationExecutor.migrate 方法或其调用的下游方法",
+        "lines": "94-145",
+        "reason": "这是执行迁移的核心方法，可能未将数据库上下文正确传播到所有操作。"
+      },
+      {
+        "path": "django/contrib/auth/management/__init__.py 或相关权限处理代码",
+        "object": "创建或同步权限的代码",
+        "lines": "",
+        "reason": "Issue 标题提到 \"adding Permissions\"，推断迁移后可能涉及权限创建/同步，该操作可能未使用指定数据库。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_migrate_fake_initial",
+        "test_file": "tests/migrations/test_commands.py",
+        "why_relevant": "该测试直接使用 `call_command(\"migrate\", ..., database=\"other\")` 调用迁移命令，并检查多数据库行为，与 Issue 的触发条件高度相似。",
+        "reusable_parts": [
+          "使用 `call_command` 调用 `migrate` 命令的模式",
+          "`database` 参数的使用",
+          "`override_settings` 来配置 `DATABASE_ROUTERS`",
+          "`MigrationTestBase` 测试基类可能提供的数据库断言方法"
+        ],
+        "possible_gap": "该测试使用的 `TestRouter` 可能不会暴露 Issue 中描述的路由器调用问题。需要将路由器替换为类似 Issue 中的自定义路由器（例如，在 `db_for_read` 中打印或引发异常），并观察迁移后是否被调用。"
+      },
+      {
+        "test_name": "test_migrate_to_other_database",
+        "test_file": "tests/multiple_database/tests.py",
+        "why_relevant": "该测试使用 `call_command(\"migrate\", ..., database=\"other\")` 并验证迁移在指定数据库上生效，展示了迁移命令与数据库参数的基本交互。",
+        "reusable_parts": [
+          "使用 `call_command` 调用 `migrate` 命令并指定 `database` 参数",
+          "`management.call_command` 的导入和使用",
+          "在 `other` 数据库上执行迁移的上下文"
+        ],
+        "possible_gap": "该测试没有使用自定义数据库路由器，也没有检查迁移过程中是否有意外的路由器调用。需要添加自定义路由器并观测其方法是否被调用。"
+      },
+      {
+        "test_name": "test_createcachetable_observes_database_router",
+        "test_file": "tests/cache/tests.py",
+        "why_relevant": "该测试专门验证另一个管理命令（`createcachetable`）是否遵守数据库路由器，展示了如何测试管理命令对路由器的尊重情况。",
+        "reusable_parts": [
+          "使用 `@override_settings(DATABASE_ROUTERS=[...])` 配置自定义路由器",
+          "使用 `management.call_command` 并指定 `database` 参数",
+          "使用 `assertNumQueries` 观测数据库活动（可借鉴思路）"
+        ],
+        "possible_gap": "该测试针对的是 `createcachetable` 命令，而非 `migrate`。需要将测试目标改为 `migrate` 命令，并调整观测点以捕获迁移后的读取请求。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "config",
+        "current_pattern": "相关测试中可能使用简单的 `TestRouter` 或没有路由器。",
+        "target_pattern": "配置一个自定义数据库路由器，在其 `db_for_read` 方法中打印日志或引发异常（如 `InvalidTenantException`），以清晰观测是否被调用。",
+        "reason": "Issue 的核心是路由器被意外调用。使用一个主动报告被调用的路由器可以明确暴露问题。",
+        "confidence": "high"
+      },
+      {
+        "slot": "call_chain",
+        "current_pattern": "相似测试可能只迁移到特定迁移版本或使用 `fake` 参数。",
+        "target_pattern": "执行一个完整的迁移（例如，到最新版本），可能涉及权限表的创建或更新，以触发迁移后潜在的权限同步操作。",
+        "reason": "Issue 提到 \"adding Permissions\"，推断缺陷可能在迁移后处理权限时触发。完整迁移更可能覆盖该代码路径。",
+        "confidence": "medium"
+      },
+      {
+        "slot": "object_state",
+        "current_pattern": "测试可能在空数据库或已有特定表状态下运行。",
+        "target_pattern": "确保在迁移前，权限相关表（如 `auth_permission`）不存在于任何数据库，或处于需要同步的状态。",
+        "reason": "权限的创建或同步可能只在表不存在或模型变更时发生，这可能是触发缺陷读取请求的条件。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "warning",
+        "expression_hint": "自定义路由器 `db_for_read` 方法中的打印输出（如 `print(\"read\", hints)`）。",
+        "reason": "Issue 中通过打印观察到路由器被调用。这是最直接的错误症状。"
+      },
+      {
+        "kind": "exception",
+        "expression_hint": "是否捕获到 `InvalidTenantException`（或类似的自定义异常）。",
+        "reason": "如果路由器被调用且其逻辑引发异常，这将直接导致测试失败，与 Issue 描述一致。"
+      },
+      {
+        "kind": "sql",
+        "expression_hint": "使用 Django 的数据库连接包装器或查询日志来捕获迁移后执行的 SQL 查询，特别是读取 `auth_permission` 或相关表的查询。",
+        "reason": "可以帮助识别是哪个具体的查询触发了路由器调用，并验证其是否使用了正确的数据库别名。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "在执行指定数据库的迁移命令后，自定义路由器的 `db_for_read` 方法不应被调用（或调用时 hints 中包含正确的数据库别名）。",
+        "preferred_assertion_style": "not_contains_fragment",
+        "avoid": "断言完整的 SQL 字符串或精确的查询数量，因为实现可能变化。避免断言私有属性。",
+        "reason": "Issue 的期望是路由器代码不被调用。观测打印输出或异常是最稳定且与 Issue 对齐的方式。"
+      },
+      {
+        "assertion_goal": "迁移命令应成功完成，不因路由器的意外调用而引发异常。",
+        "preferred_assertion_style": "raises",
+        "avoid": "断言迁移后数据库的精确状态（如表行数），除非与缺陷直接相关。",
+        "reason": "修复后，迁移应正常执行，不会因路由器抛出异常而失败。使用 `assertNotRaises` 或类似方式验证。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要使用 `TestCase` 或 `TransactionTestCase`，并配置多个数据库（如 'default' 和 'other'）。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "使用 `@override_settings(DATABASE_ROUTERS=[...])` 来注入自定义数据库路由器。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要创建或修改一个迁移文件，以确保迁移操作会涉及权限模型。",
+        "source": "inference",
+        "confidence": "medium"
+      },
+      {
+        "hint": "使用 `io.StringIO` 捕获命令输出，或使用 `mock.patch` 来拦截打印语句，以便在断言中检查。",
+        "source": "retrieved_test",
+        "confidence": "medium"
+      }
+    ],
+    "uncertainties": [
+      "触发缺陷读取请求的确切代码路径和调用时机（是在 `MigrationExecutor.migrate` 内部，还是在命令执行的更外层？）。",
+      "缺陷是否只影响权限（Permissions）的添加，还是会影响迁移后其他类型的后续数据库操作。",
+      "修复后的正确行为是：1) 完全避免调用路由器，还是 2) 调用路由器但传递正确的 `using` 参数或 hints，使路由器能返回指定的数据库？"
+    ]
+  }
+}

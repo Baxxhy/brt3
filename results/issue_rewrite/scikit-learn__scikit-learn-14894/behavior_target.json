@@ -1,0 +1,308 @@
+{
+  "instance_id": "scikit-learn__scikit-learn-14894",
+  "issue_summary": "使用稀疏数据训练 SVR 模型时，当没有支持向量（support_vectors_ 为空）会导致 _sparse_fit 方法中出现除零错误。",
+  "trigger_condition": {
+    "text": "使用稀疏矩阵（如 scipy.sparse.csr_matrix）作为输入 X，调用 SVR(kernel='linear', C=316.227766017, gamma=1.0, ...).fit(X, y)，并且训练结果导致模型没有支持向量（support_vectors_.shape[0] == 0）。",
+    "evidence": [
+      "Issue 中的复现代码使用了 scipy.sparse.csr_matrix 转换后的数据。",
+      "Issue 描述明确指出 \"support_vectors_ attribute is be empty\"。",
+      "错误堆栈指向 _sparse_fit 方法。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "在 model.fit(xtrain, y_train) 调用过程中抛出 ZeroDivisionError: float division by zero，堆栈跟踪指向 sklearn/svm/base.py 第 302 行的 _sparse_fit 方法。",
+    "symptom_type": "exception",
+    "evidence": [
+      "Issue 的 Actual Results 部分提供了完整的错误堆栈。",
+      "错误信息明确为 \"ZeroDivisionError: float division by zero\"。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "当使用稀疏数据训练 SVR 模型且没有支持向量时，fit 方法应成功完成，不抛出异常，并正确设置模型属性（如 dual_coef_ 应为一个空的稀疏矩阵）。",
+    "evidence": [
+      "Issue 的 Expected Results 部分写明 \"No error is thrown and `self.dual_coef_ = sp.csr_matrix([])\"。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "SVR",
+      "kind": "class",
+      "source_path": "sklearn/svm/classes.py",
+      "reason": "Issue 中触发缺陷的模型类。"
+    },
+    {
+      "name": "fit",
+      "kind": "method",
+      "source_path": "sklearn/svm/base.py",
+      "reason": "触发缺陷的调用方法，根据堆栈跟踪，fit 方法内部调用了 _sparse_fit。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sklearn/svm/base.py",
+      "object": "_sparse_fit",
+      "lines": "302",
+      "reason": "错误堆栈明确指出 ZeroDivisionError 发生在该文件的第 302 行，表达式为 `dual_coef_indices.size / n_class`。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_svr",
+      "test_file": "sklearn/svm/tests/test_svm.py",
+      "why_relevant": "该测试展示了 SVR 模型的基本训练流程，包括使用线性核和不同配置进行拟合，并检查 score。它提供了 SVR 对象构造和 fit 调用的模板。",
+      "reusable_parts": [
+        "从 sklearn.svm 导入 svm 模块",
+        "SVR 对象的构造和参数设置",
+        "调用 fit 方法并传入数据",
+        "使用 score 方法进行基本验证"
+      ],
+      "possible_gap": "该测试使用密集数据（diabetes.data）且未触发 support_vectors_ 为空的情况。需要将输入数据改为特定的稀疏矩阵，并可能调整参数以诱导没有支持向量的结果。"
+    },
+    {
+      "test_name": "test_n_support_oneclass_svr",
+      "test_file": "sklearn/svm/tests/test_svm.py",
+      "why_relevant": "该测试直接检查了 n_support_ 属性与 support_vectors_.shape[0] 的关系，这与 Issue 中涉及的属性（support_vectors_）高度相关。",
+      "reusable_parts": [
+        "对 support_vectors_ 和 n_support_ 属性的断言模式",
+        "使用 assert 验证形状和数量关系"
+      ],
+      "possible_gap": "该测试使用的数据（简单的数值数组）会产生支持向量，不会触发空 support_vectors_ 的场景。需要修改数据或参数使得 fit 后 support_vectors_ 为空。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "相关测试中使用密集的 numpy 数组作为输入 X（如 diabetes.data 或简单的数值数组）。",
+      "target_pattern": "将输入 X 替换为稀疏矩阵（scipy.sparse.csr_matrix），并使用 Issue 中提供的或类似的、可能导致没有支持向量的特定数据。",
+      "reason": "错误仅在使用稀疏数据时触发，且需要诱导 support_vectors_ 为空的条件。",
+      "confidence": "high"
+    },
+    {
+      "slot": "argument",
+      "current_pattern": "测试中通常使用默认或常规的 SVR 参数（如 C=1.0, kernel='rbf'）。",
+      "target_pattern": "使用 Issue 中提供的特定参数：C=316.227766017, kernel='linear', gamma=1.0, max_iter=15000 等。",
+      "reason": "Issue 中的复现代码使用了这些特定参数，它们可能与触发空支持向量的边界条件有关。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "在调用 model.fit(X_sparse, y) 时是否抛出 ZeroDivisionError 或其他异常。",
+      "reason": "这是 Issue 报告的直接错误现象。"
+    },
+    {
+      "kind": "state",
+      "expression_hint": "拟合后 model.support_vectors_.shape[0] 的值（支持向量的数量）。",
+      "reason": "Issue 的核心条件是 support_vectors_ 为空（即数量为0）。观测此属性可以确认是否进入了缺陷路径。"
+    },
+    {
+      "kind": "type",
+      "expression_hint": "拟合后 model.dual_coef_ 的类型和形状。",
+      "reason": "期望行为中提到了 dual_coef_ 应被设置为一个空的稀疏矩阵。观测其类型和形状可以验证行为。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "使用稀疏输入数据调用 model.fit 时，不应抛出 ZeroDivisionError 异常。",
+      "preferred_assertion_style": "raises",
+      "avoid": "断言具体的错误消息字符串完全匹配，因为修复后的异常类型可能改变。",
+      "reason": "修复后，fit 调用应该成功完成。断言不抛出特定异常是直接验证期望行为的方式。"
+    },
+    {
+      "assertion_goal": "当 support_vectors_ 为空时，model.dual_coef_ 应该是一个稀疏矩阵类型（如 csr_matrix）且其形状表示为空（例如，size 为 0）。",
+      "preferred_assertion_style": "isinstance",
+      "avoid": "断言 dual_coef_ 完全等于一个特定的 csr_matrix([]) 对象，因为内部表示可能有细微差别。",
+      "reason": "Issue 明确期望 dual_coef_ 被设置为一个空的稀疏矩阵。检查其类型和空状态是稳定且公开的断言。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要导入 numpy, scipy.sparse, sklearn.svm.SVR。可能需要使用 pytest 的异常断言上下文管理器（pytest.raises）。",
+      "source": "issue",
+      "confidence": "high"
+    },
+    {
+      "hint": "可以参考现有测试文件 sklearn/svm/tests/test_svm.py 中的导入和测试类结构。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "导致 support_vectors_ 为空的精确数据模式和参数组合，除了 Issue 示例外是否还有其他边界情况。",
+    "n_class 变量的具体含义、来源以及在 _sparse_fit 方法中的计算逻辑。",
+    "修复后，除了 dual_coef_，其他模型属性（如 coef_, intercept_）在空支持向量情况下的预期状态是什么。",
+    "错误是否也存在于其他 SVM 模型（如 SVC, NuSVR）的稀疏拟合路径中。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "ZeroDivisionError in _sparse_fit for SVM with empty support_vectors_\n#### Description\nWhen using sparse data, in the case where the support_vectors_ attribute is be empty, _fit_sparse gives a ZeroDivisionError\n\n#### Steps/Code to Reproduce\n```\nimport numpy as np\nimport scipy\nimport sklearn\nfrom sklearn.svm import SVR\nx_train = np.array([[0, 1, 0, 0],\n[0, 0, 0, 1],\n[0, 0, 1, 0],\n[0, 0, 0, 1]])\ny_train = np.array([0.04, 0.04, 0.10, 0.16])\nmodel = SVR(C=316.227766017, cache_size=200, coef0=0.0, degree=3, epsilon=0.1,\n  \t    gamma=1.0, kernel='linear', max_iter=15000,\n  \t    shrinking=True, tol=0.001, verbose=False)\n# dense x_train has no error\nmodel.fit(x_train, y_train)\n\n# convert to sparse\nxtrain= scipy.sparse.csr_matrix(x_train)\nmodel.fit(xtrain, y_train)\n\n```\n#### Expected Results\nNo error is thrown and  `self.dual_coef_ = sp.csr_matrix([])`\n\n#### Actual Results\n```\nTraceback (most recent call last):\n  File \"<stdin>\", line 1, in <module>\n  File \"/usr/local/lib/python3.5/dist-packages/sklearn/svm/base.py\", line 209, in fit\n    fit(X, y, sample_weight, solver_type, kernel, random_seed=seed)\n  File \"/usr/local/lib/python3.5/dist-packages/sklearn/svm/base.py\", line 302, in _sparse_fit\n    dual_coef_indices.size / n_class)\nZeroDivisionError: float division by zero\n```\n\n#### Versions\n```\n>>> sklearn.show_versions() \n\nSystem:\nexecutable: /usr/bin/python3\n    python: 3.5.2 (default, Nov 12 2018, 13:43:14)  [GCC 5.4.0 20160609]\n   machine: Linux-4.15.0-58-generic-x86_64-with-Ubuntu-16.04-xenial\n\nPython deps:\n     numpy: 1.17.0\n    Cython: None\n       pip: 19.2.1\n    pandas: 0.22.0\n   sklearn: 0.21.3\n     scipy: 1.3.0\nsetuptools: 40.4.3\n```",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当使用稀疏数据训练 SVR 模型时，如果训练结果导致 support_vectors_ 属性为空（即没有支持向量），在 _sparse_fit 方法中会发生 ZeroDivisionError。具体错误发生在 sklearn/svm/base.py 第 302 行，计算 `dual_coef_indices.size / n_class` 时除数为零。期望的行为是：不抛出异常，并且将 self.dual_coef_ 设置为一个空的稀疏矩阵（如 sp.csr_matrix([])）。",
+      "facts_from_issue": [
+        "使用稀疏数据训练 SVR 模型时，当 support_vectors_ 属性为空时，会触发 ZeroDivisionError。",
+        "错误发生在 sklearn/svm/base.py 的 _sparse_fit 方法第 302 行，表达式为 `dual_coef_indices.size / n_class`。",
+        "期望结果是不抛出异常，并且 `self.dual_coef_ = sp.csr_matrix([])`。",
+        "提供的复现代码使用了特定的参数：C=316.227766017, kernel='linear', gamma=1.0 等。"
+      ],
+      "facts_from_retrieved_context": [
+        "SVR 类继承自 RegressorMixin 和 BaseLibSVM，其 _impl 属性为 'epsilon_svr'。",
+        "相关测试 test_n_support_oneclass_svr 验证了 n_support_ 属性与 support_vectors_.shape[0] 的关系。",
+        "相关测试 test_svr 展示了 SVR 模型的基本训练流程。"
+      ],
+      "inferences": [
+        "错误可能源于当支持向量数量为零时，n_class 变量可能为零或未正确初始化，导致除法运算除数为零。",
+        "问题可能出现在处理稀疏数据的特定路径中，因为使用密集数据训练相同的模型没有错误。",
+        "修复后，模型应该能够处理 support_vectors_ 为空的情况，并正常完成训练，设置相应的属性。"
+      ],
+      "do_not_assume": [
+        "具体的 n_class 变量来源和计算逻辑。",
+        "除了 _sparse_fit 方法外，其他方法是否也受此影响。",
+        "导致 support_vectors_ 为空的精确数据条件，除了提供的示例外是否还有其他情况。",
+        "sp.csr_matrix([]) 是否是唯一或最合适的期望输出格式。"
+      ]
+    },
+    "issue_summary": "使用稀疏数据训练 SVR 模型时，当没有支持向量（support_vectors_ 为空）会导致 _sparse_fit 方法中出现除零错误。",
+    "trigger_condition": {
+      "text": "使用稀疏矩阵（如 scipy.sparse.csr_matrix）作为输入 X，调用 SVR(kernel='linear', C=316.227766017, gamma=1.0, ...).fit(X, y)，并且训练结果导致模型没有支持向量（support_vectors_.shape[0] == 0）。",
+      "evidence": [
+        "Issue 中的复现代码使用了 scipy.sparse.csr_matrix 转换后的数据。",
+        "Issue 描述明确指出 \"support_vectors_ attribute is be empty\"。",
+        "错误堆栈指向 _sparse_fit 方法。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "在 model.fit(xtrain, y_train) 调用过程中抛出 ZeroDivisionError: float division by zero，堆栈跟踪指向 sklearn/svm/base.py 第 302 行的 _sparse_fit 方法。",
+      "symptom_type": "exception",
+      "evidence": [
+        "Issue 的 Actual Results 部分提供了完整的错误堆栈。",
+        "错误信息明确为 \"ZeroDivisionError: float division by zero\"。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "当使用稀疏数据训练 SVR 模型且没有支持向量时，fit 方法应成功完成，不抛出异常，并正确设置模型属性（如 dual_coef_ 应为一个空的稀疏矩阵）。",
+      "evidence": [
+        "Issue 的 Expected Results 部分写明 \"No error is thrown and `self.dual_coef_ = sp.csr_matrix([])\"。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "SVR",
+        "kind": "class",
+        "source_path": "sklearn/svm/classes.py",
+        "reason": "Issue 中触发缺陷的模型类。"
+      },
+      {
+        "name": "fit",
+        "kind": "method",
+        "source_path": "sklearn/svm/base.py",
+        "reason": "触发缺陷的调用方法，根据堆栈跟踪，fit 方法内部调用了 _sparse_fit。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sklearn/svm/base.py",
+        "object": "_sparse_fit",
+        "lines": "302",
+        "reason": "错误堆栈明确指出 ZeroDivisionError 发生在该文件的第 302 行，表达式为 `dual_coef_indices.size / n_class`。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_svr",
+        "test_file": "sklearn/svm/tests/test_svm.py",
+        "why_relevant": "该测试展示了 SVR 模型的基本训练流程，包括使用线性核和不同配置进行拟合，并检查 score。它提供了 SVR 对象构造和 fit 调用的模板。",
+        "reusable_parts": [
+          "从 sklearn.svm 导入 svm 模块",
+          "SVR 对象的构造和参数设置",
+          "调用 fit 方法并传入数据",
+          "使用 score 方法进行基本验证"
+        ],
+        "possible_gap": "该测试使用密集数据（diabetes.data）且未触发 support_vectors_ 为空的情况。需要将输入数据改为特定的稀疏矩阵，并可能调整参数以诱导没有支持向量的结果。"
+      },
+      {
+        "test_name": "test_n_support_oneclass_svr",
+        "test_file": "sklearn/svm/tests/test_svm.py",
+        "why_relevant": "该测试直接检查了 n_support_ 属性与 support_vectors_.shape[0] 的关系，这与 Issue 中涉及的属性（support_vectors_）高度相关。",
+        "reusable_parts": [
+          "对 support_vectors_ 和 n_support_ 属性的断言模式",
+          "使用 assert 验证形状和数量关系"
+        ],
+        "possible_gap": "该测试使用的数据（简单的数值数组）会产生支持向量，不会触发空 support_vectors_ 的场景。需要修改数据或参数使得 fit 后 support_vectors_ 为空。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "相关测试中使用密集的 numpy 数组作为输入 X（如 diabetes.data 或简单的数值数组）。",
+        "target_pattern": "将输入 X 替换为稀疏矩阵（scipy.sparse.csr_matrix），并使用 Issue 中提供的或类似的、可能导致没有支持向量的特定数据。",
+        "reason": "错误仅在使用稀疏数据时触发，且需要诱导 support_vectors_ 为空的条件。",
+        "confidence": "high"
+      },
+      {
+        "slot": "argument",
+        "current_pattern": "测试中通常使用默认或常规的 SVR 参数（如 C=1.0, kernel='rbf'）。",
+        "target_pattern": "使用 Issue 中提供的特定参数：C=316.227766017, kernel='linear', gamma=1.0, max_iter=15000 等。",
+        "reason": "Issue 中的复现代码使用了这些特定参数，它们可能与触发空支持向量的边界条件有关。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "在调用 model.fit(X_sparse, y) 时是否抛出 ZeroDivisionError 或其他异常。",
+        "reason": "这是 Issue 报告的直接错误现象。"
+      },
+      {
+        "kind": "state",
+        "expression_hint": "拟合后 model.support_vectors_.shape[0] 的值（支持向量的数量）。",
+        "reason": "Issue 的核心条件是 support_vectors_ 为空（即数量为0）。观测此属性可以确认是否进入了缺陷路径。"
+      },
+      {
+        "kind": "type",
+        "expression_hint": "拟合后 model.dual_coef_ 的类型和形状。",
+        "reason": "期望行为中提到了 dual_coef_ 应被设置为一个空的稀疏矩阵。观测其类型和形状可以验证行为。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "使用稀疏输入数据调用 model.fit 时，不应抛出 ZeroDivisionError 异常。",
+        "preferred_assertion_style": "raises",
+        "avoid": "断言具体的错误消息字符串完全匹配，因为修复后的异常类型可能改变。",
+        "reason": "修复后，fit 调用应该成功完成。断言不抛出特定异常是直接验证期望行为的方式。"
+      },
+      {
+        "assertion_goal": "当 support_vectors_ 为空时，model.dual_coef_ 应该是一个稀疏矩阵类型（如 csr_matrix）且其形状表示为空（例如，size 为 0）。",
+        "preferred_assertion_style": "isinstance",
+        "avoid": "断言 dual_coef_ 完全等于一个特定的 csr_matrix([]) 对象，因为内部表示可能有细微差别。",
+        "reason": "Issue 明确期望 dual_coef_ 被设置为一个空的稀疏矩阵。检查其类型和空状态是稳定且公开的断言。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要导入 numpy, scipy.sparse, sklearn.svm.SVR。可能需要使用 pytest 的异常断言上下文管理器（pytest.raises）。",
+        "source": "issue",
+        "confidence": "high"
+      },
+      {
+        "hint": "可以参考现有测试文件 sklearn/svm/tests/test_svm.py 中的导入和测试类结构。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "导致 support_vectors_ 为空的精确数据模式和参数组合，除了 Issue 示例外是否还有其他边界情况。",
+      "n_class 变量的具体含义、来源以及在 _sparse_fit 方法中的计算逻辑。",
+      "修复后，除了 dual_coef_，其他模型属性（如 coef_, intercept_）在空支持向量情况下的预期状态是什么。",
+      "错误是否也存在于其他 SVM 模型（如 SVC, NuSVR）的稀疏拟合路径中。"
+    ]
+  }
+}

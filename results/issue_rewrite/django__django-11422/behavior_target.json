@@ -1,0 +1,336 @@
+{
+  "instance_id": "django__django-11422",
+  "issue_summary": "Django 2.2.1 中，使用 StatReloader 的自动重载器无法检测 manage.py 文件的修改，导致开发服务器不会在文件更改后重启。",
+  "trigger_condition": {
+    "text": "1. 使用 Django 2.2.1。2. 通过 `python manage.py runserver` 启动开发服务器。3. 在服务器运行期间，修改 `manage.py` 文件的内容（例如修改 `main` 函数）。",
+    "evidence": [
+      "Issue 中描述了环境为 Django==2.2.1。",
+      "Issue 中描述了重现步骤：运行 `python manage.py runserver`，然后编辑 `manage.py` 文件。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "修改 manage.py 文件后，自动重载机制未被触发，开发服务器没有重启。根据日志，autoreloader 似乎没有感知到 manage.py 文件的更改。",
+    "symptom_type": "state_not_updated",
+    "evidence": [
+      "Issue 中描述：\"Under 2.2.1, it won't. As far as I can tell from the django.utils.autoreload log lines, it never sees the manage.py itself.\""
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "当 manage.py 文件被修改后，自动重载机制应该被触发，导致开发服务器重启。",
+    "evidence": [
+      "Issue 中描述：\"Under 2.1.8 (and prior), this will trigger the auto-reloading mechanism.\""
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "StatReloader",
+      "kind": "class",
+      "source_path": "django/utils/autoreload.py",
+      "reason": "Issue 标题和描述明确指出问题与 StatReloader 相关，它是负责文件变化检测的重载器。"
+    },
+    {
+      "name": "BaseReloader.notify_file_changed",
+      "kind": "method",
+      "source_path": "django/utils/autoreload.py",
+      "reason": "相关测试 `IntegrationTests.test_file` 通过 mock 此方法并检查其是否被调用来断言文件变化被检测到。"
+    },
+    {
+      "name": "autoreload.restart_with_reloader",
+      "kind": "function",
+      "source_path": "django/utils/autoreload.py",
+      "reason": "相关测试 `RestartWithReloaderTests.test_manage_py` 调用了此函数，它与重载过程的启动有关。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/utils/autoreload.py",
+      "object": "StatReloader 或其父类 BaseReloader 中负责收集或监控文件的方法（如 snapshot_files, watch_file, watch_dir）",
+      "lines": "",
+      "reason": "Issue 指出 autoreloader \"never sees the manage.py itself\"，表明文件监控列表可能遗漏了 manage.py。相关测试也聚焦于文件监控和通知。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "IntegrationTests.test_file",
+      "test_file": "tests/utils_tests/test_autoreload.py",
+      "why_relevant": "该测试直接测试了重载器对单个文件变化的检测能力。它创建了一个临时文件，使用 `watch_file` 监控它，修改文件时间戳，然后通过 `tick` 模拟时间流逝，最后断言 `notify_file_changed` 被调用。这与 Issue 中“检测文件变化”的核心逻辑高度相似。",
+      "reusable_parts": [
+        "测试类 `IntegrationTests` 的框架（可能包含 `tempdir`, `existing_file`, `ensure_file`, `increment_mtime`, `tick_twice` 等 fixture 或方法）。",
+        "使用 `@mock.patch` 来 mock `iter_all_python_module_files` 和 `BaseReloader.notify_file_changed` 的模式。",
+        "通过 `self.reloader.watch_file(...)` 监控文件的调用。",
+        "通过 `with self.tick_twice():` 和 `self.increment_mtime(...)` 模拟文件修改和检测周期的模式。",
+        "使用 `assertEqual` 和 `assertCountEqual` 来验证 `notify_file_changed` 被调用的断言风格。"
+      ],
+      "possible_gap": "该测试监控的是一个在测试中创建的临时 Python 文件（`self.existing_file`），而不是项目根目录下的 `manage.py` 文件。它可能没有模拟 `manage.py` 作为入口脚本的特殊情况。需要将监控目标从通用临时文件变异为特定的 `manage.py` 文件，并可能模拟 `runserver` 命令的启动环境。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "在 `IntegrationTests.test_file` 中，监控的文件是 `self.existing_file`（一个在临时目录中创建的普通 Python 文件）。",
+      "target_pattern": "监控的文件应改为项目根目录下的 `manage.py` 文件。可能需要通过 `watch_file(os.path.abspath('manage.py'))` 或类似方式指定。",
+      "reason": "Issue 的核心是 `manage.py` 未被检测到，而相似测试检测的是任意文件。将输入文件改为 `manage.py` 可能触发缺陷路径。",
+      "confidence": "high"
+    },
+    {
+      "slot": "config",
+      "current_pattern": "测试 `IntegrationTests.test_file` 在相对隔离的环境中运行，mock 了 `iter_all_python_module_files` 返回空集，可能没有模拟 `runserver` 命令的完整上下文。",
+      "target_pattern": "测试配置可能需要模拟 `python manage.py runserver` 启动时，重载器初始化并开始监控文件的上下文。这可能涉及设置 `sys.argv` 或调用特定的初始化方法。",
+      "reason": "`manage.py` 的监控可能只在以 `runserver` 命令启动时才被（错误地）配置或忽略。改变测试的配置/上下文可能重现问题。",
+      "confidence": "medium"
+    },
+    {
+      "slot": "call_chain",
+      "current_pattern": "测试中直接调用 `self.reloader.watch_file(self.existing_file)` 来添加监控。",
+      "target_pattern": "监控 `manage.py` 的调用可能不是通过直接的 `watch_file`，而是通过其他间接路径（例如，在 `runserver` 命令处理过程中由某个函数调用添加）。可能需要模拟更完整的调用链来触发有缺陷的监控添加逻辑。",
+      "reason": "`manage.py` 可能因为其特殊角色（入口脚本）而被不同的代码路径处理，该路径可能存在缺陷。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "state",
+      "expression_hint": "`self.reloader.watched_files()` 或类似方法返回的集合（如果存在），观察 `manage.py` 文件路径是否在其中。",
+      "reason": "如果 `manage.py` 根本不在被监控的文件列表中，那么修改它自然不会触发通知。这是最直接的观测点。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "`BaseReloader.notify_file_changed` mock 对象的 `call_args`，观察在文件修改并经过 `tick` 后，该方法是否被调用，以及被调用的参数是否包含 `manage.py` 的文件路径。",
+      "reason": "相关测试使用此方法来断言文件变化被检测到。如果缺陷存在，即使文件被修改，`notify_file_changed` 也不会被以 `manage.py` 为参数调用。"
+    },
+    {
+      "kind": "file_output",
+      "expression_hint": "如果重载触发，通常会伴随进程重启。可以观察标准输出/错误中是否有重启相关的日志信息（例如，\"Watching for file changes with StatReloader\" 或 \"Performing system checks...\" 再次出现）。",
+      "reason": "Issue 提到了查看 `django.utils.autoreload` 日志。观测日志输出是判断重载是否被触发的公开且稳定的方式。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "修改 manage.py 文件后，`BaseReloader.notify_file_changed` 方法被调用，且其参数包含 manage.py 的文件路径。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的日志字符串或进程ID等易变信息。",
+      "reason": "这与 `IntegrationTests.test_file` 的断言风格一致，直接验证了文件变化检测这一核心公开行为。参数包含文件路径是一个稳定的片段。"
+    },
+    {
+      "assertion_goal": "在模拟 `runserver` 启动并监控文件后，`manage.py` 的路径出现在重载器内部维护的被监控文件集合中（如果该集合可通过公共API访问）。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言内部数据结构的具体实现细节或私有属性。",
+      "reason": "如果 `manage.py` 未被加入监控列表，是缺陷的根本原因。验证其存在性是稳定的前提条件检查。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要使用 `SimpleTestCase` 或类似的 Django 测试基类，因为相关测试 `RestartWithReloaderTests` 和 `IntegrationTests` 都基于它。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "需要创建临时目录和文件来模拟项目环境，可能包含一个 `manage.py` 文件。可以参考 `IntegrationTests` 中的 `tempdir` 和 `ensure_file` 模式。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "需要使用 `unittest.mock.patch` 来 mock `iter_all_python_module_files` 和 `BaseReloader.notify_file_changed`，以隔离测试并观察调用。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要模拟 `sys.argv` 来设置 `['manage.py', 'runserver']`，以模拟 `runserver` 命令的启动环境。",
+      "source": "inference",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "`StatReloader`（或 `BaseReloader`）监控 `manage.py` 的具体代码路径是什么？是通过 `watch_file` 直接添加，还是通过 `watch_dir` 模式匹配，亦或是通过其他入口点（如 `restart_with_reloader`）间接添加？",
+    "在 `runserver` 命令的正常执行流程中，是哪个函数负责将 `manage.py` 添加到监控列表？这个函数在 2.2.1 版本中是否被错误地修改或绕过了？",
+    "除了 `manage.py`，是否还有其他特定类型的文件（如非模块的入口脚本）也存在同样的问题？",
+    "修复后的行为，除了触发 `notify_file_changed`，是否还有其他可观测的副作用（如特定的日志消息格式）？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "Autoreloader with StatReloader doesn't track changes in manage.py.\nDescription\n\t \n\t\t(last modified by Mariusz Felisiak)\n\t \nThis is a bit convoluted, but here we go.\nEnvironment (OSX 10.11):\n$ python -V\nPython 3.6.2\n$ pip -V\npip 19.1.1\n$ pip install Django==2.2.1\nSteps to reproduce:\nRun a server python manage.py runserver\nEdit the manage.py file, e.g. add print(): \ndef main():\n\tprint('sth')\n\tos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ticket_30479.settings')\n\t...\nUnder 2.1.8 (and prior), this will trigger the auto-reloading mechanism. Under 2.2.1, it won't. As far as I can tell from the django.utils.autoreload log lines, it never sees the manage.py itself.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 Django 2.2.1 中，使用 StatReloader 的自动重载器（autoreloader）无法检测到 manage.py 文件的更改。具体表现为：当运行 `python manage.py runserver` 后，编辑 manage.py 文件（例如添加 print 语句），自动重载机制不会被触发。而在 Django 2.1.8 及更早版本中，此操作会触发重载。根据日志，autoreloader 似乎从未“看到”manage.py 文件本身。",
+      "facts_from_issue": [
+        "缺陷出现在 Django 2.2.1 版本。",
+        "在 Django 2.1.8 及更早版本中，编辑 manage.py 会触发自动重载。",
+        "在 Django 2.2.1 中，编辑 manage.py 不会触发自动重载。",
+        "触发步骤：运行 `python manage.py runserver`，然后编辑 manage.py 文件。",
+        "根据 django.utils.autoreload 的日志，重载器似乎从未“看到”manage.py 文件。"
+      ],
+      "facts_from_retrieved_context": [
+        "Django 的自动重载功能在 `django/utils/autoreload.py` 中实现。",
+        "存在一个 `StatReloader` 类，它继承自 `BaseReloader`。",
+        "存在一个名为 `test_manage_py` 的测试，位于 `tests/utils_tests/test_autoreload.py` 的 `RestartWithReloaderTests` 类中，它模拟了使用 `./manage.py runserver` 参数调用 `autoreload.restart_with_reloader()` 的场景。",
+        "存在 `IntegrationTests` 类，其中包含测试文件变化检测的方法（如 `test_file`, `test_glob`, `test_glob_recursive`），它们使用了 `watch_file`, `watch_dir`, `tick`, `increment_mtime` 等操作，并断言 `notify_file_changed` 被调用。"
+      ],
+      "inferences": [
+        "`StatReloader` 是负责检测文件变化并触发重载的组件。",
+        "`manage.py` 文件可能没有被 `StatReloader` 正确地添加到监控文件列表中。",
+        "`StatReloader` 的 `snapshot_files` 或 `tick` 方法，或者其父类 `BaseReloader` 的 `watch_file`/`watch_dir` 方法，可能与监控 `manage.py` 的逻辑有关。",
+        "测试 `RestartWithReloaderTests.test_manage_py` 关注的是重启逻辑，而不是文件变化检测逻辑。",
+        "测试 `IntegrationTests.test_file` 等关注的是文件变化检测和通知逻辑，可以作为构建缺陷复现测试的参考。"
+      ],
+      "do_not_assume": [
+        "`StatReloader` 是唯一的问题所在。",
+        "`manage.py` 文件监控逻辑的具体代码位置。",
+        "修复后的具体行为细节（例如，重载触发的精确延迟或日志输出）。",
+        "`manage.py` 与其他被监控的 Python 文件在监控逻辑上有何本质区别。"
+      ]
+    },
+    "issue_summary": "Django 2.2.1 中，使用 StatReloader 的自动重载器无法检测 manage.py 文件的修改，导致开发服务器不会在文件更改后重启。",
+    "trigger_condition": {
+      "text": "1. 使用 Django 2.2.1。2. 通过 `python manage.py runserver` 启动开发服务器。3. 在服务器运行期间，修改 `manage.py` 文件的内容（例如修改 `main` 函数）。",
+      "evidence": [
+        "Issue 中描述了环境为 Django==2.2.1。",
+        "Issue 中描述了重现步骤：运行 `python manage.py runserver`，然后编辑 `manage.py` 文件。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "修改 manage.py 文件后，自动重载机制未被触发，开发服务器没有重启。根据日志，autoreloader 似乎没有感知到 manage.py 文件的更改。",
+      "symptom_type": "state_not_updated",
+      "evidence": [
+        "Issue 中描述：\"Under 2.2.1, it won't. As far as I can tell from the django.utils.autoreload log lines, it never sees the manage.py itself.\""
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "当 manage.py 文件被修改后，自动重载机制应该被触发，导致开发服务器重启。",
+      "evidence": [
+        "Issue 中描述：\"Under 2.1.8 (and prior), this will trigger the auto-reloading mechanism.\""
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "StatReloader",
+        "kind": "class",
+        "source_path": "django/utils/autoreload.py",
+        "reason": "Issue 标题和描述明确指出问题与 StatReloader 相关，它是负责文件变化检测的重载器。"
+      },
+      {
+        "name": "BaseReloader.notify_file_changed",
+        "kind": "method",
+        "source_path": "django/utils/autoreload.py",
+        "reason": "相关测试 `IntegrationTests.test_file` 通过 mock 此方法并检查其是否被调用来断言文件变化被检测到。"
+      },
+      {
+        "name": "autoreload.restart_with_reloader",
+        "kind": "function",
+        "source_path": "django/utils/autoreload.py",
+        "reason": "相关测试 `RestartWithReloaderTests.test_manage_py` 调用了此函数，它与重载过程的启动有关。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/utils/autoreload.py",
+        "object": "StatReloader 或其父类 BaseReloader 中负责收集或监控文件的方法（如 snapshot_files, watch_file, watch_dir）",
+        "lines": "",
+        "reason": "Issue 指出 autoreloader \"never sees the manage.py itself\"，表明文件监控列表可能遗漏了 manage.py。相关测试也聚焦于文件监控和通知。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "IntegrationTests.test_file",
+        "test_file": "tests/utils_tests/test_autoreload.py",
+        "why_relevant": "该测试直接测试了重载器对单个文件变化的检测能力。它创建了一个临时文件，使用 `watch_file` 监控它，修改文件时间戳，然后通过 `tick` 模拟时间流逝，最后断言 `notify_file_changed` 被调用。这与 Issue 中“检测文件变化”的核心逻辑高度相似。",
+        "reusable_parts": [
+          "测试类 `IntegrationTests` 的框架（可能包含 `tempdir`, `existing_file`, `ensure_file`, `increment_mtime`, `tick_twice` 等 fixture 或方法）。",
+          "使用 `@mock.patch` 来 mock `iter_all_python_module_files` 和 `BaseReloader.notify_file_changed` 的模式。",
+          "通过 `self.reloader.watch_file(...)` 监控文件的调用。",
+          "通过 `with self.tick_twice():` 和 `self.increment_mtime(...)` 模拟文件修改和检测周期的模式。",
+          "使用 `assertEqual` 和 `assertCountEqual` 来验证 `notify_file_changed` 被调用的断言风格。"
+        ],
+        "possible_gap": "该测试监控的是一个在测试中创建的临时 Python 文件（`self.existing_file`），而不是项目根目录下的 `manage.py` 文件。它可能没有模拟 `manage.py` 作为入口脚本的特殊情况。需要将监控目标从通用临时文件变异为特定的 `manage.py` 文件，并可能模拟 `runserver` 命令的启动环境。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "在 `IntegrationTests.test_file` 中，监控的文件是 `self.existing_file`（一个在临时目录中创建的普通 Python 文件）。",
+        "target_pattern": "监控的文件应改为项目根目录下的 `manage.py` 文件。可能需要通过 `watch_file(os.path.abspath('manage.py'))` 或类似方式指定。",
+        "reason": "Issue 的核心是 `manage.py` 未被检测到，而相似测试检测的是任意文件。将输入文件改为 `manage.py` 可能触发缺陷路径。",
+        "confidence": "high"
+      },
+      {
+        "slot": "config",
+        "current_pattern": "测试 `IntegrationTests.test_file` 在相对隔离的环境中运行，mock 了 `iter_all_python_module_files` 返回空集，可能没有模拟 `runserver` 命令的完整上下文。",
+        "target_pattern": "测试配置可能需要模拟 `python manage.py runserver` 启动时，重载器初始化并开始监控文件的上下文。这可能涉及设置 `sys.argv` 或调用特定的初始化方法。",
+        "reason": "`manage.py` 的监控可能只在以 `runserver` 命令启动时才被（错误地）配置或忽略。改变测试的配置/上下文可能重现问题。",
+        "confidence": "medium"
+      },
+      {
+        "slot": "call_chain",
+        "current_pattern": "测试中直接调用 `self.reloader.watch_file(self.existing_file)` 来添加监控。",
+        "target_pattern": "监控 `manage.py` 的调用可能不是通过直接的 `watch_file`，而是通过其他间接路径（例如，在 `runserver` 命令处理过程中由某个函数调用添加）。可能需要模拟更完整的调用链来触发有缺陷的监控添加逻辑。",
+        "reason": "`manage.py` 可能因为其特殊角色（入口脚本）而被不同的代码路径处理，该路径可能存在缺陷。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "state",
+        "expression_hint": "`self.reloader.watched_files()` 或类似方法返回的集合（如果存在），观察 `manage.py` 文件路径是否在其中。",
+        "reason": "如果 `manage.py` 根本不在被监控的文件列表中，那么修改它自然不会触发通知。这是最直接的观测点。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "`BaseReloader.notify_file_changed` mock 对象的 `call_args`，观察在文件修改并经过 `tick` 后，该方法是否被调用，以及被调用的参数是否包含 `manage.py` 的文件路径。",
+        "reason": "相关测试使用此方法来断言文件变化被检测到。如果缺陷存在，即使文件被修改，`notify_file_changed` 也不会被以 `manage.py` 为参数调用。"
+      },
+      {
+        "kind": "file_output",
+        "expression_hint": "如果重载触发，通常会伴随进程重启。可以观察标准输出/错误中是否有重启相关的日志信息（例如，\"Watching for file changes with StatReloader\" 或 \"Performing system checks...\" 再次出现）。",
+        "reason": "Issue 提到了查看 `django.utils.autoreload` 日志。观测日志输出是判断重载是否被触发的公开且稳定的方式。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "修改 manage.py 文件后，`BaseReloader.notify_file_changed` 方法被调用，且其参数包含 manage.py 的文件路径。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的日志字符串或进程ID等易变信息。",
+        "reason": "这与 `IntegrationTests.test_file` 的断言风格一致，直接验证了文件变化检测这一核心公开行为。参数包含文件路径是一个稳定的片段。"
+      },
+      {
+        "assertion_goal": "在模拟 `runserver` 启动并监控文件后，`manage.py` 的路径出现在重载器内部维护的被监控文件集合中（如果该集合可通过公共API访问）。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言内部数据结构的具体实现细节或私有属性。",
+        "reason": "如果 `manage.py` 未被加入监控列表，是缺陷的根本原因。验证其存在性是稳定的前提条件检查。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要使用 `SimpleTestCase` 或类似的 Django 测试基类，因为相关测试 `RestartWithReloaderTests` 和 `IntegrationTests` 都基于它。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "需要创建临时目录和文件来模拟项目环境，可能包含一个 `manage.py` 文件。可以参考 `IntegrationTests` 中的 `tempdir` 和 `ensure_file` 模式。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "需要使用 `unittest.mock.patch` 来 mock `iter_all_python_module_files` 和 `BaseReloader.notify_file_changed`，以隔离测试并观察调用。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要模拟 `sys.argv` 来设置 `['manage.py', 'runserver']`，以模拟 `runserver` 命令的启动环境。",
+        "source": "inference",
+        "confidence": "medium"
+      }
+    ],
+    "uncertainties": [
+      "`StatReloader`（或 `BaseReloader`）监控 `manage.py` 的具体代码路径是什么？是通过 `watch_file` 直接添加，还是通过 `watch_dir` 模式匹配，亦或是通过其他入口点（如 `restart_with_reloader`）间接添加？",
+      "在 `runserver` 命令的正常执行流程中，是哪个函数负责将 `manage.py` 添加到监控列表？这个函数在 2.2.1 版本中是否被错误地修改或绕过了？",
+      "除了 `manage.py`，是否还有其他特定类型的文件（如非模块的入口脚本）也存在同样的问题？",
+      "修复后的行为，除了触发 `notify_file_changed`，是否还有其他可观测的副作用（如特定的日志消息格式）？"
+    ]
+  }
+}

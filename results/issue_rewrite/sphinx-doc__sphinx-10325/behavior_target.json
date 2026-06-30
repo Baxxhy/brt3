@@ -1,0 +1,361 @@
+{
+  "instance_id": "sphinx-doc__sphinx-10325",
+  "issue_summary": "Sphinx autodoc 的 `:inherited-members:` 选项不支持指定多个基类，无法实现选择性忽略来自特定基类的继承成员。",
+  "trigger_condition": {
+    "text": "在使用 `automodule` 或 `autoclass` 指令时，为 `:inherited-members:` 选项提供一个包含多个类名的列表（例如逗号分隔的字符串），目标类继承自该列表中的多个基类。",
+    "evidence": [
+      "Issue 描述：`The :inherited-members: option to automodule should accept a list of classes.`",
+      "Issue 场景：类继承自多个基类，用户想忽略其中部分基类的成员。",
+      "测试 `test_autodoc_inherited_members_Base` 显示 `\"inherited-members\": \"Base\"` 的用法。",
+      "测试 `test_autodoc_exclude_members` 显示 `\"exclude-members\": \"inheritedmeth,inheritedstaticmeth\"` 的列表语法。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "当 `:inherited-members:` 选项被设置为包含多个类名的列表时，autodoc 可能无法正确解析该列表，导致无法忽略列表中指定的基类的成员。具体表现为生成的文档中仍然包含了来自应被忽略的基类的成员。",
+    "symptom_type": "wrong_return",
+    "evidence": [
+      "Issue 描述：用户无法通过 `:inherited-members:` 选项指定一个基类列表来忽略来自某些特定基类的成员。",
+      "测试 `test_autodoc_inherited_members_Base` 表明当前 `\"inherited-members\"` 选项接受单个类名字符串。"
+    ],
+    "confidence": "medium"
+  },
+  "expected_behavior": {
+    "text": "修复后，`:inherited-members:` 选项应能接受一个类名列表（例如逗号分隔的字符串）。当使用 `automodule` 或 `autoclass` 生成文档时，如果目标类的基类出现在该列表中，则来自这些基类的成员应被忽略（即不出现在生成的文档中）。",
+    "evidence": [
+      "Issue 描述：`The :inherited-members: option to automodule should accept a list of classes. If any of these classes are encountered as base classes when instantiating autoclass documentation, they should be ignored.`",
+      "测试 `test_autodoc_exclude_members` 展示了 `\"exclude-members\"` 选项支持逗号分隔列表的行为，可作为类似功能的参考。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "do_autodoc",
+      "kind": "function",
+      "source_path": "",
+      "reason": "检索到的测试代码中用于生成 autodoc 文档的核心函数，接受 `options` 字典，其中包含 `\"inherited-members\"` 选项。"
+    },
+    {
+      "name": "automodule",
+      "kind": "unknown",
+      "source_path": "",
+      "reason": "Issue 中明确提到的指令，`:inherited-members:` 选项用于此指令。"
+    },
+    {
+      "name": "autoclass",
+      "kind": "unknown",
+      "source_path": "",
+      "reason": "Issue 和测试中提到的指令，也使用 `:inherited-members:` 选项。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sphinx/ext/autodoc/__init__.py",
+      "object": "处理 `\"inherited-members\"` 选项值的函数或方法",
+      "lines": "",
+      "reason": "autodoc 扩展的核心逻辑应在此文件中，选项解析和成员过滤逻辑很可能在此。"
+    },
+    {
+      "path": "sphinx/ext/autodoc/__init__.py",
+      "object": "`Documenter` 类或其子类（如 `ClassDocumenter`, `ModuleDocumenter`）中处理 `inherited-members` 选项的代码",
+      "lines": "",
+      "reason": "文档生成器类负责根据选项决定显示哪些成员，`inherited-members` 选项的处理逻辑应在其中。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_autodoc_inherited_members_Base",
+      "test_file": "tests/test_ext_autodoc.py",
+      "why_relevant": "该测试直接使用了 `\"inherited-members\"` 选项，并检查了生成的文档内容。它复用了 `do_autodoc` 函数、`app` fixture、`target.inheritance` 模块中的类以及基于字符串片段检查的断言风格。",
+      "reusable_parts": [
+        "`@pytest.mark.sphinx('html', testroot='ext-autodoc')` 装饰器",
+        "`app` fixture",
+        "`do_autodoc` 函数调用",
+        "`options` 字典的构造",
+        "使用 `in` 操作符检查生成的文档字符串 (`actual`) 中是否包含特定模式",
+        "`target.inheritance.Derived` 测试类"
+      ],
+      "possible_gap": "该测试中 `\"inherited-members\"` 的值是单个类名字符串 `\"Base\"`。要复现 Issue，需要将其改为一个包含多个类名的列表（如 `\"Base,OtherBase\"`），并检查来自 `OtherBase` 的成员是否被正确忽略。此外，可能需要创建或使用一个继承自多个基类的测试类。"
+    },
+    {
+      "test_name": "test_autodoc_exclude_members",
+      "test_file": "tests/test_ext_autodoc.py",
+      "why_relevant": "该测试展示了 `\"exclude-members\"` 选项支持逗号分隔列表的语法和行为（包括与 `autodoc_default_options` 的交互）。这为 `\"inherited-members\"` 选项期望的列表语法提供了参考模式。它复用了类似的测试协议和断言风格。",
+      "reusable_parts": [
+        "`do_autodoc` 函数调用",
+        "`options` 字典的构造（特别是逗号分隔的字符串值）",
+        "`app.config.autodoc_default_options` 的配置",
+        "使用 `list(filter(lambda l: '::' in l, actual))` 提取文档条目行并进行列表比较的断言风格"
+      ],
+      "possible_gap": "该测试针对的是 `\"exclude-members\"` 选项，而非 `\"inherited-members\"`。需要将选项键改为 `\"inherited-members\"`，并调整期望的文档内容以反映“忽略特定基类成员”的语义，而不是排除特定成员名。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "argument",
+      "current_pattern": "`options` 字典中 `\"inherited-members\"` 的值为单个类名字符串（如 `\"Base\"`）或特殊值 `\"None\"`。",
+      "target_pattern": "将 `\"inherited-members\"` 的值改为一个包含多个类名的逗号分隔字符串（如 `\"Base,list,tuple\"`）。",
+      "reason": "Issue 的核心是 `:inherited-members:` 选项应接受列表。将值从单个字符串改为逗号分隔列表是触发潜在解析或处理缺陷的最直接方式。",
+      "confidence": "high"
+    },
+    {
+      "slot": "object_state",
+      "current_pattern": "测试类 `target.inheritance.Derived` 继承自单个基类 `Base`（可能还继承自 `object`）。",
+      "target_pattern": "使用或创建一个继承自多个基类（例如 `Base1`, `Base2`, `list`, `tuple`）的测试类。",
+      "reason": "为了验证选择性忽略功能，需要目标类继承自多个基类，其中一些在 `inherited-members` 列表中，一些不在。",
+      "confidence": "medium"
+    },
+    {
+      "slot": "config",
+      "current_pattern": "测试通常使用 `testroot='ext-autodoc'`，加载预定义的测试目标模块（如 `target.inheritance`）。",
+      "target_pattern": "可能需要为新的多继承测试类创建或修改测试目标模块（`target` 下的模块）。",
+      "reason": "现有测试模块中的类可能不满足多继承场景。需要合适的测试类来演示问题。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "file_output",
+      "expression_hint": "`do_autodoc` 函数返回的文档字符串 (`actual`)。可以观察其中是否包含了来自 `inherited-members` 列表中指定基类的成员条目（以 `.. py:method::` 或 `.. py:attribute::` 开头的行）。",
+      "reason": "autodoc 的最终输出是文档字符串。错误症状直接体现在生成的文档内容中，即是否错误地包含了应被忽略的基类成员。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "`do_autodoc` 的返回值类型和结构。",
+      "reason": "确保函数调用本身没有因选项解析错误而提前崩溃或返回异常。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "生成的文档字符串中不应包含来自 `inherited-members` 列表中指定的基类的成员条目。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言完整的文档字符串相等；断言私有属性或内部状态。",
+      "reason": "Issue 的核心是选择性忽略。检查文档中是否缺失特定基类的成员片段是稳定且直接的对齐方式。避免完整字符串断言，因为文档格式可能因 Sphinx 版本或其他选项而微调。"
+    },
+    {
+      "assertion_goal": "生成的文档字符串中应包含来自未在 `inherited-members` 列表中指定的基类的成员条目（如果 `inherited-members` 选项本身是开启的）。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言成员出现的精确顺序或数量。",
+      "reason": "确保忽略功能是选择性的，而不是关闭了所有继承成员的显示。这验证了正向功能。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "使用 `@pytest.mark.sphinx('html', testroot='ext-autodoc')` 装饰器来设置 Sphinx 测试应用 (`app` fixture)。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "通过 `app.config.autodoc_default_options` 可以设置默认的 autodoc 选项，用于测试选项继承和覆盖行为。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "测试目标类位于 `target` 模块下（如 `target.inheritance`）。可能需要扩展或创建新的 `target` 子模块来定义多继承的测试类。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "当前 `\"inherited-members\"` 选项的确切解析逻辑和失败模式：是直接忽略列表值只取第一个，还是抛出异常，或是完全无效？",
+    "`\"inherited-members\"` 选项与 `\"members\"`、`\"exclude-members\"` 等其他选项的交互细节。",
+    "修复后，列表语法是否支持 `\"+\"` 前缀来扩展默认配置（类似 `\"exclude-members\"`）。",
+    "忽略基类时，是否也忽略该基类本身的文档条目（如基类的类定义），还是仅忽略其成员？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "inherited-members should support more than one class\n**Is your feature request related to a problem? Please describe.**\nI have two situations:\n- A class inherits from multiple other classes. I want to document members from some of the base classes but ignore some of the base classes\n- A module contains several class definitions that inherit from different classes that should all be ignored (e.g., classes that inherit from list or set or tuple). I want to ignore members from list, set, and tuple while documenting all other inherited members in classes in the module.\n\n**Describe the solution you'd like**\nThe :inherited-members: option to automodule should accept a list of classes. If any of these classes are encountered as base classes when instantiating autoclass documentation, they should be ignored.\n\n**Describe alternatives you've considered**\nThe alternative is to not use automodule, but instead manually enumerate several autoclass blocks for a module. This only addresses the second bullet in the problem description and not the first. It is also tedious for modules containing many class definitions.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当前 Sphinx 的 autodoc 扩展中，`:inherited-members:` 选项不支持指定多个基类。当使用 `automodule` 或 `autoclass` 时，用户无法通过 `:inherited-members:` 选项指定一个基类列表，以选择性地忽略来自某些特定基类的成员，同时保留来自其他基类的成员。这导致两种场景无法实现：1) 一个类继承自多个基类，用户只想忽略其中部分基类的成员；2) 一个模块中有多个类分别继承自不同的内置类（如 list、set、tuple），用户想忽略所有来自这些内置类的成员，同时保留其他继承成员。期望 `:inherited-members:` 选项能接受一个类名列表作为参数，当生成文档时，遇到列表中指定的基类就忽略其成员。",
+      "facts_from_issue": [
+        "`:inherited-members:` 选项当前不支持指定多个基类。",
+        "用户有两种场景需求：1) 类多继承时选择性忽略部分基类成员；2) 模块中多个类继承不同内置类时，统一忽略这些内置类的成员。",
+        "期望 `:inherited-members:` 选项能接受一个类名列表，并在遇到列表中指定的基类时忽略其成员。",
+        "该选项用于 `automodule` 和 `autoclass`。"
+      ],
+      "facts_from_retrieved_context": [
+        "检索到的测试代码显示 `do_autodoc` 函数用于生成文档字符串。",
+        "测试中 `options` 字典包含 `\"inherited-members\"` 键，其值可以是 `\"Base\"` 或 `\"None\"`。",
+        "测试 `test_autodoc_inherited_members_Base` 中，`\"inherited-members\": \"Base\"` 使得 `Derived` 类只显示来自 `Base` 的 `inheritedmeth`，而不显示来自其他基类的 `inheritedclassmeth`。",
+        "测试 `test_autodoc_inherited_members_None` 中，`\"inherited-members\": \"None\"` 使得 `Derived` 类显示特殊方法 `__init__` 和 `__str__`。",
+        "测试 `test_autodoc_exclude_members` 展示了 `\"exclude-members\"` 选项的类似列表语法（逗号分隔）。"
+      ],
+      "inferences": [
+        "当前 `\"inherited-members\"` 选项可能只接受单个类名字符串（如 `\"Base\"`）或特殊值 `\"None\"`。",
+        "用户期望的语法可能是逗号分隔的类名列表，类似于 `\"exclude-members\"` 选项的现有行为。",
+        "缺陷可能位于处理 `\"inherited-members\"` 选项值的代码逻辑中，该逻辑可能未解析逗号分隔的列表。",
+        "`automodule` 和 `autoclass` 指令都使用相同的选项处理机制。"
+      ],
+      "do_not_assume": [
+        "具体实现中 `\"inherited-members\"` 选项的解析函数名。",
+        "缺陷的确切源码位置和行号。",
+        "修复后 `\"inherited-members\"` 选项的精确语法（如是否支持 `\"+\"` 前缀）。",
+        "忽略基类成员时，是否也忽略该基类本身的文档条目。"
+      ]
+    },
+    "issue_summary": "Sphinx autodoc 的 `:inherited-members:` 选项不支持指定多个基类，无法实现选择性忽略来自特定基类的继承成员。",
+    "trigger_condition": {
+      "text": "在使用 `automodule` 或 `autoclass` 指令时，为 `:inherited-members:` 选项提供一个包含多个类名的列表（例如逗号分隔的字符串），目标类继承自该列表中的多个基类。",
+      "evidence": [
+        "Issue 描述：`The :inherited-members: option to automodule should accept a list of classes.`",
+        "Issue 场景：类继承自多个基类，用户想忽略其中部分基类的成员。",
+        "测试 `test_autodoc_inherited_members_Base` 显示 `\"inherited-members\": \"Base\"` 的用法。",
+        "测试 `test_autodoc_exclude_members` 显示 `\"exclude-members\": \"inheritedmeth,inheritedstaticmeth\"` 的列表语法。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "当 `:inherited-members:` 选项被设置为包含多个类名的列表时，autodoc 可能无法正确解析该列表，导致无法忽略列表中指定的基类的成员。具体表现为生成的文档中仍然包含了来自应被忽略的基类的成员。",
+      "symptom_type": "wrong_return",
+      "evidence": [
+        "Issue 描述：用户无法通过 `:inherited-members:` 选项指定一个基类列表来忽略来自某些特定基类的成员。",
+        "测试 `test_autodoc_inherited_members_Base` 表明当前 `\"inherited-members\"` 选项接受单个类名字符串。"
+      ],
+      "confidence": "medium"
+    },
+    "expected_behavior": {
+      "text": "修复后，`:inherited-members:` 选项应能接受一个类名列表（例如逗号分隔的字符串）。当使用 `automodule` 或 `autoclass` 生成文档时，如果目标类的基类出现在该列表中，则来自这些基类的成员应被忽略（即不出现在生成的文档中）。",
+      "evidence": [
+        "Issue 描述：`The :inherited-members: option to automodule should accept a list of classes. If any of these classes are encountered as base classes when instantiating autoclass documentation, they should be ignored.`",
+        "测试 `test_autodoc_exclude_members` 展示了 `\"exclude-members\"` 选项支持逗号分隔列表的行为，可作为类似功能的参考。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "do_autodoc",
+        "kind": "function",
+        "source_path": "",
+        "reason": "检索到的测试代码中用于生成 autodoc 文档的核心函数，接受 `options` 字典，其中包含 `\"inherited-members\"` 选项。"
+      },
+      {
+        "name": "automodule",
+        "kind": "unknown",
+        "source_path": "",
+        "reason": "Issue 中明确提到的指令，`:inherited-members:` 选项用于此指令。"
+      },
+      {
+        "name": "autoclass",
+        "kind": "unknown",
+        "source_path": "",
+        "reason": "Issue 和测试中提到的指令，也使用 `:inherited-members:` 选项。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sphinx/ext/autodoc/__init__.py",
+        "object": "处理 `\"inherited-members\"` 选项值的函数或方法",
+        "lines": "",
+        "reason": "autodoc 扩展的核心逻辑应在此文件中，选项解析和成员过滤逻辑很可能在此。"
+      },
+      {
+        "path": "sphinx/ext/autodoc/__init__.py",
+        "object": "`Documenter` 类或其子类（如 `ClassDocumenter`, `ModuleDocumenter`）中处理 `inherited-members` 选项的代码",
+        "lines": "",
+        "reason": "文档生成器类负责根据选项决定显示哪些成员，`inherited-members` 选项的处理逻辑应在其中。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_autodoc_inherited_members_Base",
+        "test_file": "tests/test_ext_autodoc.py",
+        "why_relevant": "该测试直接使用了 `\"inherited-members\"` 选项，并检查了生成的文档内容。它复用了 `do_autodoc` 函数、`app` fixture、`target.inheritance` 模块中的类以及基于字符串片段检查的断言风格。",
+        "reusable_parts": [
+          "`@pytest.mark.sphinx('html', testroot='ext-autodoc')` 装饰器",
+          "`app` fixture",
+          "`do_autodoc` 函数调用",
+          "`options` 字典的构造",
+          "使用 `in` 操作符检查生成的文档字符串 (`actual`) 中是否包含特定模式",
+          "`target.inheritance.Derived` 测试类"
+        ],
+        "possible_gap": "该测试中 `\"inherited-members\"` 的值是单个类名字符串 `\"Base\"`。要复现 Issue，需要将其改为一个包含多个类名的列表（如 `\"Base,OtherBase\"`），并检查来自 `OtherBase` 的成员是否被正确忽略。此外，可能需要创建或使用一个继承自多个基类的测试类。"
+      },
+      {
+        "test_name": "test_autodoc_exclude_members",
+        "test_file": "tests/test_ext_autodoc.py",
+        "why_relevant": "该测试展示了 `\"exclude-members\"` 选项支持逗号分隔列表的语法和行为（包括与 `autodoc_default_options` 的交互）。这为 `\"inherited-members\"` 选项期望的列表语法提供了参考模式。它复用了类似的测试协议和断言风格。",
+        "reusable_parts": [
+          "`do_autodoc` 函数调用",
+          "`options` 字典的构造（特别是逗号分隔的字符串值）",
+          "`app.config.autodoc_default_options` 的配置",
+          "使用 `list(filter(lambda l: '::' in l, actual))` 提取文档条目行并进行列表比较的断言风格"
+        ],
+        "possible_gap": "该测试针对的是 `\"exclude-members\"` 选项，而非 `\"inherited-members\"`。需要将选项键改为 `\"inherited-members\"`，并调整期望的文档内容以反映“忽略特定基类成员”的语义，而不是排除特定成员名。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "argument",
+        "current_pattern": "`options` 字典中 `\"inherited-members\"` 的值为单个类名字符串（如 `\"Base\"`）或特殊值 `\"None\"`。",
+        "target_pattern": "将 `\"inherited-members\"` 的值改为一个包含多个类名的逗号分隔字符串（如 `\"Base,list,tuple\"`）。",
+        "reason": "Issue 的核心是 `:inherited-members:` 选项应接受列表。将值从单个字符串改为逗号分隔列表是触发潜在解析或处理缺陷的最直接方式。",
+        "confidence": "high"
+      },
+      {
+        "slot": "object_state",
+        "current_pattern": "测试类 `target.inheritance.Derived` 继承自单个基类 `Base`（可能还继承自 `object`）。",
+        "target_pattern": "使用或创建一个继承自多个基类（例如 `Base1`, `Base2`, `list`, `tuple`）的测试类。",
+        "reason": "为了验证选择性忽略功能，需要目标类继承自多个基类，其中一些在 `inherited-members` 列表中，一些不在。",
+        "confidence": "medium"
+      },
+      {
+        "slot": "config",
+        "current_pattern": "测试通常使用 `testroot='ext-autodoc'`，加载预定义的测试目标模块（如 `target.inheritance`）。",
+        "target_pattern": "可能需要为新的多继承测试类创建或修改测试目标模块（`target` 下的模块）。",
+        "reason": "现有测试模块中的类可能不满足多继承场景。需要合适的测试类来演示问题。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "file_output",
+        "expression_hint": "`do_autodoc` 函数返回的文档字符串 (`actual`)。可以观察其中是否包含了来自 `inherited-members` 列表中指定基类的成员条目（以 `.. py:method::` 或 `.. py:attribute::` 开头的行）。",
+        "reason": "autodoc 的最终输出是文档字符串。错误症状直接体现在生成的文档内容中，即是否错误地包含了应被忽略的基类成员。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "`do_autodoc` 的返回值类型和结构。",
+        "reason": "确保函数调用本身没有因选项解析错误而提前崩溃或返回异常。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "生成的文档字符串中不应包含来自 `inherited-members` 列表中指定的基类的成员条目。",
+        "preferred_assertion_style": "not_contains_fragment",
+        "avoid": "断言完整的文档字符串相等；断言私有属性或内部状态。",
+        "reason": "Issue 的核心是选择性忽略。检查文档中是否缺失特定基类的成员片段是稳定且直接的对齐方式。避免完整字符串断言，因为文档格式可能因 Sphinx 版本或其他选项而微调。"
+      },
+      {
+        "assertion_goal": "生成的文档字符串中应包含来自未在 `inherited-members` 列表中指定的基类的成员条目（如果 `inherited-members` 选项本身是开启的）。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言成员出现的精确顺序或数量。",
+        "reason": "确保忽略功能是选择性的，而不是关闭了所有继承成员的显示。这验证了正向功能。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "使用 `@pytest.mark.sphinx('html', testroot='ext-autodoc')` 装饰器来设置 Sphinx 测试应用 (`app` fixture)。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "通过 `app.config.autodoc_default_options` 可以设置默认的 autodoc 选项，用于测试选项继承和覆盖行为。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "测试目标类位于 `target` 模块下（如 `target.inheritance`）。可能需要扩展或创建新的 `target` 子模块来定义多继承的测试类。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "当前 `\"inherited-members\"` 选项的确切解析逻辑和失败模式：是直接忽略列表值只取第一个，还是抛出异常，或是完全无效？",
+      "`\"inherited-members\"` 选项与 `\"members\"`、`\"exclude-members\"` 等其他选项的交互细节。",
+      "修复后，列表语法是否支持 `\"+\"` 前缀来扩展默认配置（类似 `\"exclude-members\"`）。",
+      "忽略基类时，是否也忽略该基类本身的文档条目（如基类的类定义），还是仅忽略其成员？"
+    ]
+  }
+}

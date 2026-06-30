@@ -1,0 +1,183 @@
+```json
+{
+    "original_issue": {
+        "text": "Simplify of simple trig expression fails\ntrigsimp in various versions, including 1.5, incorrectly simplifies cos(x)+sqrt(sin(x)**2) as though it were cos(x)+sin(x) for general complex x. (Oddly it gets this right if x is real.)\n\nEmbarrassingly I found this by accident while writing sympy-based teaching material...",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "The `trigsimp` function incorrectly simplifies the expression `cos(x) + sqrt(sin(x)**2)` to `cos(x) + sin(x)` when `x` is a general complex symbol. The simplification should not assume `sqrt(sin(x)**2) == sin(x)` for complex `x`. The bug does not occur when `x` is explicitly real. The issue likely involves the handling of square roots of squared trigonometric functions in the simplification logic for complex domains.",
+        "facts_from_issue": [
+            "`trigsimp` incorrectly simplifies `cos(x) + sqrt(sin(x)**2)` to `cos(x) + sin(x)`.",
+            "The error occurs for general complex `x`.",
+            "The simplification is correct if `x` is real.",
+            "The issue was found in SymPy version 1.5 and others."
+        ],
+        "facts_from_retrieved_context": [
+            "`trigsimp` is a function in SymPy used to simplify trigonometric expressions.",
+            "Related tests exist in `sympy/simplify/tests/test_trigsimp.py`.",
+            "The retrieved source snippets show `cos`, `sin`, and `sqrt` functions in `sympy/plotting/intervalmath/lib_interval.py`, but these are for interval arithmetic and may not be directly related to the core `trigsimp` logic."
+        ],
+        "inferences": [
+            "The bug is specific to the simplification of `sqrt(sin(x)**2)` within `trigsimp`.",
+            "The issue relates to the algebraic simplification rule that `sqrt(y**2)` should not be assumed equal to `y` for complex `y`.",
+            "The `trigsimp` function's logic for handling square roots and absolute values (or sign assumptions) for complex variables is flawed."
+        ],
+        "do_not_assume": [
+            "The exact location of the bug within the `trigsimp` implementation.",
+            "Whether other expressions like `sqrt(cos(x)**2)` are also affected.",
+            "The specific parameters or flags to `trigsimp` that might influence the behavior.",
+            "That the interval math functions are directly involved in the bug."
+        ]
+    },
+    "issue_summary": "The `trigsimp` function incorrectly simplifies `cos(x) + sqrt(sin(x)**2)` to `cos(x) + sin(x)` for complex variable `x`, failing to account for the complex square root's principal value.",
+    "trigger_condition": {
+        "text": "Calling `trigsimp(cos(x) + sqrt(sin(x)**2))` where `x` is a complex symbol (e.g., `x = symbols('x', complex=True)` or default complex).",
+        "evidence": [
+            "Issue states: \"incorrectly simplifies cos(x)+sqrt(sin(x)**2) as though it were cos(x)+sin(x) for general complex x.\"",
+            "Related tests show `trigsimp` being called with symbolic expressions."
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "The simplified result is `cos(x) + sin(x)`, which is algebraically incorrect for complex `x` because `sqrt(sin(x)**2)` is not generally equal to `sin(x)` (it could be `|sin(x)|` or involve sign considerations).",
+        "symptom_type": "wrong_return",
+        "evidence": [
+            "Issue states the incorrect simplification result.",
+            "The mathematical property: for complex `z`, `sqrt(z**2) != z` in general."
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "The `trigsimp` function should return a simplified expression that is algebraically correct for complex `x`. The result should not equate `sqrt(sin(x)**2)` to `sin(x)`. It may remain as `sqrt(sin(x)**2)` or simplify to a form like `Abs(sin(x))` or a piecewise expression respecting the complex domain, but not a direct replacement.",
+        "evidence": [
+            "Issue implies the correct behavior is not to simplify to `cos(x)+sin(x)` for complex `x`.",
+            "Mathematical correctness requires `sqrt(sin(x)**2) != sin(x)` for general complex arguments."
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "trigsimp",
+            "kind": "function",
+            "source_path": "",
+            "reason": "The Issue directly reports a bug in the `trigsimp` function's simplification."
+        },
+        {
+            "name": "cos",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Part of the buggy expression."
+        },
+        {
+            "name": "sin",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Part of the buggy expression."
+        },
+        {
+            "name": "sqrt",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Part of the buggy expression."
+        },
+        {
+            "name": "symbols",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Needed to create the complex symbol `x` for the test."
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "sympy/simplify/trigsimp.py",
+            "object": "trigsimp function or its helper functions",
+            "lines": "",
+            "reason": "The Issue is about `trigsimp`. The bug likely resides in the core simplification logic that handles `sqrt(sin(x)**2)`. The retrieved source snippets are not from the main `trigsimp` implementation, indicating the relevant code was not retrieved."
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_issue_4280",
+            "test_file": "sympy/simplify/tests/test_trigsimp.py",
+            "why_relevant": "It tests `trigsimp` with trigonometric identities involving `cos` and `sin`, using `symbols` and assertions with `==`. It demonstrates the test pattern for `trigsimp`.",
+            "reusable_parts": [
+                "Import of `trigsimp` and `symbols`.",
+                "Pattern of calling `trigsimp(expression)` and asserting equality.",
+                "Use of symbolic variables."
+            ],
+            "possible_gap": "It tests correct simplifications of squared terms, not involving `sqrt`. It does not use complex domain assumptions or the specific buggy expression `cos(x)+sqrt(sin(x)**2)`."
+        },
+        {
+            "test_name": "test_trigsimp_issues",
+            "test_file": "sympy/simplify/tests/test_trigsimp.py",
+            "why_relevant": "It is a collection of various issue tests for `trigsimp`, showing patterns for testing edge cases and bug fixes.",
+            "reusable_parts": [
+                "Test function structure for `trigsimp` issues.",
+                "Use of `symbols` and complex expressions.",
+                "Assertion style with `==` and `!=`."
+            ],
+            "possible_gap": "None of the existing subtests involve `sqrt(sin(x)**2)`. The test needs mutation to introduce the square root and complex variable."
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "Similar tests simplify expressions like `cos(x)**2 + sin(x)**2` or ratios of `sin` and `cos`.",
+            "target_pattern": "The expression `cos(x) + sqrt(sin(x)**2)` where `x` is a complex symbol (default or explicitly `complex=True`).",
+            "reason": "The bug is triggered specifically by the presence of `sqrt(sin(x)**2)` in a sum with `cos(x)` under complex domain.",
+            "confidence": "high"
+        },
+        {
+            "slot": "object_state",
+            "current_pattern": "Symbols `x`, `y`, `a` are often created without explicit assumptions (default complex).",
+            "target_pattern": "Ensure `x` is a complex symbol (the default `symbols('x')` is complex, but we might need to verify no real assumption is attached).",
+            "reason": "The Issue states the bug occurs for \"general complex x\" and works correctly if x is real. The test must avoid attaching a real assumption to `x`.",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "return_value",
+            "expression_hint": "The result of `trigsimp(cos(x) + sqrt(sin(x)**2))`. Observe if it simplifies to `cos(x) + sin(x)` or remains unsimplified/transformed correctly.",
+            "reason": "The direct output of the buggy API call shows the erroneous simplification."
+        },
+        {
+            "kind": "repr",
+            "expression_hint": "`repr(result)` or `str(result)` of the simplified expression.",
+            "reason": "The string representation can reveal if `sqrt(sin(x)**2)` was incorrectly replaced by `sin(x)`."
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "The simplified result should not be equal to `cos(x) + sin(x)` for a complex symbol `x`.",
+            "preferred_assertion_style": "not_contains_fragment",
+            "avoid": "Asserting exact string equality of the full expression representation, as the correct simplified form might not be unique.",
+            "reason": "The core error is the incorrect equality `sqrt(sin(x)**2) == sin(x)`. Checking that the result does not contain the pattern `sin(x)` as an additive term separate from `sqrt` is a stable public behavior check."
+        },
+        {
+            "assertion_goal": "The result should be algebraically equivalent to the original expression `cos(x) + sqrt(sin(x)**2)` for complex `x`.",
+            "preferred_assertion_style": "before_after_relation",
+            "avoid": "Checking internal private attributes of the expression tree.",
+            "reason": "The safest oracle is that simplification should not change the mathematical value. This can be checked by evaluating or subtracting the two forms (though evaluation for complex symbols is tricky). An alternative is to assert that `simplify(result - (cos(x) + sqrt(sin(x)**2)))` is zero, but this might rely on other simplification functions."
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "Use the standard SymPy test imports: `from sympy import symbols, cos, sin, sqrt, trigsimp`.",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "The test likely runs in the standard PyTest environment used by SymPy tests.",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "The exact correct simplified form that `trigsimp` should produce for `cos(x) + sqrt(sin(x)**2)` with complex `x`. It might be the unchanged expression, `cos(x) + Abs(sin(x))`, or a piecewise expression.",
+        "Whether the bug also affects other similar expressions like `sin(x) + sqrt(cos(x)**2)` or expressions with different trigonometric functions.",
+        "Whether the bug is sensitive to specific `trigsimp` parameters or flags.",
+        "The precise location of the buggy code within the `trigsimp` module."
+    ]
+}
+```

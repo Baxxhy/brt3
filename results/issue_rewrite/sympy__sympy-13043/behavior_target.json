@@ -1,0 +1,252 @@
+{
+  "instance_id": "sympy__sympy-13043",
+  "issue_summary": "`intpoly.decompose(expr, separate=True)` 返回的列表顺序不确定，导致依赖特定顺序的测试失败。",
+  "trigger_condition": {
+    "text": "调用 `decompose(expr, separate=True)`，其中 `expr` 是一个多项式，包含多个项（例如 `x + y` 或 `x**2 + y`）。",
+    "evidence": [
+      "Issue 原文：\"The decompose() function, with separate=True, returns `list(poly_dict.values())`, which is ordered arbitrarily.\"",
+      "源码片段 1 显示当 `separate=True` 时返回 `list(poly_dict.values())`。",
+      "测试 `test_decompose` 中调用了 `decompose(..., True)`。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "`decompose(expr, separate=True)` 返回的列表顺序与测试期望的顺序不一致，导致测试断言失败。",
+    "symptom_type": "wrong_order",
+    "evidence": [
+      "Issue 原文：\"This is causing test failures for me after some changes to the core.\"",
+      "测试 `test_decompose` 中对 `decompose(..., True)` 的返回值进行了精确的顺序断言。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "修复后，`decompose(expr, separate=True)` 返回的列表应具有确定性的、稳定的顺序（例如按度数排序、按字典序排序，或至少保证跨运行和跨实现的顺序一致性）。",
+    "evidence": [
+      "Issue 原文：\"It should be sorted somehow, or returning a set (in which case, why not just use the returned dictionary and have the caller take the values).\"",
+      "测试 `test_decompose` 断言了特定的列表顺序，暗示了期望的确定性顺序。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "decompose",
+      "kind": "function",
+      "source_path": "sympy/integrals/intpoly.py",
+      "reason": "这是 Issue 直接报告有问题的函数。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sympy/integrals/intpoly.py",
+      "object": "decompose",
+      "lines": "538-597",
+      "reason": "函数中当 `separate=True` 时直接返回 `list(poly_dict.values())`，而 `poly_dict` 是一个字典，其 `values()` 的顺序可能不确定。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_decompose",
+      "test_file": "sympy/integrals/tests/test_intpoly.py",
+      "why_relevant": "它直接测试了 `decompose` 函数，包括 `separate=True` 的情况，并包含了多项式的各种输入。",
+      "reusable_parts": [
+        "从 `sympy.integrals.intpoly` 导入 `decompose`",
+        "使用符号 `x` 和 `y`（可能从全局或 fixture 导入）",
+        "调用 `decompose(expr, True)` 的模式",
+        "使用 `assert` 比较返回列表与预期列表"
+      ],
+      "possible_gap": "当前测试断言了精确的列表顺序。要复现 Issue，可能需要构造一个输入，使得 `poly_dict` 的构造顺序发生变化（例如通过改变核心代码），或者直接观察返回列表的顺序是否与测试断言一致。测试本身可能已经因为顺序问题而脆弱。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "测试中使用的特定多项式，如 `x + y`、`x**2 + y`。",
+      "target_pattern": "使用相同的多项式输入，但关注其返回列表的顺序。或者，尝试构造一个多项式，使得 `poly_dict` 的键（度数）插入顺序可能因内部实现（如 `expr.args` 的顺序）而变化。",
+      "reason": "Issue 表明，对核心的更改导致了测试失败，这很可能是因为更改影响了 `expr.args` 的顺序或 `poly_dict` 的构造顺序，从而改变了 `list(poly_dict.values())` 的顺序。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "order",
+      "expression_hint": "`result = decompose(expr, True)` 返回的列表 `result`。可以观察其元素顺序，例如 `[str(term) for term in result]`。",
+      "reason": "错误症状是列表顺序不确定。直接观察返回列表的顺序是判断问题是否触发的关键。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "`decompose(expr, True)` 的返回值类型应为 `list`，元素应为 `Expr`。",
+      "reason": "确保函数返回了列表，并且列表内容正确（即使顺序可能不对）。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "`decompose(expr, True)` 返回的列表，在排序后（例如按字符串表示或按度数）应与预期列表排序后相等。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言返回列表与硬编码的预期列表完全相等（顺序敏感），除非顺序是修复后保证的。避免断言私有字段 `poly_dict` 的内部状态。",
+      "reason": "这允许测试验证返回了正确的项集，而不依赖于不确定的顺序。如果修复后确定了顺序（如按度数排序），则可以直接断言排序后的列表相等，或者直接断言顺序。"
+    },
+    {
+      "assertion_goal": "多次调用 `decompose(expr, True)` 返回的列表顺序应一致。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言与一个可能因 Python 版本或运行环境而变化的硬编码顺序相等。",
+      "reason": "这可以验证函数是否具有确定性的输出，这是 Issue 的核心要求。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要从 `sympy.abc` 导入符号（如 `x`, `y`），或使用 `symbols` 创建。测试文件 `test_intpoly.py` 可能已经导入了这些符号。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "测试应放在 `sympy/integrals/tests/` 目录下，或遵循现有的测试导入结构。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "修复后的确定顺序具体是什么（例如按度数升序、按项字符串字典序、按项在表达式中出现顺序）。Issue 只建议‘sorted somehow’，但未指定标准。",
+    "是否所有调用者都期望一个排序的列表，还是只需要一个稳定的顺序。",
+    "除了 `separate=True` 的情况，`separate=False` 返回的字典的顺序是否也有问题（字典的键顺序可能也不确定）。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "decompose() function in intpoly returns a list of arbitrary order\nThe decompose() function, with separate=True, returns `list(poly_dict.values())`, which is ordered arbitrarily.  \n\nWhat is this used for? It should be sorted somehow, or returning a set (in which case, why not just use the returned dictionary and have the caller take the values). This is causing test failures for me after some changes to the core. \n\nCC @ArifAhmed1995 @certik",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当调用 `sympy.integrals.intpoly.decompose(expr, separate=True)` 时，返回的列表顺序是任意的（依赖于 `dict.values()` 的顺序）。这导致了测试失败，因为测试期望一个特定的顺序。修复后，返回的列表应该具有确定性的顺序（例如排序），或者文档/契约应明确说明顺序是任意的。",
+      "facts_from_issue": [
+        "`decompose()` 函数在 `separate=True` 时返回 `list(poly_dict.values())`。",
+        "返回的列表顺序是任意的（`dict.values()` 的顺序）。",
+        "这导致了测试失败。",
+        "Issue 提出者认为应该以某种方式排序，或者返回一个集合。"
+      ],
+      "facts_from_retrieved_context": [
+        "`decompose` 函数位于 `sympy/integrals/intpoly.py`。",
+        "当 `separate=True` 时，函数返回 `list(poly_dict.values())`。",
+        "`poly_dict` 是一个字典，其键是度数（degree）。",
+        "相关测试 `test_decompose` 在 `sympy/integrals/tests/test_intpoly.py` 中，它包含对 `decompose(..., True)` 的调用，并断言了返回列表的特定顺序。"
+      ],
+      "inferences": [
+        "测试 `test_decompose` 断言了 `decompose(..., True)` 返回列表的精确顺序。",
+        "由于 `dict.values()` 的顺序在 Python 中是不确定的（尤其在 CPython 3.6+ 中虽然插入顺序保留，但依赖于此是脆弱的），当字典构造顺序变化时，测试可能失败。",
+        "Issue 报告者遇到的测试失败很可能是因为其对核心的更改影响了 `poly_dict` 的构造顺序，进而改变了 `list(poly_dict.values())` 的顺序。"
+      ],
+      "do_not_assume": [
+        "具体的排序标准（例如按度数、按字典序、按项的出现顺序）。",
+        "是否应该修改函数返回排序列表，还是只修改测试使其不依赖顺序。",
+        "`decompose` 函数在其他地方被如何使用，以及调用者是否依赖顺序。"
+      ]
+    },
+    "issue_summary": "`intpoly.decompose(expr, separate=True)` 返回的列表顺序不确定，导致依赖特定顺序的测试失败。",
+    "trigger_condition": {
+      "text": "调用 `decompose(expr, separate=True)`，其中 `expr` 是一个多项式，包含多个项（例如 `x + y` 或 `x**2 + y`）。",
+      "evidence": [
+        "Issue 原文：\"The decompose() function, with separate=True, returns `list(poly_dict.values())`, which is ordered arbitrarily.\"",
+        "源码片段 1 显示当 `separate=True` 时返回 `list(poly_dict.values())`。",
+        "测试 `test_decompose` 中调用了 `decompose(..., True)`。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "`decompose(expr, separate=True)` 返回的列表顺序与测试期望的顺序不一致，导致测试断言失败。",
+      "symptom_type": "wrong_order",
+      "evidence": [
+        "Issue 原文：\"This is causing test failures for me after some changes to the core.\"",
+        "测试 `test_decompose` 中对 `decompose(..., True)` 的返回值进行了精确的顺序断言。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "修复后，`decompose(expr, separate=True)` 返回的列表应具有确定性的、稳定的顺序（例如按度数排序、按字典序排序，或至少保证跨运行和跨实现的顺序一致性）。",
+      "evidence": [
+        "Issue 原文：\"It should be sorted somehow, or returning a set (in which case, why not just use the returned dictionary and have the caller take the values).\"",
+        "测试 `test_decompose` 断言了特定的列表顺序，暗示了期望的确定性顺序。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "decompose",
+        "kind": "function",
+        "source_path": "sympy/integrals/intpoly.py",
+        "reason": "这是 Issue 直接报告有问题的函数。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sympy/integrals/intpoly.py",
+        "object": "decompose",
+        "lines": "538-597",
+        "reason": "函数中当 `separate=True` 时直接返回 `list(poly_dict.values())`，而 `poly_dict` 是一个字典，其 `values()` 的顺序可能不确定。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_decompose",
+        "test_file": "sympy/integrals/tests/test_intpoly.py",
+        "why_relevant": "它直接测试了 `decompose` 函数，包括 `separate=True` 的情况，并包含了多项式的各种输入。",
+        "reusable_parts": [
+          "从 `sympy.integrals.intpoly` 导入 `decompose`",
+          "使用符号 `x` 和 `y`（可能从全局或 fixture 导入）",
+          "调用 `decompose(expr, True)` 的模式",
+          "使用 `assert` 比较返回列表与预期列表"
+        ],
+        "possible_gap": "当前测试断言了精确的列表顺序。要复现 Issue，可能需要构造一个输入，使得 `poly_dict` 的构造顺序发生变化（例如通过改变核心代码），或者直接观察返回列表的顺序是否与测试断言一致。测试本身可能已经因为顺序问题而脆弱。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "测试中使用的特定多项式，如 `x + y`、`x**2 + y`。",
+        "target_pattern": "使用相同的多项式输入，但关注其返回列表的顺序。或者，尝试构造一个多项式，使得 `poly_dict` 的键（度数）插入顺序可能因内部实现（如 `expr.args` 的顺序）而变化。",
+        "reason": "Issue 表明，对核心的更改导致了测试失败，这很可能是因为更改影响了 `expr.args` 的顺序或 `poly_dict` 的构造顺序，从而改变了 `list(poly_dict.values())` 的顺序。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "order",
+        "expression_hint": "`result = decompose(expr, True)` 返回的列表 `result`。可以观察其元素顺序，例如 `[str(term) for term in result]`。",
+        "reason": "错误症状是列表顺序不确定。直接观察返回列表的顺序是判断问题是否触发的关键。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "`decompose(expr, True)` 的返回值类型应为 `list`，元素应为 `Expr`。",
+        "reason": "确保函数返回了列表，并且列表内容正确（即使顺序可能不对）。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "`decompose(expr, True)` 返回的列表，在排序后（例如按字符串表示或按度数）应与预期列表排序后相等。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言返回列表与硬编码的预期列表完全相等（顺序敏感），除非顺序是修复后保证的。避免断言私有字段 `poly_dict` 的内部状态。",
+        "reason": "这允许测试验证返回了正确的项集，而不依赖于不确定的顺序。如果修复后确定了顺序（如按度数排序），则可以直接断言排序后的列表相等，或者直接断言顺序。"
+      },
+      {
+        "assertion_goal": "多次调用 `decompose(expr, True)` 返回的列表顺序应一致。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言与一个可能因 Python 版本或运行环境而变化的硬编码顺序相等。",
+        "reason": "这可以验证函数是否具有确定性的输出，这是 Issue 的核心要求。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要从 `sympy.abc` 导入符号（如 `x`, `y`），或使用 `symbols` 创建。测试文件 `test_intpoly.py` 可能已经导入了这些符号。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "测试应放在 `sympy/integrals/tests/` 目录下，或遵循现有的测试导入结构。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "修复后的确定顺序具体是什么（例如按度数升序、按项字符串字典序、按项在表达式中出现顺序）。Issue 只建议‘sorted somehow’，但未指定标准。",
+      "是否所有调用者都期望一个排序的列表，还是只需要一个稳定的顺序。",
+      "除了 `separate=True` 的情况，`separate=False` 返回的字典的顺序是否也有问题（字典的键顺序可能也不确定）。"
+    ]
+  }
+}

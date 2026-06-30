@@ -1,0 +1,147 @@
+```json
+{
+    "original_issue": {
+        "text": "Feature request: show units in dataset overview\nHere's a hypothetical dataset:\n\n```\n<xarray.Dataset>\nDimensions:  (time: 3, x: 988, y: 822)\nCoordinates:\n  * x         (x) float64 ...\n  * y         (y) float64 ...\n  * time      (time) datetime64[ns] ...\nData variables:\n    rainfall  (time, y, x) float32 ...\n    max_temp  (time, y, x) float32 ...\n```\n\nIt would be really nice if the units of the coordinates and of the data variables were shown in the `Dataset` repr, for example as:\n\n```\n<xarray.Dataset>\nDimensions:  (time: 3, x: 988, y: 822)\nCoordinates:\n  * x, in metres         (x)            float64 ...\n  * y, in metres         (y)            float64 ...\n  * time                 (time)         datetime64[ns] ...\nData variables:\n    rainfall, in mm      (time, y, x)   float32 ...\n    max_temp, in deg C   (time, y, x)   float32 ...\n```",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当 Dataset 的坐标或数据变量具有单位属性时，其 `__repr__` 方法的输出不显示这些单位信息。期望在 Dataset 的字符串表示中，坐标和数据变量的单位（例如 'in metres', 'in mm', 'in deg C'）能够被展示出来，以增强数据自描述性。相关 API 是 `Dataset.__repr__`，可能涉及 `xarray/core/dataset.py` 中的 `__repr__` 方法。",
+        "facts_from_issue": [
+            "Issue 描述了一个功能请求：希望在 Dataset 的 repr 输出中显示坐标和数据变量的单位。",
+            "Issue 提供了一个没有单位信息的 Dataset repr 示例。",
+            "Issue 提供了一个期望的、包含单位信息的 Dataset repr 示例（例如 'x, in metres', 'rainfall, in mm'）。"
+        ],
+        "facts_from_retrieved_context": [
+            "`xarray/core/dataset.py` 中的 `Dataset` 类包含 `__repr__` 方法。",
+            "相关测试 `TestDataset.test_repr` 验证了 Dataset repr 的格式和内容。",
+            "相关测试 `TestDataset.test_repr` 在 `xarray/tests/test_dataset.py` 中。",
+            "相关测试 `TestDataset.test_repr` 使用 `repr(data)` 并断言其与预期字符串相等。"
+        ],
+        "inferences": [
+            "Dataset 的坐标和数据变量可能通过某种属性（如 `attrs` 或 `encoding`）存储单位信息。",
+            "当前的 `Dataset.__repr__` 方法实现没有提取和格式化这些单位信息。",
+            "修复后，`Dataset.__repr__` 的输出应包含单位信息。"
+        ],
+        "do_not_assume": [
+            "单位信息具体存储在哪个属性中（例如 `attrs` 的 `units` 键，或 `encoding` 的 `units` 键）。",
+            "单位信息的确切格式和位置在 repr 中的最终呈现方式（例如逗号后、括号内）。",
+            "对于没有单位的坐标或变量，repr 输出是否会有变化。"
+        ]
+    },
+    "issue_summary": "Dataset 的 repr 输出未显示坐标和数据变量的单位信息。",
+    "trigger_condition": {
+        "text": "创建一个包含坐标和/或数据变量的 Dataset，其中坐标或数据变量具有单位属性（例如通过 `attrs` 或 `encoding` 设置），然后调用 `repr(dataset)` 或 `str(dataset)`。",
+        "evidence": [
+            "Issue 中提供了带有单位描述的期望 repr 示例。",
+            "相关测试 `TestDataset.test_repr` 展示了如何调用 `repr(data)` 并检查输出。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "Dataset 的 repr 字符串输出中缺少坐标和数据变量的单位信息。",
+        "symptom_type": "wrong_return",
+        "evidence": [
+            "Issue 中对比了当前 repr（无单位）和期望 repr（有单位）。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当 Dataset 的坐标或数据变量具有单位属性时，调用 `repr(dataset)` 返回的字符串应包含这些单位信息。",
+        "evidence": [
+            "Issue 中明确描述了期望的输出格式，例如 'x, in metres', 'rainfall, in mm'。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "Dataset.__repr__",
+            "kind": "method",
+            "source_path": "xarray/core/dataset.py",
+            "reason": "这是生成 Dataset 字符串表示的方法，是 Issue 描述的功能缺失点。"
+        },
+        {
+            "name": "repr",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Python 内置函数，通常用于触发对象的 `__repr__` 方法，相关测试中直接使用。"
+        },
+        {
+            "name": "str",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Python 内置函数，可能调用 `__str__` 或 `__repr__`，相关测试 `TestDataset.test_repr` 的参数化测试中也检查了 `str`。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "xarray/core/dataset.py",
+            "object": "Dataset.__repr__",
+            "lines": "",
+            "reason": "Issue 直接关于 Dataset repr 的输出内容，该方法负责生成该输出。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "TestDataset.test_repr",
+            "test_file": "xarray/tests/test_dataset.py",
+            "why_relevant": "该测试专门验证 Dataset repr 的格式和内容，包括对坐标、数据变量和属性的表示。它直接调用了 `repr(data)` 并进行字符串断言，与 Issue 的验证目标高度一致。",
+            "reusable_parts": [
+                "`create_test_data` fixture 用于构造测试 Dataset。",
+                "使用 `dedent` 和字符串格式化定义预期输出。",
+                "调用 `repr(data)` 并断言其与预期字符串相等的基本模式。",
+                "处理不同数据类型的模式（如 `% data[\"dim3\"].dtype`）。"
+            ],
+            "possible_gap": "该测试构造的 Dataset 坐标和数据变量没有设置单位属性，因此其预期输出不包含单位信息。需要变异以创建带有单位属性的 Dataset。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "object_state",
+            "current_pattern": "相似测试 `TestDataset.test_repr` 使用 `create_test_data` 创建 Dataset，其坐标和数据变量没有显式设置单位属性。",
+            "target_pattern": "创建 Dataset 时，为坐标和/或数据变量设置单位属性（例如，通过 `attrs={'units': 'metres'}` 或 `encoding={'units': 'mm'}`）。",
+            "reason": "Issue 的核心是当单位属性存在时 repr 应显示它们。当前测试的 Dataset 状态不满足此条件。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "测试中直接调用 `repr(data)`。",
+            "target_pattern": "调用 `repr(data)` 或 `str(data)`。",
+            "reason": "Issue 关注的是 repr 输出，相关测试也检查 `str` 函数。调用链本身无需改变，但输入对象状态需要改变。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "repr",
+            "expression_hint": "`repr(dataset)` 或 `str(dataset)` 的返回值。",
+            "reason": "Issue 直接关于 Dataset repr 的字符串输出内容，这是最直接的观测点。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "Dataset repr 的字符串应包含坐标或数据变量的单位信息片段（如 'in metres', 'in mm'）。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的、包含具体数值和省略号的 repr 字符串完全相等，因为具体数值和省略号可能变化。避免断言私有属性如 `_attrs` 的内容。",
+            "reason": "单位信息是期望添加的稳定片段。使用 `contains_fragment` 比完整字符串相等更稳健，能容忍 repr 中其他部分（如数值、省略号）的细微变化。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "可能需要使用 `xarray.set_options` 来控制显示宽度，以确保 repr 格式一致。相关测试 `TestDataset.test_repr` 中使用了此方法。",
+            "source": "retrieved_test",
+            "confidence": "medium"
+        },
+        {
+            "hint": "可以使用 `dedent` 函数来格式化多行预期字符串，便于比较。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "单位信息具体存储在 Dataset 变量（坐标或数据变量）的哪个属性中（是 `attrs['units']` 还是 `encoding['units']` 或其他）。",
+        "单位信息在 repr 中的确切插入位置和格式（例如，是紧接在变量名后加逗号和单位，还是用其他分隔符）。",
+        "对于 MultiIndex 坐标、稀疏数组坐标等特殊情况的处理是否一致。",
+        "如果单位属性不存在，repr 输出是否应与当前行为完全一致。"
+    ]
+}
+```

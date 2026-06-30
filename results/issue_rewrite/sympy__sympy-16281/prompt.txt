@@ -1,0 +1,1480 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+Product pretty print could be improved
+This is what the pretty printing for `Product` looks like:
+
+```
+>>> pprint(Product(1, (n, 1, oo)))
+  ∞
+┬───┬
+│   │ 1
+│   │
+n = 1
+>>> pprint(Product(1/n, (n, 1, oo)))
+   ∞
+┬──────┬
+│      │ 1
+│      │ ─
+│      │ n
+│      │
+ n = 1
+>>> pprint(Product(1/n**2, (n, 1, oo)))
+    ∞
+┬────────┬
+│        │ 1
+│        │ ──
+│        │  2
+│        │ n
+│        │
+  n = 1
+>>> pprint(Product(1, (n, 1, oo)), use_unicode=False)
+  oo
+_____
+|   | 1
+|   |
+n = 1
+>>> pprint(Product(1/n, (n, 1, oo)), use_unicode=False)
+   oo
+________
+|      | 1
+|      | -
+|      | n
+|      |
+ n = 1
+>>> pprint(Product(1/n**2, (n, 1, oo)), use_unicode=False)
+    oo
+__________
+|        | 1
+|        | --
+|        |  2
+|        | n
+|        |
+  n = 1
+```
+
+(if those don't look good in your browser copy paste them into the terminal)
+
+This could be improved:
+
+- Why is there always an empty line at the bottom of the ∏? Keeping everything below the horizontal line is good, but the bottom looks asymmetric, and it makes the ∏ bigger than it needs to be.
+
+- The ∏ is too fat IMO. 
+
+- It might look better if we extended the top bar. I'm unsure about this. 
+
+Compare this
+
+```
+    ∞
+─┬─────┬─
+ │     │  1
+ │     │  ──
+ │     │   2
+ │     │  n
+  n = 1
+```
+
+That's still almost twice as wide as the equivalent Sum, but if you make it much skinnier it starts to look bad.
+
+```
+  ∞
+ ____
+ ╲
+  ╲   1
+   ╲  ──
+   ╱   2
+  ╱   n
+ ╱
+ ‾‾‾‾
+n = 1
+```
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sympy/concrete/products.py
+对象名称：Product
+节点类型：class
+父节点：products
+行号范围：13-468
+代码：
+class Product(ExprWithIntLimits):
+    r"""Represents unevaluated products.
+
+    ``Product`` represents a finite or infinite product, with the first
+    argument being the general form of terms in the series, and the second
+    argument being ``(dummy_variable, start, end)``, with ``dummy_variable``
+    taking all integer values from ``start`` through ``end``. In accordance
+    with long-standing mathematical convention, the end term is included in
+    the product.
+
+    Finite products
+    ===============
+
+    For finite products (and products with symbolic limits assumed to be finite)
+    we follow the analogue of the summation convention described by Karr [1],
+    especially definition 3 of section 1.4. The product:
+
+    .. math::
+
+        \prod_{m \leq i < n} f(i)
+
+    has *the obvious meaning* for `m < n`, namely:
+
+    .. math::
+
+        \prod_{m \leq i < n} f(i) = f(m) f(m+1) \cdot \ldots \cdot f(n-2) f(n-1)
+
+    with the upper limit value `f(n)` excluded. The product over an empty set is
+    one if and only if `m = n`:
+
+    .. math::
+
+        \prod_{m \leq i < n} f(i) = 1  \quad \mathrm{for} \quad  m = n
+
+    Finally, for all other products over empty sets we assume the following
+    definition:
+
+    .. math::
+
+        \prod_{m \leq i < n} f(i) = \frac{1}{\prod_{n \leq i < m} f(i)}  \quad \mathrm{for} \quad  m > n
+
+    It is important to note that above we define all products with the upper
+    limit being exclusive. This is in contrast to the usual mathematical notation,
+    but does not affect the product convention. Indeed we have:
+
+    .. math::
+
+        \prod_{m \leq i < n} f(i) = \prod_{i = m}^{n - 1} f(i)
+
+    where the difference in notation is intentional to emphasize the meaning,
+    with limits typeset on the top being inclusive.
+
+    Examples
+    ========
+
+    >>> from sympy.abc import a, b, i, k, m, n, x
+    >>> from sympy import Product, factorial, oo
+    >>> Product(k, (k, 1, m))
+    Product(k, (k, 1, m))
+    >>> Product(k, (k, 1, m)).doit()
+    factorial(m)
+    >>> Product(k**2,(k, 1, m))
+    Product(k**2, (k, 1, m))
+    >>> Product(k**2,(k, 1, m)).doit()
+    factorial(m)**2
+
+    Wallis' product for pi:
+
+    >>> W = Product(2*i/(2*i-1) * 2*i/(2*i+1), (i, 1, oo))
+    >>> W
+    Product(4*i**2/((2*i - 1)*(2*i + 1)), (i, 1, oo))
+
+    Direct computation currently fails:
+
+    >>> W.doit()
+    Product(4*i**2/((2*i - 1)*(2*i + 1)), (i, 1, oo))
+
+    But we can approach the infinite product by a limit of finite products:
+
+    >>> from sympy import limit
+    >>> W2 = Product(2*i/(2*i-1)*2*i/(2*i+1), (i, 1, n))
+    >>> W2
+    Product(4*i**2/((2*i - 1)*(2*i + 1)), (i, 1, n))
+    >>> W2e = W2.doit()
+    >>> W2e
+    2**(-2*n)*4**n*factorial(n)**2/(RisingFactorial(1/2, n)*RisingFactorial(3/2, n))
+    >>> limit(W2e, n, oo)
+    pi/2
+
+    By the same formula we can compute sin(pi/2):
+
+    >>> from sympy import pi, gamma, simplify
+    >>> P = pi * x * Product(1 - x**2/k**2, (k, 1, n))
+    >>> P = P.subs(x, pi/2)
+    >>> P
+    pi**2*Product(1 - pi**2/(4*k**2), (k, 1, n))/2
+    >>> Pe = P.doit()
+    >>> Pe
+    pi**2*RisingFactorial(1 - pi/2, n)*RisingFactorial(1 + pi/2, n)/(2*factorial(n)**2)
+    >>> Pe = Pe.rewrite(gamma)
+    >>> Pe
+    pi**2*gamma(n + 1 + pi/2)*gamma(n - pi/2 + 1)/(2*gamma(1 - pi/2)*gamma(1 + pi/2)*gamma(n + 1)**2)
+    >>> Pe = simplify(Pe)
+    >>> Pe
+    sin(pi**2/2)*gamma(n + 1 + pi/2)*gamma(n - pi/2 + 1)/gamma(n + 1)**2
+    >>> limit(Pe, n, oo)
+    sin(pi**2/2)
+
+    Products with the lower limit being larger than the upper one:
+
+    >>> Product(1/i, (i, 6, 1)).doit()
+    120
+    >>> Product(i, (i, 2, 5)).doit()
+    120
+
+    The empty product:
+
+    >>> Product(i, (i, n, n-1)).doit()
+    1
+
+    An example showing that the symbolic result of a product is still
+    valid for seemingly nonsensical values of the limits. Then the Karr
+    convention allows us to give a perfectly valid interpretation to
+    those products by interchanging the limits according to the above rules:
+
+    >>> P = Product(2, (i, 10, n)).doit()
+    >>> P
+    2**(n - 9)
+    >>> P.subs(n, 5)
+    1/16
+    >>> Product(2, (i, 10, 5)).doit()
+    1/16
+    >>> 1/Product(2, (i, 6, 9)).doit()
+    1/16
+
+    An explicit example of the Karr summation convention applied to products:
+
+    >>> P1 = Product(x, (i, a, b)).doit()
+    >>> P1
+    x**(-a + b + 1)
+    >>> P2 = Product(x, (i, b+1, a-1)).doit()
+    >>> P2
+    x**(a - b - 1)
+    >>> simplify(P1 * P2)
+    1
+
+    And another one:
+
+    >>> P1 = Product(i, (i, b, a)).doit()
+    >>> P1
+    RisingFactorial(b, a - b + 1)
+    >>> P2 = Product(i, (i, a+1, b-1)).doit()
+    >>> P2
+    RisingFactorial(a + 1, -a + b - 1)
+    >>> P1 * P2
+    RisingFactorial(b, a - b + 1)*RisingFactorial(a + 1, -a + b - 1)
+    >>> simplify(P1 * P2)
+    1
+
+    See Also
+    ========
+
+    Sum, summation
+    product
+
+    References
+    ==========
+
+    .. [1] Michael Karr, "Summation in Finite Terms", Journal of the ACM,
+           Volume 28 Issue 2, April 1981, Pages 305-350
+           http://dl.acm.org/citation.cfm?doid=322248.322255
+    .. [2] https://en.wikipedia.org/wiki/Multiplication#Capital_Pi_notation
+    .. [3] https://en.wikipedia.org/wiki/Empty_product
+    """
+    __slots__ = ['is_commutative']
+    def __new__(cls, function, *symbols, **assumptions):
+    def _eval_rewrite_as_Sum(self, *args, **kwargs):
+    @property
+    def term(self):
+    function = term
+    def _eval_is_zero(self):
+    def doit(self, **hints):
+    def _eval_adjoint(self):
+    def _eval_conjugate(self):
+    def _eval_product(self, term, limits):
+    def _eval_simplify(self, ratio, measure, rational, inverse):
+    def _eval_transpose(self):
+    def is_convergent(self):
+    def reverse_order(expr, *indices):
+
+
+【源码片段 2】
+文件路径：sympy/printing/pretty/pretty.py
+对象名称：pprint
+节点类型：global_var
+父节点：pretty
+行号范围：2534-2534
+代码：
+pprint = pretty_print
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sympy/printing/pretty/tests/test_pretty.py
+测试名称：test_pretty_product
+测试代码：
+def test_pretty_product():
+    n, m, k, l = symbols('n m k l')
+    f = symbols('f', cls=Function)
+    expr = Product(f((n/3)**2), (n, k**2, l))
+
+    unicode_str = \
+u("""\
+    l           \n\
+┬────────┬      \n\
+│        │  ⎛ 2⎞\n\
+│        │  ⎜n ⎟\n\
+│        │ f⎜──⎟\n\
+│        │  ⎝9 ⎠\n\
+│        │      \n\
+       2        \n\
+  n = k         """)
+    ascii_str = \
+"""\
+    l           \n\
+__________      \n\
+|        |  / 2\\\n\
+|        |  |n |\n\
+|        | f|--|\n\
+|        |  \\9 /\n\
+|        |      \n\
+       2        \n\
+  n = k         """
+
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == unicode_str
+
+    expr = Product(f((n/3)**2), (n, k**2, l), (l, 1, m))
+
+    unicode_str = \
+u("""\
+    m          l           \n\
+┬────────┬ ┬────────┬      \n\
+│        │ │        │  ⎛ 2⎞\n\
+│        │ │        │  ⎜n ⎟\n\
+│        │ │        │ f⎜──⎟\n\
+│        │ │        │  ⎝9 ⎠\n\
+│        │ │        │      \n\
+  l = 1           2        \n\
+             n = k         """)
+    ascii_str = \
+"""\
+    m          l           \n\
+__________ __________      \n\
+|        | |        |  / 2\\\n\
+|        | |        |  |n |\n\
+|        | |        | f|--|\n\
+|        | |        |  \\9 /\n\
+|        | |        |      \n\
+  l = 1           2        \n\
+             n = k         """
+
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == unicode_str
+
+【相关测试 2】
+测试文件：sympy/printing/pretty/tests/test_pretty.py
+测试名称：test_pretty_sum
+测试代码：
+def test_pretty_sum():
+    from sympy.abc import x, a, b, k, m, n
+
+    expr = Sum(k**k, (k, 0, n))
+    ascii_str = \
+"""\
+  n     \n\
+ ___    \n\
+ \\  `   \n\
+  \\    k\n\
+  /   k \n\
+ /__,   \n\
+k = 0   \
+"""
+    ucode_str = \
+u("""\
+  n     \n\
+ ___    \n\
+ ╲      \n\
+  ╲    k\n\
+  ╱   k \n\
+ ╱      \n\
+ ‾‾‾    \n\
+k = 0   \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(k**k, (k, oo, n))
+    ascii_str = \
+"""\
+  n      \n\
+ ___     \n\
+ \\  `    \n\
+  \\     k\n\
+  /    k \n\
+ /__,    \n\
+k = oo   \
+"""
+    ucode_str = \
+u("""\
+  n     \n\
+ ___    \n\
+ ╲      \n\
+  ╲    k\n\
+  ╱   k \n\
+ ╱      \n\
+ ‾‾‾    \n\
+k = ∞   \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(k**(Integral(x**n, (x, -oo, oo))), (k, 0, n**n))
+    ascii_str = \
+"""\
+    n             \n\
+   n              \n\
+______            \n\
+\\     `           \n\
+ \\        oo      \n\
+  \\        /      \n\
+   \\      |       \n\
+    \\     |   n   \n\
+     )    |  x  dx\n\
+    /     |       \n\
+   /     /        \n\
+  /      -oo      \n\
+ /      k         \n\
+/_____,           \n\
+ k = 0            \
+"""
+    ucode_str = \
+u("""\
+   n            \n\
+  n             \n\
+______          \n\
+╲               \n\
+ ╲      ∞       \n\
+  ╲     ⌠       \n\
+   ╲    ⎮   n   \n\
+    ╲   ⎮  x  dx\n\
+    ╱   ⌡       \n\
+   ╱    -∞      \n\
+  ╱    k        \n\
+ ╱              \n\
+╱               \n\
+‾‾‾‾‾‾          \n\
+k = 0           \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(k**(
+        Integral(x**n, (x, -oo, oo))), (k, 0, Integral(x**x, (x, -oo, oo))))
+    ascii_str = \
+"""\
+ oo                 \n\
+  /                 \n\
+ |                  \n\
+ |   x              \n\
+ |  x  dx           \n\
+ |                  \n\
+/                   \n\
+-oo                 \n\
+ ______             \n\
+ \\     `            \n\
+  \\         oo      \n\
+   \\         /      \n\
+    \\       |       \n\
+     \\      |   n   \n\
+      )     |  x  dx\n\
+     /      |       \n\
+    /      /        \n\
+   /       -oo      \n\
+  /       k         \n\
+ /_____,            \n\
+  k = 0             \
+"""
+    ucode_str = \
+u("""\
+∞                 \n\
+⌠                 \n\
+⎮   x             \n\
+⎮  x  dx          \n\
+⌡                 \n\
+-∞                \n\
+ ______           \n\
+ ╲                \n\
+  ╲       ∞       \n\
+   ╲      ⌠       \n\
+    ╲     ⎮   n   \n\
+     ╲    ⎮  x  dx\n\
+     ╱    ⌡       \n\
+    ╱     -∞      \n\
+   ╱     k        \n\
+  ╱               \n\
+ ╱                \n\
+ ‾‾‾‾‾‾           \n\
+ k = 0            \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(k**(Integral(x**n, (x, -oo, oo))), (
+        k, x + n + x**2 + n**2 + (x/n) + (1/x), Integral(x**x, (x, -oo, oo))))
+    ascii_str = \
+"""\
+          oo                          \n\
+           /                          \n\
+          |                           \n\
+          |   x                       \n\
+          |  x  dx                    \n\
+          |                           \n\
+         /                            \n\
+         -oo                          \n\
+          ______                      \n\
+          \\     `                     \n\
+           \\                  oo      \n\
+            \\                  /      \n\
+             \\                |       \n\
+              \\               |   n   \n\
+               )              |  x  dx\n\
+              /               |       \n\
+             /               /        \n\
+            /                -oo      \n\
+           /                k         \n\
+          /_____,                     \n\
+     2        2       1   x           \n\
+k = n  + n + x  + x + - + -           \n\
+                      x   n           \
+"""
+    ucode_str = \
+u("""\
+          ∞                          \n\
+          ⌠                          \n\
+          ⎮   x                      \n\
+          ⎮  x  dx                   \n\
+          ⌡                          \n\
+          -∞                         \n\
+           ______                    \n\
+           ╲                         \n\
+            ╲                ∞       \n\
+             ╲               ⌠       \n\
+              ╲              ⎮   n   \n\
+               ╲             ⎮  x  dx\n\
+               ╱             ⌡       \n\
+              ╱              -∞      \n\
+             ╱              k        \n\
+            ╱                        \n\
+           ╱                         \n\
+           ‾‾‾‾‾‾                    \n\
+     2        2       1   x          \n\
+k = n  + n + x  + x + ─ + ─          \n\
+                      x   n          \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(k**(
+        Integral(x**n, (x, -oo, oo))), (k, 0, x + n + x**2 + n**2 + (x/n) + (1/x)))
+    ascii_str = \
+"""\
+ 2        2       1   x           \n\
+n  + n + x  + x + - + -           \n\
+                  x   n           \n\
+        ______                    \n\
+        \\     `                   \n\
+         \\                oo      \n\
+          \\                /      \n\
+           \\              |       \n\
+            \\             |   n   \n\
+             )            |  x  dx\n\
+            /             |       \n\
+           /             /        \n\
+          /              -oo      \n\
+         /              k         \n\
+        /_____,                   \n\
+         k = 0                    \
+"""
+    ucode_str = \
+u("""\
+ 2        2       1   x          \n\
+n  + n + x  + x + ─ + ─          \n\
+                  x   n          \n\
+         ______                  \n\
+         ╲                       \n\
+          ╲              ∞       \n\
+           ╲             ⌠       \n\
+            ╲            ⎮   n   \n\
+             ╲           ⎮  x  dx\n\
+             ╱           ⌡       \n\
+            ╱            -∞      \n\
+           ╱            k        \n\
+          ╱                      \n\
+         ╱                       \n\
+         ‾‾‾‾‾‾                  \n\
+         k = 0                   \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(x, (x, 0, oo))
+    ascii_str = \
+"""\
+  oo   \n\
+ __    \n\
+ \\ `   \n\
+  )   x\n\
+ /_,   \n\
+x = 0  \
+"""
+    ucode_str = \
+u("""\
+  ∞    \n\
+ ___   \n\
+ ╲     \n\
+  ╲   x\n\
+  ╱    \n\
+ ╱     \n\
+ ‾‾‾   \n\
+x = 0  \
+""")
+
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(x**2, (x, 0, oo))
+    ascii_str = \
+u("""\
+  oo    \n\
+ ___    \n\
+ \\  `   \n\
+  \\    2\n\
+  /   x \n\
+ /__,   \n\
+x = 0   \
+""")
+    ucode_str = \
+u("""\
+  ∞     \n\
+ ___    \n\
+ ╲      \n\
+  ╲    2\n\
+  ╱   x \n\
+ ╱      \n\
+ ‾‾‾    \n\
+x = 0   \
+""")
+
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(x/2, (x, 0, oo))
+    ascii_str = \
+"""\
+  oo   \n\
+ ___   \n\
+ \\  `  \n\
+  \\   x\n\
+   )  -\n\
+  /   2\n\
+ /__,  \n\
+x = 0  \
+"""
+    ucode_str = \
+u("""\
+  ∞    \n\
+ ____  \n\
+ ╲     \n\
+  ╲   x\n\
+   ╲  ─\n\
+   ╱  2\n\
+  ╱    \n\
+ ╱     \n\
+ ‾‾‾‾  \n\
+x = 0  \
+""")
+
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = Sum(x**3/2, (x, 0, oo))
+    ascii_str = \
+"""\
+  oo    \n\
+____    \n\
+\\   `   \n\
+ \\     3\n\
+  \\   x \n\
+  /   --\n\
+ /    2 \n\
+/
+...[TRUNCATED]...
+ssert pretty(Sum(x**2, (x, 0, 1))**2) == \
+"""\
+          2
+/  1     \\ \n\
+| ___    | \n\
+| \\  `   | \n\
+|  \\    2| \n\
+|  /   x | \n\
+| /__,   | \n\
+\\x = 0   / \
+"""
+    assert upretty(Sum(x**2, (x, 0, 1))**2) == \
+u("""\
+          2
+⎛  1     ⎞ \n\
+⎜ ___    ⎟ \n\
+⎜ ╲      ⎟ \n\
+⎜  ╲    2⎟ \n\
+⎜  ╱   x ⎟ \n\
+⎜ ╱      ⎟ \n\
+⎜ ‾‾‾    ⎟ \n\
+⎝x = 0   ⎠ \
+""")
+
+    assert pretty(Product(x**2, (x, 1, 2))**2) == \
+"""\
+           2
+/  2      \\ \n\
+|______   | \n\
+||    |  2| \n\
+||    | x | \n\
+||    |   | \n\
+\\x = 1    / \
+"""
+    assert upretty(Product(x**2, (x, 1, 2))**2) == \
+u("""\
+           2
+⎛  2      ⎞ \n\
+⎜┬────┬   ⎟ \n\
+⎜│    │  2⎟ \n\
+⎜│    │ x ⎟ \n\
+⎜│    │   ⎟ \n\
+⎝x = 1    ⎠ \
+""")
+
+    f = Function('f')
+    assert pretty(Derivative(f(x), x)**2) == \
+"""\
+          2
+/d       \\ \n\
+|--(f(x))| \n\
+\\dx      / \
+"""
+    assert upretty(Derivative(f(x), x)**2) == \
+u("""\
+          2
+⎛d       ⎞ \n\
+⎜──(f(x))⎟ \n\
+⎝dx      ⎠ \
+""")
+
+【相关测试 4】
+测试文件：sympy/printing/pretty/tests/test_pretty.py
+测试名称：test_pretty_sqrt
+测试代码：
+def test_pretty_sqrt():
+    expr = sqrt(2)
+    ascii_str = \
+"""\
+  ___\n\
+\\/ 2 \
+"""
+    ucode_str = \
+u"√2"
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = 2**Rational(1, 3)
+    ascii_str = \
+"""\
+3 ___\n\
+\\/ 2 \
+"""
+    ucode_str = \
+u("""\
+3 ___\n\
+╲╱ 2 \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = 2**Rational(1, 1000)
+    ascii_str = \
+"""\
+1000___\n\
+  \\/ 2 \
+"""
+    ucode_str = \
+u("""\
+1000___\n\
+  ╲╱ 2 \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = sqrt(x**2 + 1)
+    ascii_str = \
+"""\
+   ________\n\
+  /  2     \n\
+\\/  x  + 1 \
+"""
+    ucode_str = \
+u("""\
+   ________\n\
+  ╱  2     \n\
+╲╱  x  + 1 \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = (1 + sqrt(5))**Rational(1, 3)
+    ascii_str = \
+"""\
+   ___________\n\
+3 /       ___ \n\
+\\/  1 + \\/ 5  \
+"""
+    ucode_str = \
+u("""\
+3 ________\n\
+╲╱ 1 + √5 \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = 2**(1/x)
+    ascii_str = \
+"""\
+x ___\n\
+\\/ 2 \
+"""
+    ucode_str = \
+u("""\
+x ___\n\
+╲╱ 2 \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = sqrt(2 + pi)
+    ascii_str = \
+"""\
+  ________\n\
+\\/ 2 + pi \
+"""
+    ucode_str = \
+u("""\
+  _______\n\
+╲╱ 2 + π \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = (2 + (
+        1 + x**2)/(2 + x))**Rational(1, 4) + (1 + x**Rational(1, 1000))/sqrt(3 + x**2)
+    ascii_str = \
+"""\
+     ____________              \n\
+    /      2        1000___    \n\
+   /      x  + 1      \\/ x  + 1\n\
+4 /   2 + ------  + -----------\n\
+\\/        x + 2        ________\n\
+                      /  2     \n\
+                    \\/  x  + 3 \
+"""
+    ucode_str = \
+u("""\
+     ____________              \n\
+    ╱      2        1000___    \n\
+   ╱      x  + 1      ╲╱ x  + 1\n\
+4 ╱   2 + ──────  + ───────────\n\
+╲╱        x + 2        ________\n\
+                      ╱  2     \n\
+                    ╲╱  x  + 3 \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+【相关测试 5】
+测试文件：sympy/printing/pretty/tests/test_pretty.py
+测试名称：test_pretty_basic
+测试代码：
+def test_pretty_basic():
+    assert pretty( -Rational(1)/2 ) == '-1/2'
+    assert pretty( -Rational(13)/22 ) == \
+"""\
+-13 \n\
+----\n\
+ 22 \
+"""
+    expr = oo
+    ascii_str = \
+"""\
+oo\
+"""
+    ucode_str = \
+u("""\
+∞\
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = (x**2)
+    ascii_str = \
+"""\
+ 2\n\
+x \
+"""
+    ucode_str = \
+u("""\
+ 2\n\
+x \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = 1/x
+    ascii_str = \
+"""\
+1\n\
+-\n\
+x\
+"""
+    ucode_str = \
+u("""\
+1\n\
+─\n\
+x\
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    # not the same as 1/x
+    expr = x**-1.0
+    ascii_str = \
+"""\
+ -1.0\n\
+x    \
+"""
+    ucode_str = \
+("""\
+ -1.0\n\
+x    \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    # see issue #2860
+    expr = Pow(S(2), -1.0, evaluate=False)
+    ascii_str = \
+"""\
+ -1.0\n\
+2    \
+"""
+    ucode_str = \
+("""\
+ -1.0\n\
+2    \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = y*x**-2
+    ascii_str = \
+"""\
+y \n\
+--\n\
+ 2\n\
+x \
+"""
+    ucode_str = \
+u("""\
+y \n\
+──\n\
+ 2\n\
+x \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    #see issue #14033
+    expr = x**Rational(1, 3)
+    ascii_str = \
+"""\
+ 1/3\n\
+x   \
+"""
+    ucode_str = \
+u("""\
+ 1/3\n\
+x   \
+""")
+    assert xpretty(expr, use_unicode=False, wrap_line=False,\
+    root_notation = False) == ascii_str
+    assert xpretty(expr, use_unicode=True, wrap_line=False,\
+    root_notation = False) == ucode_str
+
+    expr = x**Rational(-5, 2)
+    ascii_str = \
+"""\
+ 1  \n\
+----\n\
+ 5/2\n\
+x   \
+"""
+    ucode_str = \
+u("""\
+ 1  \n\
+────\n\
+ 5/2\n\
+x   \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = (-2)**x
+    ascii_str = \
+"""\
+    x\n\
+(-2) \
+"""
+    ucode_str = \
+u("""\
+    x\n\
+(-2) \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    # See issue 4923
+    expr = Pow(3, 1, evaluate=False)
+    ascii_str = \
+"""\
+ 1\n\
+3 \
+"""
+    ucode_str = \
+u("""\
+ 1\n\
+3 \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = (x**2 + x + 1)
+    ascii_str_1 = \
+"""\
+         2\n\
+1 + x + x \
+"""
+    ascii_str_2 = \
+"""\
+ 2        \n\
+x  + x + 1\
+"""
+    ascii_str_3 = \
+"""\
+ 2        \n\
+x  + 1 + x\
+"""
+    ucode_str_1 = \
+u("""\
+         2\n\
+1 + x + x \
+""")
+    ucode_str_2 = \
+u("""\
+ 2        \n\
+x  + x + 1\
+""")
+    ucode_str_3 = \
+u("""\
+ 2        \n\
+x  + 1 + x\
+""")
+    assert pretty(expr) in [ascii_str_1, ascii_str_2, ascii_str_3]
+    assert upretty(expr) in [ucode_str_1, ucode_str_2, ucode_str_3]
+
+    expr = 1 - x
+    ascii_str_1 = \
+"""\
+1 - x\
+"""
+    ascii_str_2 = \
+"""\
+-x + 1\
+"""
+    ucode_str_1 = \
+u("""\
+1 - x\
+""")
+    ucode_str_2 = \
+u("""\
+-x + 1\
+""")
+    assert pretty(expr) in [ascii_str_1, ascii_str_2]
+    assert upretty(expr) in [ucode_str_1, ucode_str_2]
+
+    expr = 1 - 2*x
+    ascii_str_1 = \
+"""\
+1 - 2*x\
+"""
+    ascii_str_2 = \
+"""\
+-2*x + 1\
+"""
+    ucode_str_1 = \
+u("""\
+1 - 2⋅x\
+""")
+    ucode_str_2 = \
+u("""\
+-2⋅x + 1\
+""")
+    assert pretty(expr) in [ascii_str_1, ascii_str_2]
+    assert upretty(expr) in [ucode_str_1, ucode_str_2]
+
+    expr = x/y
+    ascii_str = \
+"""\
+x\n\
+-\n\
+y\
+"""
+    ucode_str = \
+u("""\
+x\n\
+─\n\
+y\
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = -x/y
+    ascii_str = \
+"""\
+-x \n\
+---\n\
+ y \
+"""
+    ucode_str = \
+u("""\
+-x \n\
+───\n\
+ y \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = (x + 2)/y
+    ascii_str_1 = \
+"""\
+2 + x\n\
+-----\n\
+  y  \
+"""
+    ascii_str_2 = \
+"""\
+x + 2\n\
+-----\n\
+  y  \
+"""
+    ucode_str_1 = \
+u("""\
+2 + x\n\
+─────\n\
+  y  \
+""")
+    ucode_str_2 = \
+u("""\
+x + 2\n\
+─────\n\
+  y  \
+""")
+    assert pretty(expr) in [ascii_str_1, ascii_str_2]
+    assert upretty(expr) in [ucode_str_1, ucode_str_2]
+
+    expr = (1 + x)*y
+    ascii_str_1 = \
+"""\
+y*(1 + x)\
+"""
+    ascii_str_2 = \
+"""\
+(1 + x)*y\
+"""
+    ascii_str_3 = \
+"""\
+y*(x + 1)\
+"""
+    ucode_str_1 = \
+u("""\
+y⋅(1 + x)\
+""")
+    ucode_str_2 = \
+u("""\
+(1 + x)⋅y\
+""")
+    ucode_str_3 = \
+u("""\
+y⋅(x + 1)\
+""")
+    assert pretty(expr) in [ascii_str_1, ascii_str_2, ascii_str_3]
+    assert upretty(expr) in [ucode_str_1, ucode_str_2, ucode_str_3]
+
+    # Test for correct placement of the negative sign
+    expr = -5*x/(x + 10)
+    ascii_str_1 = \
+"""\
+-5*x  \n\
+------\n\
+10 + x\
+"""
+    ascii_str_2 = \
+"""\
+-5*x  \n\
+------\n\
+x + 10\
+"""
+    ucode_str_1 = \
+u("""\
+-5⋅x  \n\
+──────\n\
+10 + x\
+""")
+    ucode_str_2 = \
+u("""\
+-5⋅x  \n\
+──────\n\
+x + 10\
+""")
+    assert pretty(expr) in [ascii_str_1, ascii_str_2]
+    assert upretty(expr) in [ucode_str_1, ucode_str_2]
+
+    expr = -S(1)/2 - 3*x
+    ascii_str = \
+"""\
+-3*x - 1/2\
+"""
+    ucode_str = \
+u("""\
+-3⋅x - 1/2\
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = S(1)/2 - 3*x
+    ascii_str = \
+"""\
+1/2 - 3*x\
+"""
+    ucode_str = \
+u("""\
+1/2 - 3⋅x\
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = -S(1)/2 - 3*x/2
+    ascii_str = \
+"""\
+  3*x   1\n\
+- --- - -\n\
+   2    2\
+"""
+    ucode_str = \
+u("""\
+  3⋅x   1\n\
+- ─── - ─\n\
+   2    2\
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+    expr = S(1)/2 - 3*x/2
+    ascii_str = \
+"""\
+1   3*x\n\
+- - ---\n\
+2    2 \
+"""
+    ucode_str = \
+u("""\
+1   3⋅x\n\
+─ - ───\n\
+2    2 \
+""")
+    assert pretty(expr) == ascii_str
+    assert upretty(expr) == ucode_str
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

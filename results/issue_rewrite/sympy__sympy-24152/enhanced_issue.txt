@@ -1,0 +1,115 @@
+instance_id: sympy__sympy-24152
+
+issue_summary: TensorProduct.expand(tensorproduct=True) 在张量积因子中的项带有标量系数时，展开不完整。
+
+trigger_condition:
+{
+  "text": "构造一个 TensorProduct 对象，其中至少一个因子是一个 Add 表达式，并且该 Add 表达式中的至少一个项带有一个标量（可交换）系数。然后调用其 expand(tensorproduct=True) 方法。",
+  "evidence": [
+    "Issue 示例：TensorProduct(2*U - V, U + V)，其中第一个因子 (2*U - V) 包含带标量系数 2 的项 U。",
+    "Issue 描述：\"if summands in the tensor product factors have (scalar) factors\"",
+    "源码 _eval_expand_tensorproduct 方法检查 isinstance(args[i], Add)。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "expand(tensorproduct=True) 返回的表达式不完整，张量积的某些因子（特别是那些在 Add 表达式中的因子）没有被进一步展开。具体表现为结果中仍然包含未展开的 Add 表达式作为张量积的因子。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue 示例结果：2*Ux(U + V) - Vx(U + V)，其中第二个因子 (U + V) 是一个 Add，但未被展开为 UxU + UxV。",
+    "Issue 描述：\"expansion has missed 2nd tensor factor and is incomplete\""
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "TensorProduct.expand(tensorproduct=True) 应完全展开，将张量积分配到所有因子的加法上，直到没有 Add 表达式作为张量积的因子为止。对于 TensorProduct(2*U - V, U + V)，应返回 2*UxU + 2*UxV - VxU - VxV。",
+  "evidence": [
+    "Issue 描述：\"This is clearly not the expected behaviour.\"",
+    "测试 test_tensor_product_expand 展示了对于 TP(A+B, B+C) 的完全展开：TP(A, B) + TP(A, C) + TP(B, B) + TP(B, C)。",
+    "TensorProduct 文档字符串提到 Expand can be used to distribute a tensor product across addition。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "TensorProduct",
+    "kind": "class",
+    "source_path": "sympy/physics/quantum/tensorproduct.py",
+    "reason": "缺陷涉及的核心类，其 expand 方法行为不正确。"
+  },
+  {
+    "name": "TensorProduct.expand",
+    "kind": "method",
+    "source_path": "sympy/physics/quantum/tensorproduct.py",
+    "reason": "用户直接调用的方法，其 tensorproduct=True 参数触发有缺陷的展开逻辑。"
+  },
+  {
+    "name": "TensorProduct._eval_expand_tensorproduct",
+    "kind": "method",
+    "source_path": "sympy/physics/quantum/tensorproduct.py",
+    "reason": "Issue 明确指出缺陷发生在这个方法内部，是 expand(tensorproduct=True) 的实际实现。"
+  },
+  {
+    "name": "Mul",
+    "kind": "class",
+    "source_path": "sympy/core/mul.py",
+    "reason": "TensorProduct 构造函数可能返回 Mul 对象，且修复方案涉及 Mul 的 args_cnc 方法。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "TP(A + B, B + C)",
+    "target_pattern": "TP(2*A - B, A + B) 或 TP(k*A + B, C + D)，其中 k 是标量（如整数 2）。",
+    "reason": "Issue 表明当 Add 表达式中的项带有标量系数时触发缺陷。相似测试的输入没有标量系数，因此需要添加。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "调用 expand(tensorproduct=True) 后的表达式。观察其结构，特别是是否还有 Add 表达式作为 TensorProduct 的因子。",
+    "reason": "错误症状是返回的表达式展开不完整。直接观察返回值是判断缺陷是否触发的直接方式。"
+  },
+  {
+    "kind": "str",
+    "expression_hint": "str(expanded_result) 或 repr(expanded_result)。观察字符串表示中是否包含未展开的 'x'（张量积符号）连接着加号 '+'。",
+    "reason": "Issue 通过打印结果展示了不完整的展开。字符串表示可以直观反映展开程度。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "展开后的结果应等于完全展开后的表达式，即张量积应分配到所有因子的加法上，结果中不应包含以 Add 表达式为因子的 TensorProduct。",
+    "preferred_assertion_style": "equals",
+    "avoid": "避免断言完整的、未经简化的字符串表示，因为符号顺序可能变化。应使用 SymPy 的表达式相等。",
+    "reason": "测试 test_tensor_product_expand 已经使用了表达式相等断言。这能稳定地验证数学等价性，而不依赖于具体的字符串格式或符号排序。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试可能需要从 sympy.physics.quantum 导入 TensorProduct（可能别名为 TP），并定义非交换符号（如 A, B, C）或使用 Operator。可以参考现有测试文件的导入和符号定义方式。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "除了 Operator 类型，其他非交换对象（如普通非交换 Symbol）是否也会触发此缺陷。",
+  "缺陷是否在所有因子数量（>2）和任意位置的因子包含带标量系数的 Add 时都会发生。",
+  "修复后，对于 TensorProduct(U-U, U+V) 这种可能返回 0 的边缘情况，expand 行为具体如何。"
+]

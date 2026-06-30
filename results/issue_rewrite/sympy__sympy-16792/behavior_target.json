@@ -1,0 +1,354 @@
+{
+  "instance_id": "sympy__sympy-16792",
+  "issue_summary": "使用 Cython 后端时，`autowrap` 为不出现于表达式中的数组参数生成错误的 C 函数签名（标量而非指针），导致调用时类型错误。",
+  "trigger_condition": {
+    "text": "调用 `autowrap(expr, args=(matrix_symbol,), backend='cython')`，其中 `expr` 是一个不包含 `matrix_symbol` 的标量表达式（如 `1.0`），`matrix_symbol` 是一个 `MatrixSymbol` 对象。然后调用返回的函数并传入一个 NumPy 数组。",
+    "evidence": [
+      "Issue 中的最小复现代码：`x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); f(np.array([[1.0, 2.0]]))`。",
+      "Issue 描述：\"when the function in question has array arguments that do not appear in the final expression\"。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "调用包装函数时抛出 `TypeError: only size-1 arrays can be converted to Python scalars`。",
+    "symptom_type": "exception",
+    "evidence": [
+      "Issue 中的错误信息：`TypeError: only size-1 arrays can be converted to Python scalars`。",
+      "Issue 描述：\"fails with:\n```python\nTypeError: only size-1 arrays can be converted to Python scalars\n```\"。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "调用包装函数时应成功执行并返回表达式的值（例如 `1.0`），不抛出异常。生成的 C 函数签名应正确地将数组参数处理为指针（如 `double *x`）。",
+    "evidence": [
+      "Issue 描述：\"This should of course return `1.0`\"。",
+      "Issue 指出正确签名应为 `double *` 而不是 `double`。",
+      "当表达式依赖于参数时，行为正常：\"returns 1.0 as expected, without failure\"。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "autowrap",
+      "kind": "function",
+      "source_path": "sympy/utilities/autowrap.py",
+      "reason": "Issue 的核心是调用 `autowrap` 函数时出现的问题。"
+    },
+    {
+      "name": "MatrixSymbol",
+      "kind": "class",
+      "source_path": "sympy/matrices/expressions/matexpr.py",
+      "reason": "用于创建作为数组参数的矩阵符号。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sympy/codegen",
+      "object": "codegen 模块中负责为参数生成 C 类型声明的部分",
+      "lines": "",
+      "reason": "Issue 明确指出：\"I think I've identified the problem in `codegen`\"。"
+    },
+    {
+      "path": "sympy/utilities/autowrap.py",
+      "object": "处理 Cython 后端和参数类型推导的逻辑",
+      "lines": "",
+      "reason": "`autowrap` 是入口函数，需要将参数信息传递给代码生成器。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_autowrap_custom_printer",
+      "test_file": "sympy/external/tests/test_autowrap.py",
+      "why_relevant": "该测试使用了 `autowrap` 和 Cython 后端，并检查生成的 C 代码内容。它演示了如何设置自定义代码生成器、检查生成的文件，并断言函数调用结果。",
+      "reusable_parts": [
+        "导入：`from sympy.utilities.autowrap import autowrap`",
+        "使用 `backend='cython'`",
+        "使用 `tempfile.mkdtemp()` 创建临时目录",
+        "调用包装函数并断言返回值：`assert func(4.2) == 3.14 * 4.2`",
+        "读取并检查生成的 C 文件内容"
+      ],
+      "possible_gap": "该测试的表达式依赖于参数（`pi * a`），因此不会触发 bug。需要将表达式改为不依赖于参数（如标量常量），并将参数改为 `MatrixSymbol`。同时，测试中检查的是完整的 C 代码字符串相等，这对于 bug 复现可能过于严格，更适合检查签名片段。"
+    },
+    {
+      "test_name": "test_autowrap_args",
+      "test_file": "sympy/utilities/tests/test_autowrap.py",
+      "why_relevant": "该测试专门测试 `autowrap` 的 `args` 参数处理，包括参数顺序和返回。它使用了 'dummy' 后端，但展示了参数列表的验证和函数调用模式。",
+      "reusable_parts": [
+        "导入：`from sympy.utilities.autowrap import autowrap`",
+        "使用 `args` 参数",
+        "调用包装函数并断言返回值：`assert f() == str(x + y)`",
+        "检查 `f.args` 和 `f.returns` 属性"
+      ],
+      "possible_gap": "使用 'dummy' 后端而非 'cython'，且参数是普通 Symbol 而非 MatrixSymbol。需要切换后端并使用数组参数。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "相似测试中，表达式依赖于参数（如 `pi * a` 或 `x + y`）。",
+      "target_pattern": "表达式为不依赖于参数的标量常量（如 `1.0` 或 `sympy.S(2)`）。",
+      "reason": "Issue 表明只有当参数不出现在表达式中时才会触发 bug。",
+      "confidence": "high"
+    },
+    {
+      "slot": "argument",
+      "current_pattern": "相似测试中，参数是普通标量 Symbol（如 `a`, `x`, `y`）。",
+      "target_pattern": "参数是 `MatrixSymbol`（如 `MatrixSymbol('x', 2, 1)`）。",
+      "reason": "Issue 中 bug 涉及数组参数，`MatrixSymbol` 代表数组。",
+      "confidence": "high"
+    },
+    {
+      "slot": "config",
+      "current_pattern": "相似测试可能使用默认或自定义的代码生成器。",
+      "target_pattern": "明确指定 `backend='cython'`。",
+      "reason": "Issue 特定于 Cython 后端。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "调用包装函数时是否抛出 `TypeError` 及其消息。",
+      "reason": "直接对应错误症状。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "包装函数的返回值（应为标量值，如 `1.0`）。",
+      "reason": "验证函数是否成功执行并返回正确结果。"
+    },
+    {
+      "kind": "file_output",
+      "expression_hint": "生成的 C 源文件中的函数签名行（如包含 `double autofunc(double` 的行）。",
+      "reason": "Issue 指出签名错误（应为指针类型）。检查签名片段可确认 bug 是否被触发。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "调用包装函数时不抛出 `TypeError`，并返回预期的标量值。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言完整的 C 文件内容字符串相等，因为生成的文件名、头文件包含等可能变化。",
+      "reason": "直接验证公开的、稳定的行为：函数调用成功并返回正确值。"
+    },
+    {
+      "assertion_goal": "生成的 C 函数签名中包含指针类型指示（如 `*`）用于数组参数。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的函数签名字符串，因为函数名、空格、换行可能变化。",
+      "reason": "签名中的指针类型是修复后的关键公开特征，且相对稳定。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要安装 Cython 模块（测试中常用 `has_module('Cython')` 检查）。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "使用 `tempfile.mkdtemp()` 创建临时目录用于代码生成，测试后清理。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要导入 `numpy` 以创建数组参数。",
+      "source": "issue",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "bug 是否也影响其他后端（如 'f2py'）。",
+    "对于非矩阵的数组参数（如 `IndexedBase`）是否也有同样问题。",
+    "当有多个参数，其中一些出现、一些不出现在表达式中时，行为如何。",
+    "生成的确切 C 签名格式（如 `double *x` vs `double x[]`）。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "autowrap with cython backend fails when array arguments do not appear in wrapped expr\nWhen using the cython backend for autowrap, it appears that the code is not correctly generated when the function in question has array arguments that do not appear in the final expression. A minimal counterexample is:\n\n```python\nfrom sympy.utilities.autowrap import autowrap\nfrom sympy import MatrixSymbol\nimport numpy as np\n\nx = MatrixSymbol('x', 2, 1)\nexpr = 1.0\nf = autowrap(expr, args=(x,), backend='cython')\n\nf(np.array([[1.0, 2.0]]))\n```\n\nThis should of course return `1.0` but instead fails with:\n```python\nTypeError: only size-1 arrays can be converted to Python scalars\n```\n\nA little inspection reveals that this is because the corresponding C function is generated with an incorrect signature:\n\n```C\ndouble autofunc(double x) {\n\n   double autofunc_result;\n   autofunc_result = 1.0;\n   return autofunc_result;\n\n}\n```\n\n(`x` should be `double *`, not `double` in this case)\n\nI've found that this error won't occur so long as `expr` depends at least in part on each argument. For example this slight modification of the above counterexample works perfectly:\n\n```python\nfrom sympy.utilities.autowrap import autowrap\nfrom sympy import MatrixSymbol\nimport numpy as np\n\nx = MatrixSymbol('x', 2, 1)\n# now output depends on x\nexpr = x[0,0]\nf = autowrap(expr, args=(x,), backend='cython')\n\n# returns 1.0 as expected, without failure\nf(np.array([[1.0, 2.0]]))\n```\n\nThis may seem like a silly issue (\"why even have `x` as an argument if it doesn't appear in the expression you're trying to evaluate?\"). But of course in interfacing with external libraries (e.g. for numerical integration), one often needs functions to have a pre-defined signature regardless of whether a given argument contributes to the output.\n\nI think I've identified the problem in `codegen` and will suggest a PR shortly.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "使用 Cython 后端调用 `autowrap` 函数时，如果包装的表达式中不包含某个数组参数，生成的 C 函数签名会错误地将数组参数视为标量（例如 `double x` 而不是 `double *x`）。这导致调用包装函数时，传入的 NumPy 数组无法正确匹配签名，引发 `TypeError: only size-1 arrays can be converted to Python scalars`。当表达式至少部分依赖于每个参数时，该错误不会发生。问题可能与 `codegen` 模块相关。",
+      "facts_from_issue": [
+        "使用 Cython 后端时，`autowrap` 在表达式不包含某个数组参数时生成错误的 C 函数签名。",
+        "最小复现：`x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); f(np.array([[1.0, 2.0]]))` 抛出 `TypeError: only size-1 arrays can be converted to Python scalars`。",
+        "错误签名示例：`double autofunc(double x)`，应为 `double autofunc(double *x)`。",
+        "当表达式依赖于参数时（例如 `expr = x[0,0]`），不会发生错误。",
+        "报告者认为问题在 `codegen` 模块。"
+      ],
+      "facts_from_retrieved_context": [
+        "`autowrap` 函数位于 `sympy/utilities/autowrap.py`。",
+        "`MatrixSymbol` 类位于 `sympy/matrices/expressions/matexpr.py`。",
+        "`array` 函数（用于 Fortran 数组）位于 `sympy/codegen/fnodes.py`。",
+        "相关测试文件包括 `sympy/external/tests/test_autowrap.py` 和 `sympy/utilities/tests/test_autowrap.py`。"
+      ],
+      "inferences": [
+        "`autowrap` 在生成 C 代码时，可能根据参数是否出现在表达式中来决定其类型表示（标量 vs 指针）。",
+        "当参数为 `MatrixSymbol` 且不出现时，类型推导可能错误地降级为标量。",
+        "错误发生在 Cython 编译或包装的调用阶段，因为签名不匹配。"
+      ],
+      "do_not_assume": [
+        "具体是 `codegen` 模块中的哪个函数或哪行代码导致了错误。",
+        "除了 Cython 后端外，其他后端（如 'dummy'）是否也有此问题。",
+        "对于非数组参数（如普通 Symbol）是否也有类似问题。",
+        "修复后的确切 C 签名格式。"
+      ]
+    },
+    "issue_summary": "使用 Cython 后端时，`autowrap` 为不出现于表达式中的数组参数生成错误的 C 函数签名（标量而非指针），导致调用时类型错误。",
+    "trigger_condition": {
+      "text": "调用 `autowrap(expr, args=(matrix_symbol,), backend='cython')`，其中 `expr` 是一个不包含 `matrix_symbol` 的标量表达式（如 `1.0`），`matrix_symbol` 是一个 `MatrixSymbol` 对象。然后调用返回的函数并传入一个 NumPy 数组。",
+      "evidence": [
+        "Issue 中的最小复现代码：`x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); f(np.array([[1.0, 2.0]]))`。",
+        "Issue 描述：\"when the function in question has array arguments that do not appear in the final expression\"。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "调用包装函数时抛出 `TypeError: only size-1 arrays can be converted to Python scalars`。",
+      "symptom_type": "exception",
+      "evidence": [
+        "Issue 中的错误信息：`TypeError: only size-1 arrays can be converted to Python scalars`。",
+        "Issue 描述：\"fails with:\n```python\nTypeError: only size-1 arrays can be converted to Python scalars\n```\"。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "调用包装函数时应成功执行并返回表达式的值（例如 `1.0`），不抛出异常。生成的 C 函数签名应正确地将数组参数处理为指针（如 `double *x`）。",
+      "evidence": [
+        "Issue 描述：\"This should of course return `1.0`\"。",
+        "Issue 指出正确签名应为 `double *` 而不是 `double`。",
+        "当表达式依赖于参数时，行为正常：\"returns 1.0 as expected, without failure\"。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "autowrap",
+        "kind": "function",
+        "source_path": "sympy/utilities/autowrap.py",
+        "reason": "Issue 的核心是调用 `autowrap` 函数时出现的问题。"
+      },
+      {
+        "name": "MatrixSymbol",
+        "kind": "class",
+        "source_path": "sympy/matrices/expressions/matexpr.py",
+        "reason": "用于创建作为数组参数的矩阵符号。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sympy/codegen",
+        "object": "codegen 模块中负责为参数生成 C 类型声明的部分",
+        "lines": "",
+        "reason": "Issue 明确指出：\"I think I've identified the problem in `codegen`\"。"
+      },
+      {
+        "path": "sympy/utilities/autowrap.py",
+        "object": "处理 Cython 后端和参数类型推导的逻辑",
+        "lines": "",
+        "reason": "`autowrap` 是入口函数，需要将参数信息传递给代码生成器。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_autowrap_custom_printer",
+        "test_file": "sympy/external/tests/test_autowrap.py",
+        "why_relevant": "该测试使用了 `autowrap` 和 Cython 后端，并检查生成的 C 代码内容。它演示了如何设置自定义代码生成器、检查生成的文件，并断言函数调用结果。",
+        "reusable_parts": [
+          "导入：`from sympy.utilities.autowrap import autowrap`",
+          "使用 `backend='cython'`",
+          "使用 `tempfile.mkdtemp()` 创建临时目录",
+          "调用包装函数并断言返回值：`assert func(4.2) == 3.14 * 4.2`",
+          "读取并检查生成的 C 文件内容"
+        ],
+        "possible_gap": "该测试的表达式依赖于参数（`pi * a`），因此不会触发 bug。需要将表达式改为不依赖于参数（如标量常量），并将参数改为 `MatrixSymbol`。同时，测试中检查的是完整的 C 代码字符串相等，这对于 bug 复现可能过于严格，更适合检查签名片段。"
+      },
+      {
+        "test_name": "test_autowrap_args",
+        "test_file": "sympy/utilities/tests/test_autowrap.py",
+        "why_relevant": "该测试专门测试 `autowrap` 的 `args` 参数处理，包括参数顺序和返回。它使用了 'dummy' 后端，但展示了参数列表的验证和函数调用模式。",
+        "reusable_parts": [
+          "导入：`from sympy.utilities.autowrap import autowrap`",
+          "使用 `args` 参数",
+          "调用包装函数并断言返回值：`assert f() == str(x + y)`",
+          "检查 `f.args` 和 `f.returns` 属性"
+        ],
+        "possible_gap": "使用 'dummy' 后端而非 'cython'，且参数是普通 Symbol 而非 MatrixSymbol。需要切换后端并使用数组参数。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "相似测试中，表达式依赖于参数（如 `pi * a` 或 `x + y`）。",
+        "target_pattern": "表达式为不依赖于参数的标量常量（如 `1.0` 或 `sympy.S(2)`）。",
+        "reason": "Issue 表明只有当参数不出现在表达式中时才会触发 bug。",
+        "confidence": "high"
+      },
+      {
+        "slot": "argument",
+        "current_pattern": "相似测试中，参数是普通标量 Symbol（如 `a`, `x`, `y`）。",
+        "target_pattern": "参数是 `MatrixSymbol`（如 `MatrixSymbol('x', 2, 1)`）。",
+        "reason": "Issue 中 bug 涉及数组参数，`MatrixSymbol` 代表数组。",
+        "confidence": "high"
+      },
+      {
+        "slot": "config",
+        "current_pattern": "相似测试可能使用默认或自定义的代码生成器。",
+        "target_pattern": "明确指定 `backend='cython'`。",
+        "reason": "Issue 特定于 Cython 后端。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "调用包装函数时是否抛出 `TypeError` 及其消息。",
+        "reason": "直接对应错误症状。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "包装函数的返回值（应为标量值，如 `1.0`）。",
+        "reason": "验证函数是否成功执行并返回正确结果。"
+      },
+      {
+        "kind": "file_output",
+        "expression_hint": "生成的 C 源文件中的函数签名行（如包含 `double autofunc(double` 的行）。",
+        "reason": "Issue 指出签名错误（应为指针类型）。检查签名片段可确认 bug 是否被触发。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "调用包装函数时不抛出 `TypeError`，并返回预期的标量值。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言完整的 C 文件内容字符串相等，因为生成的文件名、头文件包含等可能变化。",
+        "reason": "直接验证公开的、稳定的行为：函数调用成功并返回正确值。"
+      },
+      {
+        "assertion_goal": "生成的 C 函数签名中包含指针类型指示（如 `*`）用于数组参数。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的函数签名字符串，因为函数名、空格、换行可能变化。",
+        "reason": "签名中的指针类型是修复后的关键公开特征，且相对稳定。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要安装 Cython 模块（测试中常用 `has_module('Cython')` 检查）。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "使用 `tempfile.mkdtemp()` 创建临时目录用于代码生成，测试后清理。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要导入 `numpy` 以创建数组参数。",
+        "source": "issue",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "bug 是否也影响其他后端（如 'f2py'）。",
+      "对于非矩阵的数组参数（如 `IndexedBase`）是否也有同样问题。",
+      "当有多个参数，其中一些出现、一些不出现在表达式中时，行为如何。",
+      "生成的确切 C 签名格式（如 `double *x` vs `double x[]`）。"
+    ]
+  }
+}

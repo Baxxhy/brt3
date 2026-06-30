@@ -1,0 +1,192 @@
+```json
+{
+    "original_issue": {
+        "text": "ExpressionWrapper for ~Q(pk__in=[]) crashes.\nDescription\n\t \n\t\t(last modified by Stefan Brand)\n\t \nProblem Description\nI'm reducing some Q objects (similar to what is described in ticket:32554. Everything is fine for the case where the result is ExpressionWrapper(Q(pk__in=[])). However, when I reduce to ExpressionWrapper(~Q(pk__in=[])) the query breaks.\nSymptoms\nWorking for ExpressionWrapper(Q(pk__in=[]))\nprint(queryset.annotate(foo=ExpressionWrapper(Q(pk__in=[]), output_field=BooleanField())).values(\"foo\").query)\nSELECT 0 AS \"foo\" FROM \"table\"\nNot working for ExpressionWrapper(~Q(pk__in=[]))\nprint(queryset.annotate(foo=ExpressionWrapper(~Q(pk__in=[]), output_field=BooleanField())).values(\"foo\").query)\nSELECT AS \"foo\" FROM \"table\"",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用 ExpressionWrapper 包装一个取反的 Q 对象（即 ~Q(pk__in=[])）作为注解时，生成的 SQL 查询会出错。具体表现为：使用 ExpressionWrapper(Q(pk__in=[])) 时，生成的 SQL 为 'SELECT 0 AS \"foo\" FROM \"table\"'，这是正确的。但使用 ExpressionWrapper(~Q(pk__in=[])) 时，生成的 SQL 变为 'SELECT AS \"foo\" FROM \"table\"'，缺少了 SELECT 子句中的值（例如 0 或 1），导致查询崩溃或无效。涉及的 API 包括 ExpressionWrapper、Q、annotate、values 和 BooleanField。",
+        "facts_from_issue": [
+            "ExpressionWrapper(Q(pk__in=[])) 能正常工作，生成 SQL: SELECT 0 AS \"foo\" FROM \"table\"",
+            "ExpressionWrapper(~Q(pk__in=[])) 会破坏查询，生成 SQL: SELECT AS \"foo\" FROM \"table\"",
+            "问题出现在使用 annotate 和 values 方法组合时",
+            "output_field 被指定为 BooleanField"
+        ],
+        "facts_from_retrieved_context": [
+            "ExpressionWrapper 类位于 django/db/models/expressions.py",
+            "Q 类位于 django/db/models/query_utils.py，支持 __invert__ 方法（~ 操作符）",
+            "QuerySet 有 annotate 和 values 方法",
+            "BooleanField 类位于 django/forms/fields.py",
+            "存在测试 test_empty_expression_annotation 使用了 ExpressionWrapper(Q(pk__in=[]))"
+        ],
+        "inferences": [
+            "问题可能与 Q 对象的取反操作（~）在 ExpressionWrapper 中的处理有关",
+            "当 Q(pk__in=[]) 被取反后，其 SQL 表示可能未正确处理，导致 SELECT 子句缺少值",
+            "错误症状是生成的 SQL 语句不完整，缺少 SELECT 后的表达式"
+        ],
+        "do_not_assume": [
+            "具体的内部实现错误位置",
+            "是否所有数据库后端都会出现此问题",
+            "除了 pk__in=[] 之外的其他 Q 表达式取反是否也会出错",
+            "是否与特定的 QuerySet 或模型有关"
+        ]
+    },
+    "issue_summary": "使用 ExpressionWrapper 包装取反的 Q 对象（~Q(pk__in=[])）进行注解时，生成的 SQL 查询缺少 SELECT 子句的值，导致查询崩溃。",
+    "trigger_condition": {
+        "text": "对一个 QuerySet 调用 annotate 方法，其中注解使用 ExpressionWrapper 包装一个取反的 Q 对象（例如 ~Q(pk__in=[])），并指定 output_field=BooleanField()，然后调用 values 方法获取该注解字段并打印生成的 query.sql。",
+        "evidence": [
+            "Issue 中提供了 queryset.annotate(foo=ExpressionWrapper(~Q(pk__in=[]), output_field=BooleanField())).values(\"foo\").query",
+            "相关测试 test_empty_expression_annotation 展示了类似的 annotate 调用模式"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "生成的 SQL 查询字符串不完整：SELECT 子句中缺少表达式值（例如应为 'SELECT 0 AS \"foo\"' 或 'SELECT 1 AS \"foo\"'，但实际为 'SELECT AS \"foo\"'）。这可能导致数据库查询错误或崩溃。",
+        "symptom_type": "wrong_sql",
+        "evidence": [
+            "Issue 中对比了两种情况的输出：正常为 'SELECT 0 AS \"foo\" FROM \"table\"'，错误为 'SELECT AS \"foo\" FROM \"table\"'"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "ExpressionWrapper 应能正确处理取反的 Q 对象，生成完整的 SQL 查询，其中 SELECT 子句包含一个有效的布尔表达式（如 0 或 1）作为注解字段的值。",
+        "evidence": [
+            "Issue 表明 ExpressionWrapper(Q(pk__in=[])) 能正确生成 'SELECT 0 AS \"foo\"'",
+            "相关测试 test_empty_expression_annotation 验证了 ExpressionWrapper(Q(pk__in=[])) 能正常工作并产生正确的布尔值结果"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "ExpressionWrapper",
+            "kind": "class",
+            "source_path": "django/db/models/expressions.py",
+            "reason": "直接包装 Q 对象并生成 SQL 表达式的核心类。"
+        },
+        {
+            "name": "Q",
+            "kind": "class",
+            "source_path": "django/db/models/query_utils.py",
+            "reason": "表示查询条件，支持取反操作（~），是问题的输入。"
+        },
+        {
+            "name": "QuerySet.annotate",
+            "kind": "method",
+            "source_path": "django/db/models/query.py",
+            "reason": "用于添加注解的方法，是触发问题的调用链的一部分。"
+        },
+        {
+            "name": "QuerySet.values",
+            "kind": "method",
+            "source_path": "django/db/models/query.py",
+            "reason": "用于选择特定字段（包括注解字段），并暴露生成的 query 属性。"
+        },
+        {
+            "name": "BooleanField",
+            "kind": "class",
+            "source_path": "django/forms/fields.py",
+            "reason": "指定注解的输出字段类型。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/db/models/expressions.py",
+            "object": "ExpressionWrapper.as_sql",
+            "lines": "",
+            "reason": "负责生成 SQL 表达式，可能未正确处理取反 Q 对象的 SQL 表示。"
+        },
+        {
+            "path": "django/db/models/query_utils.py",
+            "object": "Q.__invert__ 或 Q.resolve_expression",
+            "lines": "",
+            "reason": "取反操作可能改变了 Q 对象的内部表示，影响其在 ExpressionWrapper 中的处理。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_empty_expression_annotation",
+            "test_file": "tests/annotations/tests.py",
+            "why_relevant": "该测试直接使用了 ExpressionWrapper(Q(pk__in=[]), output_field=BooleanField()) 进行注解，并验证了结果。它复用了相同的 API 调用模式（annotate + ExpressionWrapper + Q + BooleanField）和断言风格（检查注解字段的值）。",
+            "reusable_parts": [
+                "imports: 可能包括 TestCase, ExpressionWrapper, Q, BooleanField",
+                "测试类 NonAggregateAnnotationTestCase",
+                "使用 Book.objects 作为基础 QuerySet",
+                "annotate 调用模式",
+                "assertTrue 和 all 用于验证布尔结果"
+            ],
+            "possible_gap": "该测试只使用了 Q(pk__in=[])，没有使用取反操作 ~Q(pk__in=[])。需要将 Q(pk__in=[]) 变异为 ~Q(pk__in=[]) 来触发缺陷。此外，该测试直接评估 book.selected 的值，而没有检查生成的 SQL 字符串。"
+        },
+        {
+            "test_name": "test_filtering_on_annotate_that_uses_q",
+            "test_file": "tests/expressions/tests.py",
+            "why_relevant": "该测试使用了 ExpressionWrapper(Q(...), output_field=BooleanField()) 进行注解，并进行了过滤。它复用了 ExpressionWrapper 与 Q 对象和 BooleanField 的组合。",
+            "reusable_parts": [
+                "imports: 可能包括 TestCase, ExpressionWrapper, Q, BooleanField, Company",
+                "annotate 调用模式",
+                "使用 output_field=BooleanField()"
+            ],
+            "possible_gap": "该测试使用的 Q 条件是 num_employees__gt=3，不是 pk__in=[]，也没有取反操作。需要变异 Q 条件为 pk__in=[] 并添加取反操作。此外，该测试关注过滤后的计数，而不是生成的 SQL。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "argument",
+            "current_pattern": "ExpressionWrapper(Q(pk__in=[]), output_field=BooleanField())",
+            "target_pattern": "ExpressionWrapper(~Q(pk__in=[]), output_field=BooleanField())",
+            "reason": "Issue 明确指出问题发生在 Q 对象被取反（~）时。这是触发缺陷的关键变化。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "queryset.annotate(...).filter(...) 或直接评估注解值",
+            "target_pattern": "queryset.annotate(...).values(\"foo\").query",
+            "reason": "Issue 中通过打印 .query 属性来观察生成的 SQL。需要变异测试以检查生成的 SQL 字符串，而不是仅评估注解的运行时值。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "sql",
+            "expression_hint": "str(queryset.annotate(...).values(\"foo\").query)",
+            "reason": "Issue 的核心症状是生成的 SQL 字符串不完整（缺少 SELECT 后的表达式）。直接观察 query 的字符串表示能最直接地捕获错误。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "queryset.annotate(...).values(\"foo\").first() 或 list(...)",
+            "reason": "如果 SQL 错误，执行查询可能会引发异常或返回错误结果。观察查询执行结果可以作为辅助验证。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "生成的 SQL 字符串应包含一个有效的表达式（如 0 或 1）在 SELECT 和 AS 之间，而不是空的。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的 SQL 字符串完全等于某个特定字符串，因为表名、别名可能变化。避免断言私有属性。",
+            "reason": "Issue 显示错误是 SELECT 子句缺少表达式。检查 SQL 是否包含如 '0 AS' 或 '1 AS' 的片段是稳定且与问题直接相关的。"
+        },
+        {
+            "assertion_goal": "查询应能正常执行而不崩溃，并返回预期的布尔值结果（全部为 True 或 False）。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言具体的对象 ID 或依赖于特定数据库内容的数量。",
+            "reason": "修复后，注解应产生有意义的布尔值，就像非取反的 Q(pk__in=[]) 产生全部 False 一样。取反后应可能产生全部 True（取决于逻辑）。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要一个 Django TestCase 和至少一个具有主键的模型（如 Book 或 Company）来创建 QuerySet。可能需要设置测试数据库。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "可能需要 skipUnlessDBFeature('supports_boolean_expr_in_select_clause')，因为某些测试使用了这个装饰器，但 Issue 未指定数据库。",
+            "source": "retrieved_test",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "是否所有数据库后端都会表现出相同的 SQL 字符串错误？",
+        "除了 pk__in=[]，其他空的或取反的 Q 条件（如 ~Q(pk=None)）是否也会触发此问题？",
+        "错误是否发生在 as_sql 编译阶段，还是在更早的表达式解析阶段？",
+        "生成的 SQL 中缺失的部分具体应该是什么（是 0, 1, 还是其他布尔表达式）？"
+    ]
+}
+```

@@ -1,0 +1,130 @@
+instance_id: django__django-11564
+
+issue_summary: 当 Django 应用通过 SCRIPT_NAME 部署在子路径下时，静态文件标签和存储类生成的 URL 缺少 SCRIPT_NAME 前缀。
+
+trigger_condition:
+{
+  "text": "在 WSGI 环境中设置 SCRIPT_NAME（例如，值为 '/mysubpath'），然后使用 {% static 'admin/base.css' %} 模板标签，或调用 FileSystemStorage/StaticFilesStorage 实例的 url() 方法。",
+  "evidence": [
+    "Issue: 'When running on sub-path, using SCRIPT_NAME WSGI param'",
+    "Issue: 'FileSystemStorage and StaticFilesStorage ignores SCRIPT_NAME as well.'",
+    "Retrieved test: 'test_get_script_name' 展示了如何从环境字典获取 SCRIPT_NAME。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的静态文件或媒体文件 URL 缺少 SCRIPT_NAME 前缀，导致浏览器请求错误的路径（例如，应为 /mysubpath/static/admin/base.css，但生成了 /static/admin/base.css）。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue: 'it results in incorrect static URL - it doesn't prepend SCRIPT_NAME prefix.'"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当 SCRIPT_NAME 在 WSGI 环境中被设置时，{% static ... %} 标签以及 FileSystemStorage/StaticFilesStorage 的 url() 方法生成的 URL 应自动以 SCRIPT_NAME 值为前缀。",
+  "evidence": [
+    "Issue: 'This problem can be solved with prepending SCRIPT_NAME to STATIC_URL...' 暗示了期望的行为是 URL 包含前缀。",
+    "Issue: 用户建议在 render 方法中更新 URL 时使用 request.META['SCRIPT_NAME']。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "static",
+    "kind": "function",
+    "source_path": "",
+    "reason": "Issue 中提到的模板标签 {% static '...' %}。"
+  },
+  {
+    "name": "FileSystemStorage.url",
+    "kind": "method",
+    "source_path": "django/core/files/storage.py",
+    "reason": "Issue 明确指出 FileSystemStorage 忽略了 SCRIPT_NAME。"
+  },
+  {
+    "name": "StaticFilesStorage.url",
+    "kind": "method",
+    "source_path": "django/contrib/staticfiles/storage.py",
+    "reason": "Issue 明确指出 StaticFilesStorage 忽略了 SCRIPT_NAME。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "config",
+    "current_pattern": "测试中使用 @override_settings 设置 STATIC_URL，但没有配置 WSGI 环境或请求上下文。",
+    "target_pattern": "在测试中模拟一个带有 SCRIPT_NAME 的请求上下文（例如，通过 RequestFactory 或手动设置 context['request'].META['SCRIPT_NAME']）。",
+    "reason": "Issue 指出问题发生在应用运行在子路径（SCRIPT_NAME）下时，因此测试需要模拟此环境。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试直接渲染模板字符串，可能没有传入包含 request 的上下文。",
+    "target_pattern": "在渲染模板时，确保上下文包含一个 request 对象，且其 META 字典中有 SCRIPT_NAME 键值对。",
+    "reason": "Issue 建议的修复代码片段中使用了 request.META['SCRIPT_NAME']，因此触发缺陷需要此状态。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "{% static 'admin/base.css' %} 渲染后的输出字符串，或 storage.url('admin/base.css') 的返回值。",
+    "reason": "错误症状直接体现在生成的 URL 字符串是否包含正确的 SCRIPT_NAME 前缀。"
+  },
+  {
+    "kind": "config",
+    "expression_hint": "请求上下文中的 request.META.get('SCRIPT_NAME') 值。",
+    "reason": "这是决定期望前缀的关键输入，需要确认测试环境是否正确设置了它。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的 URL 字符串以 SCRIPT_NAME 的值开头（例如 '/mysubpath/static/...'）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、硬编码的 URL 字符串相等，因为 STATIC_URL 本身可能配置不同。",
+    "reason": "核心问题是缺少前缀，因此检查 URL 是否以 SCRIPT_NAME 开头是稳定且与 Issue 对齐的断言。"
+  },
+  {
+    "assertion_goal": "当 SCRIPT_NAME 设置时，生成的 URL 不等于仅由 STATIC_URL 和文件名连接而成的字符串。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言私有属性或内部缓存的状态。",
+    "reason": "这可以验证 SCRIPT_NAME 是否确实影响了输出，而不仅仅是检查静态配置。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "使用 SimpleTestCase 或 RequestFactory 来创建带有 META['SCRIPT_NAME'] 的请求对象。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 @override_settings 来配置 STATIC_URL 和 MEDIA_URL。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要手动构建模板渲染上下文，并将 request 对象放入其中。",
+    "source": "inference",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "具体是哪个模板节点类负责渲染 {% static ... %} 标签，以及如何将请求上下文传递给它。",
+  "FileSystemStorage.url 方法在生成 URL 时，如何访问到当前请求的 SCRIPT_NAME（可能通过线程局部变量或其他机制）。",
+  "修复后，当 SCRIPT_NAME 为空或未设置时，行为是否保持不变。"
+]

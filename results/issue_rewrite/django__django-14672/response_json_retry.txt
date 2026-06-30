@@ -1,0 +1,123 @@
+```json
+{
+    "original_issue": {
+        "text": "Missing call `make_hashable` on `through_fields` in `ManyToManyRel`\nDescription\n\nIn 3.2 identity property has been added to all ForeignObjectRel to make it possible to compare them. A hash is derived from said identity and it's possible because identity is a tuple. To make limit_choices_to hashable (one of this tuple elements), ​there's a call to make_hashable.\nIt happens that through_fields can be a list. In such case, this make_hashable call is missing in ​ManyToManyRel.\nFor some reason it only fails on checking proxy model. I think proxy models have 29 checks and normal ones 24, hence the issue, but that's just a guess.\nMinimal repro:\nclass Parent(models.Model):\n\tname = models.CharField(max_length=256)\nclass ProxyParent(Parent):\n\tclass Meta:\n\t\tproxy = True\nclass Child(models.Model):\n\tparent = models.ForeignKey(Parent, on_delete=models.CASCADE)\n\tmany_to_many_field = models.ManyToManyField(\n\t\tto=Parent,\n\t\tthrough=\"ManyToManyModel\",\n\t\tthrough_fields=['child', 'parent'],\n\t\trelated_name=\"something\"\n\t)\nclass ManyToManyModel(models.Model):\n\tparent = models.ForeignKey(Parent, on_delete=models.CASCADE, related_name='+')\n\tchild = models.ForeignKey(Child, on_delete=models.CASCADE, related_name='+')\n\tsecond_child = models.ForeignKey(Child, on_delete=models.CASCADE, null=True, default=None)\nWhich will result in \n File \"manage.py\", line 23, in <module>\n\tmain()\n File \"manage.py\", line 19, in main\n\texecute_from_command_line(sys.argv)\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/__init__.py\", line 419, in execute_from_command_line\n\tutility.execute()\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/__init__.py\", line 413, in execute\n\tself.fetch_command(subcommand).run_from_argv(self.argv)\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/base.py\", line 354, in run_from_argv\n\tself.execute(*args, **cmd_options)\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/base.py\", line 393, in execute\n\tself.check()\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/base.py\", line 419, in check\n\tall_issues = checks.run_checks(\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/checks/registry.py\", line 76, in run_checks\n\tnew_errors = check(app_configs=app_configs, databases=databases)\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/checks/model_checks.py\", line 34, in check_all_models\n\terrors.extend(model.check(**kwargs))\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/db/models/base.py\", line 1277, in check\n\t*cls._check_field_name_clashes(),\n File \"/home/tom/PycharmProjects/djangbroken_m2m_projectProject/venv/lib/python3.8/site-packages/django/db/models/base.py\", line 1465, in _check_field_name_clashes\n\tif f not in used_fields:\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/db/models/fields/reverse_related.py\", line 140, in __hash__\n\treturn hash(self.identity)\nTypeError: unhashable type: 'list'\nSolution: Add missing make_hashable call on self.through_fields in ManyToManyRel.\nMissing call `make_hashable` on `through_fields` in `ManyToManyRel`\nDescription\n\nIn 3.2 identity property has been added to all ForeignObjectRel to make it possible to compare them. A hash is derived from said identity and it's possible because identity is a tuple. To make limit_choices_to hashable (one of this tuple elements), ​there's a call to make_hashable.\nIt happens that through_fields can be a list. In such case, this make_hashable call is missing in ​ManyToManyRel.\nFor some reason it only fails on checking proxy model. I think proxy models have 29 checks and normal ones 24, hence the issue, but that's just a guess.\nMinimal repro:\nclass Parent(models.Model):\n\tname = models.CharField(max_length=256)\nclass ProxyParent(Parent):\n\tclass Meta:\n\t\tproxy = True\nclass Child(models.Model):\n\tparent = models.ForeignKey(Parent, on_delete=models.CASCADE)\n\tmany_to_many_field = models.ManyToManyField(\n\t\tto=Parent,\n\t\tthrough=\"ManyToManyModel\",\n\t\tthrough_fields=['child', 'parent'],\n\t\trelated_name=\"something\"\n\t)\nclass ManyToManyModel(models.Model):\n\tparent = models.ForeignKey(Parent, on_delete=models.CASCADE, related_name='+')\n\tchild = models.ForeignKey(Child, on_delete=models.CASCADE, related_name='+')\n\tsecond_child = models.ForeignKey(Child, on_delete=models.CASCADE, null=True, default=None)\nWhich will result in \n File \"manage.py\", line 23, in <module>\n\tmain()\n File \"manage.py\", line 19, in main\n\texecute_from_command_line(sys.argv)\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/__init__.py\", line 419, in execute_from_command_line\n\tutility.execute()\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/__init__.py\", line 413, in execute\n\tself.fetch_command(subcommand).run_from_argv(self.argv)\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/base.py\", line 354, in run_from_argv\n\tself.execute(*args, **cmd_options)\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/base.py\", line 393, in execute\n\tself.check()\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/management/base.py\", line 419, in check\n\tall_issues = checks.run_checks(\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/checks/registry.py\", line 76, in run_checks\n\tnew_errors = check(app_configs=app_configs, databases=databases)\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/core/checks/model_checks.py\", line 34, in check_all_models\n\terrors.extend(model.check(**kwargs))\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/db/models/base.py\", line 1277, in check\n\t*cls._check_field_name_clashes(),\n File \"/home/tom/PycharmProjects/djangbroken_m2m_projectProject/venv/lib/python3.8/site-packages/django/db/models/base.py\", line 1465, in _check_field_name_clashes\n\tif f not in used_fields:\n File \"/home/tom/PycharmProjects/broken_m2m_project/venv/lib/python3.8/site-packages/django/db/models/fields/reverse_related.py\", line 140, in __hash__\n\treturn hash(self.identity)\nTypeError: unhashable type: 'list'\nSolution: Add missing make_hashable call on self.through_fields in ManyToManyRel.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "在 Django 3.2 中，为所有 ForeignObjectRel 添加了 identity 属性以支持比较。hash 从 identity 派生，这要求 identity 是元组。为了确保 limit_choices_to 可哈希（identity 元组的元素之一），代码中调用了 make_hashable。然而，当 through_fields 是列表时，ManyToManyRel 中缺少对 through_fields 的 make_hashable 调用。这导致在检查代理模型时，执行 model.check() 过程中，在 _check_field_name_clashes 方法内尝试对 ManyToManyRel 对象进行哈希操作时，因为其 identity 属性包含未处理的列表而抛出 TypeError: unhashable type: 'list'。触发条件：定义一个包含代理模型的模型，并创建一个 ManyToManyField，其 through_fields 参数为列表（例如 ['child', 'parent']）。调用 model.check() 方法。",
+        "facts_from_issue": [
+            "Django 3.2 为 ForeignObjectRel 添加了 identity 属性以支持比较和哈希。",
+            "hash 从 identity 派生，要求 identity 是元组。",
+            "limit_choices_to 在 identity 中，已调用 make_hashable 确保其可哈希。",
+            "through_fields 可以是列表。",
+            "ManyToManyRel 中缺少对 through_fields 的 make_hashable 调用。",
+            "问题在检查代理模型时出现（代理模型有 29 项检查，普通模型 24 项，但这是猜测）。",
+            "最小复现代码：定义了 Parent、ProxyParent、Child（包含一个 through_fields 为列表的 ManyToManyField）和 ManyToManyModel。",
+            "错误堆栈最终指向 django/db/models/fields/reverse_related.py 第 140 行的 __hash__ 方法：return hash(self.identity)。",
+            "抛出的异常是 TypeError: unhashable type: 'list'。",
+            "建议的解决方案：在 ManyToManyRel 中添加对 self.through_fields 的 make_hashable 调用。"
+        ],
+        "facts_from_retrieved_context": [
+            "源码片段1显示 ManyToManyRel 类继承自 ForeignObjectRel，位于 django/db/models/fields/reverse_related.py。",
+            "源码片段3显示 make_hashable 函数位于 django/utils/hashable.py，用于将值（如列表、字典）转换为可哈希形式（如元组）。",
+            "源码片段4显示 Model 类有 check() 方法，会调用 _check_field_name_clashes()。",
+            "相关测试2显示 ManyToManyField 可以接受 through_fields 参数，其值可以是元组（如 ('modelm2m', 'model')）。",
+            "相关测试3显示 ManyToManyField 可以与代理 through 模型一起使用。"
+        ],
+        "inferences": [
+            "ManyToManyRel 的 identity 属性可能包含 through_fields。",
+            "当 through_fields 是列表时，由于未调用 make_hashable，导致 identity 包含列表，进而使 __hash__ 失败。",
+            "代理模型触发了更多的检查路径，使得这个哈希操作发生。",
+            "修复后，ManyToManyRel 的 identity 属性应确保其所有元素（包括 through_fields）都是可哈希的。"
+        ],
+        "do_not_assume": [
+            "代理模型检查的确切数量差异是根本原因。",
+            "只有代理模型会触发此错误。",
+            "ManyToManyRel.identity 属性的具体实现代码。",
+            "修复补丁的确切位置和形式。"
+        ]
+    },
+    "issue_summary": "ManyToManyRel 类在 identity 属性中未对 through_fields 列表调用 make_hashable，导致在模型检查（特别是代理模型）时引发 TypeError: unhashable type: 'list'。",
+    "trigger_condition": {
+        "text": "定义一个 Django 模型，其中包含一个 ManyToManyField，该字段使用 through 参数指定中间模型，并且 through_fields 参数设置为一个 Python 列表（例如 ['child', 'parent']）。该模型或相关模型涉及代理模型。然后调用该模型类的 check() 方法（例如 MyModel.check()）。",
+        "evidence": [
+            "Issue 中的最小复现代码展示了此配置。",
+            "Issue 描述指出 through_fields 可以是列表，且问题在检查代理模型时出现。",
+            "错误堆栈显示异常在 model.check() -> _check_field_name_clashes() 路径中触发。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 model.check() 时，抛出 TypeError: unhashable type: 'list'。异常堆栈指向 django/db/models/fields/reverse_related.py 中 __hash__ 方法的 return hash(self.identity)。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中提供了完整的错误堆栈和异常信息。",
+            "异常消息明确为 TypeError: unhashable type: 'list'。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "修复后，在配置了 through_fields 为列表的 ManyToManyField 且涉及代理模型的情况下，调用 model.check() 方法应成功完成，不抛出 TypeError 异常，并返回模型检查的结果（可能是空列表或警告列表）。ManyToManyRel 对象的 identity 属性应完全可哈希，允许在 _check_field_name_clashes 等内部操作中进行比较和集合成员检查。",
+        "evidence": [
+            "Issue 描述指出解决方案是添加缺失的 make_hashable 调用。",
+            "相关测试3（test_m2m_to_concrete_and_proxy_allowed）显示，配置正确的 ManyToManyField 与代理 through 模型，其 check() 应返回空列表 []。",
+            "make_hashable 函数的设计目的就是处理列表等类型使其可哈希。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "models.Model.check",
+            "kind": "method",
+            "source_path": "django/db/models/base.py",
+            "reason": "这是触发错误的入口点，用于执行模型验证检查。"
+        },
+        {
+            "name": "models.ManyToManyField",
+            "kind": "class",
+            "source_path": "django/db/models/fields/related.py",
+            "reason": "用于创建触发缺陷的字段，其 through_fields 参数是问题的根源。"
+        },
+        {
+            "name": "make_hashable",
+            "kind": "function",
+            "source_path": "django/utils/hashable.py",
+            "reason": "Issue 指出缺失对此函数的调用，它是使 through_fields 列表可哈希的关键。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/db/models/fields/reverse_related.py",
+            "object": "ManyToManyRel",
+            "lines": "280-330",
+            "reason": "Issue 明确指出 ManyToManyRel 中缺少对 through_fields 的 make_hashable 调用。检索的源码片段1包含了这个类。"
+        },
+        {
+            "path": "django/db/models/fields/reverse_related.py",
+            "object": "ManyToManyRel.identity",
+            "lines": "",
+            "reason": "Issue 提到 hash 从 identity 派生，且 identity 应包含 through_fields。问题可能出在 identity 属性的实现中未处理列表。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "RelativeFieldTests.test_many_to_many_with_useless_options",
+            "test_file": "tests/invalid_models_tests/test_relative_fields.py",
+            "why_relevant": "该测试构造了包含 through 和 through_fields 的 ManyToManyField，并调用 model.check() 来验证警告。它复用了通过 isolate_apps 管理模型注册、定义复杂模型关系以及使用 check() 方法进行验证的测试协议。",
+            "reusable_parts": [
+                "isolate_apps 装饰器用于隔离模型应用。",
+                "定义包含 ManyToManyField、through 和 through_fields 的模型结构。",
+                "调用 Model.check() 并断言其结果。",
+                "相关的 imports（如 models, SimpleTestCase）。"
+            ],
+            "possible_gap": "该测试中 through_fields 使用的是元组 ('modelm2m', 'model') 而非列表，因此不会触发缺陷。它主要关注警告而非哈希异常。需要将 through_fields 变异为列表，并可能引入代理模型来触发更深的检查路径。"
+        },
+        {
+            "test_name": "OtherModelTests.test_m2m_to_concrete_and_proxy_allowed",
+            "test_file": "tests/invalid_models_tests/test_models.py",
+            "why_relevant": "该测试涉及 ManyToManyField 与代理 through 模型，并验证 check() 返回空列表。它复用了代理模型与 through 模型结合的测试场景。",
+            "reusable_parts": [
+                "定义代理 through 模型（ThroughProxy）。",
+                "将代理模型作为 through 参数传递给 ManyToManyField。",
+               

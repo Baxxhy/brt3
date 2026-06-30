@@ -1,0 +1,148 @@
+{
+  "original_issue": {
+    "text": "dbshell additional parameters should be passed before dbname on PostgreSQL.\nDescription\n\npsql expects all options to proceed the database name, if provided. So, if doing something like `./manage.py dbshell -- -c \"select * from some_table;\" one will get this:\n$ ./manage.py dbshell -- -c \"select * from some_table;\"\npsql: warning: extra command-line argument \"-c\" ignored\npsql: warning: extra command-line argument \"select * from some_table;\" ignored\npsql (10.21)\nType \"help\" for help.\nsome_database=>\nIt appears the args list just need to be constructed in the proper order, leaving the database name for the end of the args list.",
+    "source": "raw_issue"
+  },
+  "clarified_issue": {
+    "text": "当使用 Django 的 `dbshell` 命令连接 PostgreSQL 数据库并传递额外参数（例如 `-c \"select * from some_table;\"`）时，这些参数被错误地放置在数据库名之后传递给 `psql` 命令，导致 `psql` 发出警告并忽略这些参数。修复后，额外参数应出现在数据库名之前，以符合 `psql` 的命令行参数顺序要求。",
+    "facts_from_issue": [
+      "使用 `./manage.py dbshell -- -c \"select * from some_table;\"` 命令时，`psql` 会发出警告：\"extra command-line argument \\\"-c\\\" ignored\" 和 \"extra command-line argument \\\"select * from some_table;\\\" ignored\"。",
+      "`psql` 期望所有选项（options）出现在数据库名（database name）之前。",
+      "Issue 认为参数列表（args list）需要以正确的顺序构建，将数据库名放在列表末尾。"
+    ],
+    "facts_from_retrieved_context": [
+      "相关测试文件 `tests/dbshell/test_postgresql.py` 包含多个测试，用于验证 `dbshell` 命令为 PostgreSQL 构建的命令行参数和环境变量。",
+      "测试中使用了 `settings_to_cmd_args_env` 方法来生成预期的命令行参数列表和环境变量字典。",
+      "在现有测试中，数据库名（如 \"dbname\"）出现在命令行参数列表的中间或末尾位置，具体取决于其他参数（如 `-U`, `-h`, `-p`）的存在。"
+    ],
+    "inferences": [
+      "`dbshell` 命令的实现位于 `django/core/management/commands/dbshell.py` 文件中。",
+      "`dbshell` 命令需要处理用户传入的额外参数，并将它们与数据库连接设置一起构建成 `psql` 的命令行。",
+      "当前构建命令行参数的逻辑可能错误地将数据库名放在了额外参数之前。"
+    ],
+    "do_not_assume": [
+      "`dbshell.py` 文件中具体的函数实现细节和错误代码位置。",
+      "除了 PostgreSQL 之外的其他数据库后端（如 MySQL、SQLite）是否也存在相同问题。",
+      "修复后命令行参数的确切完整顺序。"
+    ]
+  },
+  "issue_summary": "Django 的 `dbshell` 命令在 PostgreSQL 后端构建 `psql` 命令行时，错误地将数据库名放在了用户提供的额外参数之前，导致 `psql` 忽略这些参数并发出警告。",
+  "trigger_condition": {
+    "text": "调用 `./manage.py dbshell` 命令，并为其传递额外的命令行参数（例如 `-- -c \"SELECT 1;\"`），同时配置 Django 使用 PostgreSQL 数据库。",
+    "evidence": [
+      "原始 Issue 中使用了命令 `./manage.py dbshell -- -c \"select * from some_table;\"`。",
+      "相关测试表明 `dbshell` 命令会处理数据库设置并构建参数列表。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "`psql` 进程输出警告信息 \"psql: warning: extra command-line argument \\\"-c\\\" ignored\" 和 \"psql: warning: extra command-line argument \\\"select * from some_table;\\\" ignored\"，表明额外参数未被正确处理。",
+    "symptom_type": "warning",
+    "evidence": [
+      "原始 Issue 中直接复制了 `psql` 命令的输出警告。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "修复后，当通过 `dbshell` 命令传递额外参数给 `psql` 时，这些参数应出现在数据库名之前，从而被 `psql` 正确识别和执行，不应出现参数被忽略的警告。",
+    "evidence": [
+      "原始 Issue 明确指出 \"psql expects all options to proceed the database name\"。",
+      "Issue 结论是 \"args list just need to be constructed in the proper order, leaving the database name for the end of the args list\"。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "dbshell",
+      "kind": "command",
+      "source_path": "django/core/management/commands/dbshell.py",
+      "reason": "这是触发问题的 Django 管理命令。"
+    },
+    {
+      "name": "settings_to_cmd_args_env",
+      "kind": "method",
+      "source_path": "tests/dbshell/test_postgresql.py",
+      "reason": "相关测试使用此方法来验证 `dbshell` 为 PostgreSQL 构建的命令行参数，是观察参数顺序的关键。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/core/management/commands/dbshell.py",
+      "object": "构建 `psql` 命令行参数的函数或方法",
+      "lines": "",
+      "reason": "Issue 描述的问题核心是命令行参数顺序错误，这必然发生在构建命令行参数的代码逻辑中。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_parameters",
+      "test_file": "tests/dbshell/test_postgresql.py",
+      "why_relevant": "该测试直接验证了 `dbshell` 命令如何将数据库设置和额外参数（如 `--help`）组合成命令行参数列表，与 Issue 中“传递额外参数”的场景高度相似。",
+      "reusable_parts": [
+        "PostgreSqlDbshellCommandTestCase 测试类",
+        "settings_to_cmd_args_env 方法调用模式",
+        "使用 self.assertEqual 断言来比较生成的命令行参数列表"
+      ],
+      "possible_gap": "该测试传入的额外参数是 `[\"--help\"]`，且数据库名 \"dbname\" 被放在了参数列表的第二位（`[\"psql\", \"dbname\", \"--help\"]`）。根据 Issue，这可能已经是错误的顺序（`--help` 应在 `dbname` 之前？），或者该测试未覆盖用户通过 `--` 传递额外参数的场景。需要变异以模拟 Issue 中的调用方式并检查生成的参数顺序。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "argument",
+      "current_pattern": "测试 `test_parameters` 中，`settings_to_cmd_args_env` 的第二个参数是 `[\"--help\"]`。",
+      "target_pattern": "将额外参数改为模拟用户通过命令行传递的形式，例如 `[\"-c\", \"SELECT 1;\"]` 或通过模拟 `sys.argv` 来传递 `-- -c \"SELECT 1;\"`。",
+      "reason": "Issue 触发条件是用户为 `dbshell` 命令提供了额外参数。当前测试模式可能未完全模拟真实命令行参数解析和拼接过程。",
+      "confidence": "medium"
+    },
+    {
+      "slot": "call_chain",
+      "current_pattern": "测试直接调用 `settings_to_cmd_args_env` 辅助方法。",
+      "target_pattern": "可能需要更直接地调用 `dbshell` 命令的 `handle` 方法或通过 `call_command` 来触发完整的命令行构建流程，以观察最终传递给 `subprocess` 的参数列表。",
+      "reason": "缺陷可能发生在 `dbshell` 命令处理原始 `sys.argv` 或 `options` 的步骤中，而不仅仅是 `settings_to_cmd_args_env` 方法。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "order",
+      "expression_hint": "最终传递给 `subprocess.Popen`（或类似执行函数）的命令行参数列表，特别是 `\"dbname\"` 与额外参数（如 `\"-c\"`, `\"SELECT 1;\"`）的相对位置。",
+      "reason": "Issue 的核心是参数顺序错误，直接观察构建出的参数列表顺序是判断问题是否存在的关键。"
+    },
+    {
+      "kind": "warning",
+      "expression_hint": "执行 `psql` 子进程后，其 `stderr` 输出中是否包含 \"ignored\" 警告。",
+      "reason": "原始 Issue 中观察到的直接错误现象就是 `psql` 输出的警告信息。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "验证构建出的命令行参数列表中，数据库名出现在所有额外参数（即非 `psql` 连接选项如 `-U`、`-h` 等，以及用户提供的参数如 `-c`）之后。",
+      "preferred_assertion_style": "order_equals",
+      "avoid": "断言完整的参数列表字符串相等，因为连接选项（如 `-U user`）的顺序可能变化且不影响功能。",
+      "reason": "这直接对应 Issue 的期望：数据库名应在参数列表末尾。检查相对顺序比检查完整列表更稳定。"
+    },
+    {
+      "assertion_goal": "验证执行 `dbshell` 命令并传递额外参数后，`psql` 进程的标准错误输出中不包含 \"ignored\" 警告。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言 `stderr` 完全为空，因为 `psql` 可能输出其他无关信息。",
+      "reason": "这是 Issue 中观察到的直接错误症状，修复后该警告应消失。检查特定片段比检查完整输出更稳定。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要使用 SimpleTestCase 或类似的 Django 测试基类。可能需要配置 DATABASES 设置以使用 PostgreSQL 后端。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要模拟或跳过实际的 `subprocess` 调用，转而捕获其准备调用的参数。",
+      "source": "inference",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "`dbshell.py` 中具体哪个函数负责拼接参数列表，以及其当前的错误逻辑是什么。",
+    "用户通过 `--` 传递的参数是如何被 `django.core.management` 解析并传递给 `dbshell` 命令的。",
+    "除了 `-c` 之外的其他 `psql` 参数是否也会被影响。"
+  ]
+}

@@ -1,0 +1,305 @@
+{
+  "instance_id": "sympy__sympy-20212",
+  "issue_summary": "SymPy 中表达式 `0 ** -oo` 错误地返回 0，而根据文档应返回复无穷（zoo）。",
+  "trigger_condition": {
+    "text": "在 SymPy 中计算幂运算表达式 `0 ** -oo`。",
+    "evidence": [
+      "原始 Issue 中明确给出了触发表达式 `0**-oo`。",
+      "相关测试 `test_zero` 中测试了 `0**x` 和 `0**(-2*x*y)` 等幂运算。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "表达式 `0 ** -oo` 的计算结果为 `0`。",
+    "symptom_type": "wrong_return",
+    "evidence": [
+      "原始 Issue 第一行：\"0**-oo produces 0\"。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "表达式 `0 ** -oo` 的计算结果应为 `zoo`（即 `S.ComplexInfinity`）。",
+    "evidence": [
+      "原始 Issue 引用文档：\"The documentation for the Pow class states that it should return `ComplexInfinity`, aka `zoo`\"。",
+      "原始 Issue 中的表格：`expr: 0**-oo`, `value: zoo`。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "Pow",
+      "kind": "class",
+      "source_path": "sympy/core/power.py",
+      "reason": "Issue 直接涉及幂运算 `0 ** -oo`，这由 `Pow` 类或其 `__pow__` 相关方法处理。"
+    },
+    {
+      "name": "zoo",
+      "kind": "global_var",
+      "source_path": "sympy/core/numbers.py",
+      "reason": "期望的返回值是 `zoo`，它是 `S.ComplexInfinity` 的别名。"
+    },
+    {
+      "name": "S.ComplexInfinity",
+      "kind": "class",
+      "source_path": "sympy/core/numbers.py",
+      "reason": "`zoo` 是 `S.ComplexInfinity` 的别名，是期望返回的对象。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sympy/core/power.py",
+      "object": "Pow._eval_power 或相关求值逻辑",
+      "lines": "",
+      "reason": "处理 `0 ** -oo` 这类幂运算的核心逻辑很可能位于 `Pow` 类的求值方法中。"
+    },
+    {
+      "path": "sympy/core/numbers.py",
+      "object": "ComplexInfinity 或相关常数（oo, -oo）的交互逻辑",
+      "lines": "",
+      "reason": "涉及无穷大（oo, -oo）和零（0）的运算，可能在数字类的相关方法中处理。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_zero",
+      "test_file": "sympy/core/tests/test_power.py",
+      "why_relevant": "该测试专门测试底数为 0 的幂运算行为，包含 `0**x`、`0**(-2*x*y)` 等断言，与当前 Issue 的测试场景高度相似。",
+      "reusable_parts": [
+        "测试文件导入（如 `from sympy import ...`）",
+        "使用 `Symbol('x')` 和 `Symbol('y')` 构造符号对象",
+        "使用 `S.ComplexInfinity` 和 `S.Infinity` 等常数",
+        "使用 `==` 和 `!=` 对幂运算结果进行断言的基本风格"
+      ],
+      "possible_gap": "该测试主要使用符号变量（如 `x`, `y`）进行测试，而 Issue 触发条件使用的是具体数值 `-oo`。需要将符号指数变异为具体的负无穷大（`-oo`）。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "在 `test_zero` 中，指数是符号表达式，如 `x`, `2*x*y`, `-2*x*y`。",
+      "target_pattern": "将指数从符号表达式（如 `-2*x*y`）替换为具体的负无穷大常数 `-oo`。",
+      "reason": "Issue 明确指出当指数为具体值 `-oo` 时触发错误，而相似测试使用的是符号指数。",
+      "confidence": "high"
+    },
+    {
+      "slot": "argument",
+      "current_pattern": "测试中断言 `0**(-2*x*y) == S.ComplexInfinity**(x*y)`，比较的是两个符号表达式。",
+      "target_pattern": "断言 `0 ** -oo == zoo`，比较具体数值运算结果与期望常数。",
+      "reason": "需要将测试焦点从符号表达式的恒等关系，转移到具体数值运算结果的正确性上。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "return_value",
+      "expression_hint": "表达式 `0 ** -oo` 的求值结果。",
+      "reason": "错误症状和期望行为都直接体现在该表达式的返回值上。"
+    },
+    {
+      "kind": "type",
+      "expression_hint": "`type(0 ** -oo)` 的结果。",
+      "reason": "可以帮助区分返回的是 `int`/`Integer` 0 还是 `ComplexInfinity` 类型的 `zoo`。"
+    },
+    {
+      "kind": "repr",
+      "expression_hint": "`repr(0 ** -oo)` 或 `str(0 ** -oo)` 的输出片段。",
+      "reason": "`zoo` 的字符串表示是稳定的，可以用于判断结果是否正确。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "验证 `0 ** -oo` 的结果等于 `zoo`。",
+      "preferred_assertion_style": "equals",
+      "avoid": "避免断言完整的、可能包含内部标识的 `repr` 字符串。避免检查私有属性。",
+      "reason": "期望行为是返回一个具体的、公开的单例对象 `zoo`，直接使用 `is` 或 `==` 进行相等性断言是稳定且直接的。"
+    },
+    {
+      "assertion_goal": "验证 `0 ** -oo` 的结果是 `ComplexInfinity` 类型。",
+      "preferred_assertion_style": "isinstance",
+      "avoid": "避免断言内部类名或模块路径。",
+      "reason": "`zoo` 是 `ComplexInfinity` 的实例，类型检查是另一种稳定的验证方式。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要导入 SymPy 核心模块，如 `from sympy import oo, zoo, S` 或 `from sympy.core.numbers import oo, zoo`。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "测试可以在标准的 SymPy 测试运行环境中执行，无需特殊配置、数据库或外部文件。",
+      "source": "inference",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "缺陷的确切代码位置（具体在 `power.py` 的哪一行或哪个函数）。",
+    "除了 `0 ** -oo`，`0 ** oo` 或 `0 ** (负其他值)` 是否也存在类似问题。",
+    "修复后，`0 ** -oo` 返回的 `zoo` 对象是否在所有上下文中行为都符合预期（如参与其他运算）。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "0**-oo produces 0, the documentation says it should produce zoo\nUsing SymPy 1.5.1, evaluate `0**-oo` produces `0`.\n\nThe documentation for the Pow class states that it should return `ComplexInfinity`, aka `zoo`\n\n| expr | value | reason |\n| :-- | :-- | :--|\n| `0**-oo` | `zoo` | This is not strictly true, as 0**oo may be oscillating between positive and negative values or rotating in the complex plane. It is convenient, however, when the base is positive.|",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 SymPy 中，计算表达式 `0 ** -oo` 返回 `0`，但根据 Pow 类的文档，它应该返回 `ComplexInfinity`（即 `zoo`）。这是一个幂运算边界情况处理错误。",
+      "facts_from_issue": [
+        "表达式 `0 ** -oo` 在 SymPy 1.5.1 中计算结果为 `0`。",
+        "Pow 类的文档指出 `0 ** -oo` 应该返回 `ComplexInfinity`（也称为 `zoo`）。",
+        "文档表格中明确列出了 `expr: 0**-oo` 对应的 `value: zoo`。"
+      ],
+      "facts_from_retrieved_context": [
+        "`zoo` 是 `S.ComplexInfinity` 的全局变量别名。",
+        "`ComplexInfinity` 是一个表示复无穷的单例类。",
+        "相关测试 `test_zero` 中包含了 `0**(-2*x*y) == S.ComplexInfinity**(x*y)` 的断言。"
+      ],
+      "inferences": [
+        "缺陷可能位于处理幂运算 `Pow` 的 `_eval_power` 方法或相关逻辑中，特别是当底数为 0 且指数为负无穷时。",
+        "`0 ** -oo` 被视为一个未定式，其正确结果应为复无穷，而非 0。"
+      ],
+      "do_not_assume": [
+        "具体的修复实现方式。",
+        "除了 `0 ** -oo` 之外，其他类似表达式（如 `0 ** oo`）是否也存在相同问题。",
+        "文档中提到的“当底数为正时很方便”这一解释的具体实现细节。"
+      ]
+    },
+    "issue_summary": "SymPy 中表达式 `0 ** -oo` 错误地返回 0，而根据文档应返回复无穷（zoo）。",
+    "trigger_condition": {
+      "text": "在 SymPy 中计算幂运算表达式 `0 ** -oo`。",
+      "evidence": [
+        "原始 Issue 中明确给出了触发表达式 `0**-oo`。",
+        "相关测试 `test_zero` 中测试了 `0**x` 和 `0**(-2*x*y)` 等幂运算。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "表达式 `0 ** -oo` 的计算结果为 `0`。",
+      "symptom_type": "wrong_return",
+      "evidence": [
+        "原始 Issue 第一行：\"0**-oo produces 0\"。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "表达式 `0 ** -oo` 的计算结果应为 `zoo`（即 `S.ComplexInfinity`）。",
+      "evidence": [
+        "原始 Issue 引用文档：\"The documentation for the Pow class states that it should return `ComplexInfinity`, aka `zoo`\"。",
+        "原始 Issue 中的表格：`expr: 0**-oo`, `value: zoo`。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "Pow",
+        "kind": "class",
+        "source_path": "sympy/core/power.py",
+        "reason": "Issue 直接涉及幂运算 `0 ** -oo`，这由 `Pow` 类或其 `__pow__` 相关方法处理。"
+      },
+      {
+        "name": "zoo",
+        "kind": "global_var",
+        "source_path": "sympy/core/numbers.py",
+        "reason": "期望的返回值是 `zoo`，它是 `S.ComplexInfinity` 的别名。"
+      },
+      {
+        "name": "S.ComplexInfinity",
+        "kind": "class",
+        "source_path": "sympy/core/numbers.py",
+        "reason": "`zoo` 是 `S.ComplexInfinity` 的别名，是期望返回的对象。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sympy/core/power.py",
+        "object": "Pow._eval_power 或相关求值逻辑",
+        "lines": "",
+        "reason": "处理 `0 ** -oo` 这类幂运算的核心逻辑很可能位于 `Pow` 类的求值方法中。"
+      },
+      {
+        "path": "sympy/core/numbers.py",
+        "object": "ComplexInfinity 或相关常数（oo, -oo）的交互逻辑",
+        "lines": "",
+        "reason": "涉及无穷大（oo, -oo）和零（0）的运算，可能在数字类的相关方法中处理。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_zero",
+        "test_file": "sympy/core/tests/test_power.py",
+        "why_relevant": "该测试专门测试底数为 0 的幂运算行为，包含 `0**x`、`0**(-2*x*y)` 等断言，与当前 Issue 的测试场景高度相似。",
+        "reusable_parts": [
+          "测试文件导入（如 `from sympy import ...`）",
+          "使用 `Symbol('x')` 和 `Symbol('y')` 构造符号对象",
+          "使用 `S.ComplexInfinity` 和 `S.Infinity` 等常数",
+          "使用 `==` 和 `!=` 对幂运算结果进行断言的基本风格"
+        ],
+        "possible_gap": "该测试主要使用符号变量（如 `x`, `y`）进行测试，而 Issue 触发条件使用的是具体数值 `-oo`。需要将符号指数变异为具体的负无穷大（`-oo`）。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "在 `test_zero` 中，指数是符号表达式，如 `x`, `2*x*y`, `-2*x*y`。",
+        "target_pattern": "将指数从符号表达式（如 `-2*x*y`）替换为具体的负无穷大常数 `-oo`。",
+        "reason": "Issue 明确指出当指数为具体值 `-oo` 时触发错误，而相似测试使用的是符号指数。",
+        "confidence": "high"
+      },
+      {
+        "slot": "argument",
+        "current_pattern": "测试中断言 `0**(-2*x*y) == S.ComplexInfinity**(x*y)`，比较的是两个符号表达式。",
+        "target_pattern": "断言 `0 ** -oo == zoo`，比较具体数值运算结果与期望常数。",
+        "reason": "需要将测试焦点从符号表达式的恒等关系，转移到具体数值运算结果的正确性上。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "return_value",
+        "expression_hint": "表达式 `0 ** -oo` 的求值结果。",
+        "reason": "错误症状和期望行为都直接体现在该表达式的返回值上。"
+      },
+      {
+        "kind": "type",
+        "expression_hint": "`type(0 ** -oo)` 的结果。",
+        "reason": "可以帮助区分返回的是 `int`/`Integer` 0 还是 `ComplexInfinity` 类型的 `zoo`。"
+      },
+      {
+        "kind": "repr",
+        "expression_hint": "`repr(0 ** -oo)` 或 `str(0 ** -oo)` 的输出片段。",
+        "reason": "`zoo` 的字符串表示是稳定的，可以用于判断结果是否正确。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "验证 `0 ** -oo` 的结果等于 `zoo`。",
+        "preferred_assertion_style": "equals",
+        "avoid": "避免断言完整的、可能包含内部标识的 `repr` 字符串。避免检查私有属性。",
+        "reason": "期望行为是返回一个具体的、公开的单例对象 `zoo`，直接使用 `is` 或 `==` 进行相等性断言是稳定且直接的。"
+      },
+      {
+        "assertion_goal": "验证 `0 ** -oo` 的结果是 `ComplexInfinity` 类型。",
+        "preferred_assertion_style": "isinstance",
+        "avoid": "避免断言内部类名或模块路径。",
+        "reason": "`zoo` 是 `ComplexInfinity` 的实例，类型检查是另一种稳定的验证方式。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要导入 SymPy 核心模块，如 `from sympy import oo, zoo, S` 或 `from sympy.core.numbers import oo, zoo`。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "测试可以在标准的 SymPy 测试运行环境中执行，无需特殊配置、数据库或外部文件。",
+        "source": "inference",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "缺陷的确切代码位置（具体在 `power.py` 的哪一行或哪个函数）。",
+      "除了 `0 ** -oo`，`0 ** oo` 或 `0 ** (负其他值)` 是否也存在类似问题。",
+      "修复后，`0 ** -oo` 返回的 `zoo` 对象是否在所有上下文中行为都符合预期（如参与其他运算）。"
+    ]
+  }
+}

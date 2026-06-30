@@ -1,0 +1,155 @@
+instance_id: matplotlib__matplotlib-23299
+
+issue_summary: 在 `rc_context` 中创建第一个图形后调用 `get_backend()` 会错误地清空全局图形管理器字典 `Gcf.figs`。
+
+trigger_condition:
+{
+  "text": "1. 在 `rc_context()` 上下文管理器中创建第一个图形（例如 `fig2 = plt.figure()`）。2. 随后调用 `matplotlib.get_backend()`。",
+  "evidence": [
+    "Issue 中的复现代码：`with rc_context(): fig2 = plt.figure(); get_backend()`。",
+    "Issue 描述：'calling `matplotlib.get_backend()` removes all figures from `Gcf` if the *first* figure in `Gcf.figs` was created in an `rc_context`.'"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "调用 `get_backend()` 后，`Gcf.figs` 从包含一个图形管理器的 `OrderedDict` 变为空 `OrderedDict`。这导致后续如 `plt.close(fig)` 等操作失败。",
+  "symptom_type": "state_not_updated",
+  "evidence": [
+    "Issue 中的实际输出：`OrderedDict([(1, <...FigureManagerQT...>)])` 变为 `OrderedDict()`。",
+    "Issue 描述：'The figure should not be missing from `Gcf`.' 和 '`plt.close(fig2)` doesn't work because `Gcf.destroy_fig()` can't find it.'"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "调用 `get_backend()` 不应改变 `Gcf.figs` 的内容。在 `rc_context` 中创建的图形应继续存在于 `Gcf.figs` 中，并且后续操作如 `plt.close()` 应能正常工作。",
+  "evidence": [
+    "Issue 中的期望结果：'The figure should not be missing from `Gcf`.'",
+    "Issue 中的断言：`assert before == after`，期望 `Gcf.figs` 在调用 `get_backend()` 前后保持不变。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "matplotlib.get_backend",
+    "kind": "function",
+    "source_path": "lib/matplotlib/__init__.py",
+    "reason": "触发缺陷的 API 调用。"
+  },
+  {
+    "name": "matplotlib.rc_context",
+    "kind": "function",
+    "source_path": "lib/matplotlib/__init__.py",
+    "reason": "创建触发缺陷所需上下文的 API。"
+  },
+  {
+    "name": "matplotlib.pyplot.figure",
+    "kind": "function",
+    "source_path": "lib/matplotlib/pyplot.py",
+    "reason": "用于在特定上下文中创建图形的 API。"
+  },
+  {
+    "name": "matplotlib.pyplot.close",
+    "kind": "function",
+    "source_path": "lib/matplotlib/pyplot.py",
+    "reason": "Issue 中提到受缺陷影响的后续操作。"
+  },
+  {
+    "name": "matplotlib._pylab_helpers.Gcf",
+    "kind": "class",
+    "source_path": "lib/matplotlib/_pylab_helpers.py",
+    "reason": "其 `figs` 属性是缺陷发生的核心状态容器。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "config",
+    "current_pattern": "在正常全局状态下创建图形（如 `test_fig_close` 中的 `plt.figure()`）。",
+    "target_pattern": "在 `with rc_context():` 块内创建第一个图形。",
+    "reason": "Issue 表明缺陷仅在第一个图形在 `rc_context` 中创建时触发。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "创建图形后，可能进行其他操作或直接关闭（如 `test_fig_close` 中的 `fig.canvas.manager.window.close()`）。",
+    "target_pattern": "创建图形后，调用 `get_backend()`。",
+    "reason": "`get_backend()` 的调用是触发 `Gcf.figs` 清空的关键步骤。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试可能假设 `Gcf.figs` 在图形创建后总是被正确维护。",
+    "target_pattern": "确保在调用 `get_backend()` 之前，`Gcf.figs` 中只有一个在 `rc_context` 中创建的图形管理器。",
+    "reason": "Issue 指出，如果 `rc_context` 之前已存在图形，则缺陷不会发生。需要设置特定的初始状态。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "state",
+    "expression_hint": "`plt._pylab_helpers.Gcf.figs` 或 `Gcf.figs` 的内容（例如 `len(Gcf.figs)`，`list(Gcf.figs.keys())`，`repr(Gcf.figs)` 的稳定片段）。",
+    "reason": "缺陷的核心表现是 `Gcf.figs` 字典在 `get_backend()` 调用后被清空。观察其前后状态是关键。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "`get_backend()` 的返回值（字符串）。",
+    "reason": "虽然返回值可能正确，但观察调用是否产生副作用（如导入、后端初始化）可能有助于理解。"
+  },
+  {
+    "kind": "exception",
+    "expression_hint": "调用 `plt.close(fig)` 后是否引发异常（如 `ValueError` 或 `KeyError`）。",
+    "reason": "Issue 提到缺陷的后果是 `plt.close(fig2)` 失败，因为 `Gcf.destroy_fig()` 找不到图形。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "调用 `get_backend()` 后，`Gcf.figs` 应仍然包含之前创建的图形管理器。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言 `Gcf.figs` 的完整 `repr` 字符串完全相等，因为管理器对象的内存地址可能变化。避免断言私有属性。",
+    "reason": "缺陷是关于状态的不当清除。比较调用前后的字典长度或键集是稳定且与 Issue 对齐的。"
+  },
+  {
+    "assertion_goal": "在 `rc_context` 中创建的图形应能通过 `plt.close()` 成功关闭。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言关闭操作返回特定值（`close` 返回 `None`）。避免断言内部 `Gcf` 方法调用的细节。",
+    "reason": "Issue 明确指出缺陷导致 `plt.close(fig2)` 失败。修复后，调用 `plt.close()` 不应引发异常。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "可能需要设置特定的 Matplotlib 后端（如 'QtAgg'）以复现 Issue 中观察到的特定管理器类型。",
+    "source": "issue",
+    "confidence": "medium"
+  },
+  {
+    "hint": "测试应在没有预先存在图形的干净状态下开始，可能需要调用 `plt.close('all')`。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 `import matplotlib.pyplot as plt` 和 `from matplotlib import get_backend, rc_context`。",
+    "source": "issue",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "`get_backend()` 调用触发 `Gcf.figs` 清空的确切机制是什么？是导入副作用、后端初始化，还是其他隐式调用？",
+  "`rc_context` 如何影响图形管理器的创建或注册过程，使其对后续 `get_backend()` 调用敏感？",
+  "为什么预先存在一个图形或启用 `plt.ion()` 可以避免此缺陷？它们改变了什么状态？",
+  "缺陷是否依赖于特定后端（如 QtAgg），还是普遍存在？"
+]

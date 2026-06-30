@@ -1,0 +1,140 @@
+instance_id: scikit-learn__scikit-learn-11281
+
+issue_summary: Mixture models have an API inconsistent with the clusterer interface, differing in parameter naming, missing attributes, and missing methods.
+
+trigger_condition:
+{
+  "text": "Using a mixture model (e.g., GaussianMixture) in a context that expects a standard clusterer interface: attempting to access `labels_` attribute after `fit`, calling `fit_predict`, or relying on parameter name `n_clusters`.",
+  "evidence": [
+    "Issue states mixture models 'do not store the `labels_`' and 'do not have a `fit_predict` method'.",
+    "Retrieved source shows `ClusterMixin.fit_predict` returns `self.labels_`.",
+    "Retrieved test `test_fit_predict` uses `fit_predict` on GMM, VBGMM, DPGMM.",
+    "Retrieved test `test_gaussian_mixture_attributes` uses `n_components` parameter."
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "When treating a mixture model as a clusterer, expected attributes (`labels_`) are missing, expected methods (`fit_predict`) are not available, and parameter naming (`n_components` vs `n_clusters`) differs.",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue explicitly lists missing `labels_` and `fit_predict`.",
+    "`ClusterMixin.fit_predict` expects `self.labels_` to exist."
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "Mixture models should provide a clusterer-compatible interface, including a `fit_predict` method, a `labels_` attribute storing training data cluster assignments, and consistent parameter naming (either `n_clusters` or `n_components` aligned with clusterers).",
+  "evidence": [
+    "Issue asks 'Should we make the MMs more like clusterers?' implying the desired direction.",
+    "`ClusterMixin` defines `fit_predict` as a standard clustering method.",
+    "Test `test_fit_predict` expects `fit_predict` to work for some mixture models."
+  ],
+  "confidence": "medium"
+}
+
+target_apis:
+[
+  {
+    "name": "GaussianMixture",
+    "kind": "class",
+    "source_path": "sklearn/mixture/gaussian_mixture.py",
+    "reason": "Appears in retrieved tests; likely a key mixture model class affected by the API inconsistency."
+  },
+  {
+    "name": "fit_predict",
+    "kind": "method",
+    "source_path": "sklearn/base.py",
+    "reason": "Issue mentions missing `fit_predict` method; ClusterMixin defines it."
+  },
+  {
+    "name": "ClusterMixin",
+    "kind": "class",
+    "source_path": "sklearn/base.py",
+    "reason": "Provides the clusterer interface that mixture models are compared against."
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "object_state",
+    "current_pattern": "Test uses mixture model's `predict` or `fit` then `predict`.",
+    "target_pattern": "Attempt to call `fit_predict` on a GaussianMixture instance, or access `labels_` attribute after `fit`.",
+    "reason": "Issue states mixture models lack `fit_predict` and `labels_`. Mutating test to use these should trigger AttributeError or missing method error.",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "Constructor uses parameter `n_components`.",
+    "target_pattern": "Attempt to construct mixture model with parameter `n_clusters` (if supported) or check compatibility with code expecting `n_clusters`.",
+    "reason": "Issue notes parameter name difference (`n_components` vs `n_clusters`). Using `n_clusters` may cause TypeError or unexpected behavior.",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "Result of calling `fit_predict` on a mixture model instance, or accessing `model.labels_` after `fit`.",
+    "reason": "Issue indicates these should exist for a clusterer-compatible interface. Their absence (AttributeError) or presence (array of labels) indicates the bug."
+  },
+  {
+    "kind": "type",
+    "expression_hint": "Type of exception raised when accessing missing attribute/method (e.g., AttributeError).",
+    "reason": "Helps confirm the specific missing API element (`fit_predict` vs `labels_`)."
+  },
+  {
+    "kind": "state",
+    "expression_hint": "Public attributes of the mixture model object after fitting (using `dir(model)` or `hasattr`).",
+    "reason": "To check for presence of `labels_` attribute, which should store cluster assignments."
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "Mixture model instance should have a `fit_predict` method.",
+    "preferred_assertion_style": "isinstance",
+    "avoid": "Checking private methods or implementation details of `fit_predict`.",
+    "reason": "Directly addresses one of the stated API deficiencies. Using `hasattr` or `callable` is a stable public behavior check."
+  },
+  {
+    "assertion_goal": "After calling `fit`, the mixture model should have a `labels_` attribute containing cluster assignments for the training data.",
+    "preferred_assertion_style": "isinstance",
+    "avoid": "Asserting exact label values (which are probabilistic and may vary). Checking the attribute exists and is an array of correct shape is more stable.",
+    "reason": "Addresses the second stated deficiency. Checking public attribute existence and type is robust."
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "Use numpy for random data generation, similar to existing mixture tests.",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "Import mixture model classes (e.g., GaussianMixture) from sklearn.mixture.",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "May need to handle ConvergenceWarning or DeprecationWarning with warnings.catch_warnings.",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "Which mixture model classes exactly are considered 'mixture models' in the Issue context (GMM, VBGMM, DPGMM, GaussianMixture, etc.).",
+  "Whether the expected behavior is to add `fit_predict`/`labels_` to all mixture models, or just to align some of them.",
+  "Whether parameter `n_clusters` should be an alias for `n_components`, or `n_components` should be renamed.",
+  "The semantic content of `labels_` for mixture models (hard assignments from `predict` vs. soft assignments).",
+  "Whether the absence of `fit_predict` and `labels_` is intentional design or an oversight."
+]

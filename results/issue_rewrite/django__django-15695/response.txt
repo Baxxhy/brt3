@@ -1,0 +1,179 @@
+```json
+{
+    "original_issue": {
+        "text": "RenameIndex() crashes when unnamed index is moving backward and forward.\nDescription\n\nRenameIndex() should restore the old auto-generated name when an unnamed index for unique_together is moving backward. Now re-applying RenameIndex() crashes. For example:\ntests/migrations/test_operations.py\ndiff --git a/tests/migrations/test_operations.py b/tests/migrations/test_operations.py\nindex cfd28b1b39..c0a55023bb 100644\n\t\t\t\t\t\t a\n\t\t\t\t\t \n\t\t\t\t\t\t b\n\t\t\t\t\t \n class OperationTests(OperationTestBase): \n29882988        with connection.schema_editor() as editor, self.assertNumQueries(0):\n29892989            operation.database_backwards(app_label, editor, new_state, project_state)\n29902990        self.assertIndexNameExists(table_name, \"new_pony_test_idx\")\n 2991        # Re-apply renaming.\n 2992        with connection.schema_editor() as editor:\n 2993            operation.database_forwards(app_label, editor, project_state, new_state)\n 2994        self.assertIndexNameExists(table_name, \"new_pony_test_idx\")\n29912995        # Deconstruction.\n29922996        definition = operation.deconstruct()\n29932997        self.assertEqual(definition[0], \"RenameIndex\")\ncrashes on PostgreSQL:\ndjango.db.utils.ProgrammingError: relation \"new_pony_test_idx\" already exists",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用 `RenameIndex` 操作重命名一个由 `old_fields` 指定的未命名索引（例如来自 `unique_together`）时，先执行 `database_backwards`（反向迁移）再执行 `database_forwards`（正向迁移）会导致崩溃。反向迁移后，索引已被重命名为新名称。再次正向迁移时，尝试再次重命名到相同的新名称，与数据库中已存在的索引名冲突，引发 `django.db.utils.ProgrammingError: relation \"new_pony_test_idx\" already exists`。期望行为是：反向迁移应恢复旧的自动生成名称，使得再次正向迁移能成功执行，不引发冲突。",
+        "facts_from_issue": [
+            "RenameIndex() 在未命名索引（unnamed index）先向后移动（backward）再向前移动（forward）时崩溃。",
+            "Issue 提供了一个测试代码片段，展示了在 `test_rename_index_unnamed_index` 测试中，在 `database_backwards` 之后再次调用 `database_forwards` 的场景。",
+            "崩溃发生在 PostgreSQL 上，错误信息是：`django.db.utils.ProgrammingError: relation \"new_pony_test_idx\" already exists`。",
+            "Issue 认为 `RenameIndex()` 在向后移动未命名索引时，应该恢复旧的自动生成名称（old auto-generated name）。"
+        ],
+        "facts_from_retrieved_context": [
+            "`RenameIndex` 类位于 `django/db/migrations/operations/models.py`。",
+            "`RenameIndex` 构造函数可以接受 `old_fields` 参数来指定一个未命名索引。",
+            "`database_backwards` 方法在 `old_fields` 存在时是一个空操作（no-op）。",
+            "`database_forwards` 方法在 `old_fields` 存在时，会通过 `schema_editor._constraint_names` 查找匹配的索引名称。",
+            "检索到的测试 `test_rename_index_unnamed_index` 展示了使用 `old_fields` 重命名未命名索引的基本流程，包括正向迁移、反向迁移（no-op）和解构。",
+            "检索到的测试 `test_rename_index` 展示了使用 `old_name` 重命名已命名索引的流程，包括正向迁移、反向迁移和解构。"
+        ],
+        "inferences": [
+            "当 `RenameIndex` 使用 `old_fields` 时，它针对的是一个数据库自动生成名称的索引（例如由 `unique_together` 创建）。",
+            "`database_backwards` 被设计为 `old_fields` 情况下的空操作，可能是因为它假设反向操作不需要做任何事情（或者应该恢复原名，但当前实现没有）。",
+            "Issue 中描述的崩溃序列是：1) `database_forwards` 将未命名索引重命名为新名称（如 `new_pony_test_idx`）。2) `database_backwards` 执行（当前是空操作）。3) 再次 `database_forwards` 尝试将索引重命名为同一个新名称，但该名称在数据库中已存在，导致冲突。",
+            "期望的修复是：在 `database_backwards` 中，当 `old_fields` 存在时，不应是空操作，而应将索引名称恢复为原来的自动生成名称。"
+        ],
+        "do_not_assume": [
+            "崩溃是否只发生在 PostgreSQL 上，还是也发生在其他数据库后端。",
+            "`unique_together` 是触发未命名索引的唯一方式，还是 `index_together` 或其他约束也会产生。",
+            "`old_fields` 参数是否总是对应一个数据库自动生成的索引名称。",
+            "修复后 `database_backwards` 的具体实现逻辑。"
+        ]
+    },
+    "issue_summary": "RenameIndex 操作在针对未命名索引（通过 old_fields 指定）执行反向迁移后再执行正向迁移时，因索引名冲突而崩溃。",
+    "trigger_condition": {
+        "text": "创建一个 `RenameIndex` 操作，使用 `old_fields` 参数（而非 `old_name`）来指定一个未命名索引（例如由模型 Meta 的 `index_together` 或 `unique_together` 创建的索引）。对该操作依次调用：1) `database_forwards`（重命名索引），2) `database_backwards`（当前为空操作），3) 再次 `database_forwards`（尝试再次重命名）。",
+        "evidence": [
+            "Issue 描述：\"RenameIndex() crashes when unnamed index is moving backward and forward.\"",
+            "Issue 中的测试片段展示了在 `database_backwards` 后再次调用 `database_forwards`。",
+            "检索测试 `test_rename_index_unnamed_index` 展示了使用 `old_fields` 创建 `RenameIndex` 并调用 `database_forwards` 和 `database_backwards` 的基本模式。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "在第二次调用 `database_forwards` 时，数据库操作失败，抛出 `django.db.utils.ProgrammingError`，提示关系（索引）`new_pony_test_idx` 已经存在。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中明确给出错误信息：\"django.db.utils.ProgrammingError: relation \\\"new_pony_test_idx\\\" already exists\"。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "修复后，对使用 `old_fields` 的 `RenameIndex` 操作执行 `database_backwards` 应该将索引名称恢复为原来的自动生成名称，从而使得后续再次执行 `database_forwards` 能够成功，不会引发索引名冲突。整个操作序列（forwards, backwards, forwards）应正常完成，不抛出异常。",
+        "evidence": [
+            "Issue 描述：\"RenameIndex() should restore the old auto-generated name when an unnamed index for unique_together is moving backward.\"",
+            "检索测试 `test_rename_index`（使用 `old_name`）展示了反向迁移后索引名称恢复的期望行为。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "RenameIndex",
+            "kind": "class",
+            "source_path": "django/db/migrations/operations/models.py",
+            "reason": "Issue 直接关于这个迁移操作类。"
+        },
+        {
+            "name": "RenameIndex.database_forwards",
+            "kind": "method",
+            "source_path": "django/db/migrations/operations/models.py",
+            "reason": "触发崩溃的调用序列包括此方法。"
+        },
+        {
+            "name": "RenameIndex.database_backwards",
+            "kind": "method",
+            "source_path": "django/db/migrations/operations/models.py",
+            "reason": "Issue 指出此方法在 `old_fields` 情况下行为不正确（应为空操作）。"
+        },
+        {
+            "name": "connection.schema_editor",
+            "kind": "method",
+            "source_path": "django/db/backends/base/base.py",
+            "reason": "测试中用于获取 SchemaEditor 以执行数据库操作。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/db/migrations/operations/models.py",
+            "object": "RenameIndex.database_backwards",
+            "lines": "968-985",
+            "reason": "源码显示当 `self.old_fields` 存在时，该方法直接返回（空操作）。Issue 认为它应该恢复旧的自动生成名称。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_rename_index_unnamed_index",
+            "test_file": "tests/migrations/test_operations.py",
+            "why_relevant": "该测试专门针对使用 `old_fields` 重命名未命名索引的场景。它设置了相同的模型状态（`index_together=True`），创建了相同的 `RenameIndex` 操作对象，并调用了 `database_forwards` 和 `database_backwards`。它使用了相同的测试基类 `OperationTestBase` 和断言方法（如 `assertIndexNameExists`）。",
+            "reusable_parts": [
+                "导入：`migrations`",
+                "测试类：`OperationTests(OperationTestBase)`",
+                "设置方法：`self.set_up_test_model(app_label, index_together=True)`",
+                "操作对象构造：`migrations.RenameIndex(\"Pony\", new_name=\"new_pony_test_idx\", old_fields=(\"weight\", \"pink\"))`",
+                "状态克隆：`new_state = project_state.clone()`",
+                "调用 `operation.state_forwards`",
+                "使用 `connection.schema_editor()` 上下文管理器",
+                "调用 `operation.database_forwards` 和 `operation.database_backwards`",
+                "断言方法：`self.assertIndexNameExists`"
+            ],
+            "possible_gap": "该测试在 `database_backwards` 后没有再次调用 `database_forwards`。它只测试了反向迁移是空操作且索引名保持不变。为了复现 Issue，需要在 `database_backwards` 之后添加第二次 `database_forwards` 调用。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "call_chain",
+            "current_pattern": "在测试 `test_rename_index_unnamed_index` 中，调用顺序是：1) `database_forwards`, 2) `database_backwards`, 3) 结束。",
+            "target_pattern": "将调用顺序变异为：1) `database_forwards`, 2) `database_backwards`, 3) 再次 `database_forwards`。",
+            "reason": "Issue 明确指出崩溃发生在 \"re-applying RenameIndex()\"，即在反向迁移后再次正向迁移。当前测试没有这个步骤。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "在第二次调用 `operation.database_forwards(...)` 时，捕获可能抛出的 `django.db.utils.ProgrammingError`。",
+            "reason": "Issue 报告的错误症状是抛出此异常，提示索引名已存在。"
+        },
+        {
+            "kind": "state",
+            "expression_hint": "在每次 `database_forwards` 或 `database_backwards` 调用前后，检查数据库中特定表索引名称的存在性（例如使用 `self.assertIndexNameExists` 或 `self.assertIndexNameNotExists`）。",
+            "reason": "这有助于跟踪索引名称的实际变化，验证反向迁移是否恢复了旧名。"
+        },
+        {
+            "kind": "sql",
+            "expression_hint": "如果可能，观察 `schema_editor` 执行的 SQL 语句，特别是 `ALTER INDEX ... RENAME TO ...` 或类似的语句。",
+            "reason": "错误可能源于发送了冲突的 SQL 命令。观察 SQL 可以确认是否尝试重复重命名到同一名称。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "完整的操作序列（forwards, backwards, forwards）应正常执行完毕，不抛出任何异常。",
+            "preferred_assertion_style": "raises",
+            "avoid": "断言具体的 SQL 字符串或完整的异常消息格式（可能因数据库后端而异）。",
+            "reason": "Issue 的核心是操作序列不应崩溃。使用 `assertNotRaises` 或确保代码块执行完毕是直接的验证方式。修复后应无异常。"
+        },
+        {
+            "assertion_goal": "在第二次 `database_forwards` 调用后，索引名称应仍为新名称（例如 `new_pony_test_idx`），且数据库中存在该索引。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言索引的内部对象 ID 或私有属性。",
+            "reason": "这是正向迁移的预期结果，也是测试 `test_rename_index_unnamed_index` 中已有的断言风格（`self.assertIndexNameExists`）。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要使用支持重命名索引的数据库后端（如 PostgreSQL）。测试可能需要配置 Django 的数据库连接。",
+            "source": "issue",
+            "confidence": "medium"
+        },
+        {
+            "hint": "使用 `OperationTestBase` 测试基类，它提供了 `set_up_test_model`、`assertIndexNameExists` 等辅助方法。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试模型应配置 `index_together` 或 `unique_together` 以生成未命名索引，供 `RenameIndex` 的 `old_fields` 参数匹配。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "`database_backwards` 中恢复旧名称的具体逻辑应该是什么？是查询数据库获取原始名称，还是从某个状态中获取？",
+        "除了 `index_together`，是否还有其他场景会产生 `old_fields` 对应的未命名索引？",
+        "错误是否在所有数据库后端都会发生，还是特定于 PostgreSQL？",
+        "修复后，`database_backwards` 是否还会是 `old_fields` 情况下的空操作？"
+    ]
+}
+```

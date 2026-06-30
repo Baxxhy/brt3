@@ -1,0 +1,143 @@
+instance_id: django__django-12184
+
+issue_summary: Django 3.0 中，使用 re_path 定义带有可选命名参数的正则 URL 模式时，访问缺失该可选参数的 URL 会导致视图函数因接收到错误数量的参数而抛出 TypeError。
+
+trigger_condition:
+{
+  "text": "使用 re_path 注册一个 URL 模式，该模式包含一个可选的正则表达式命名捕获组（例如 (?P<param>...)?）。将该模式映射到一个视图函数，该视图函数的对应参数具有默认值。然后，使用客户端（如 test client）访问不提供该可选参数的 URL 端点。",
+  "evidence": [
+    "Issue 中描述了 URLConf: re_path(r'^module/(?P<format>(html|json|xml))?/?$', views.modules, name='modules')",
+    "Issue 中描述了访问 '/module/' 触发错误",
+    "检索测试 test_re_path_with_optional_parameter 展示了如何构造和解析带有可选参数的正则 URL"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "访问特定 URL 时，Django 处理请求过程中抛出 TypeError: modules() takes from 1 to 2 positional arguments but 3 were given。这表明视图函数被调用时传递了错误数量的位置参数。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中提供了完整的 Traceback，异常类型和值明确"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当访问不提供可选命名参数的 URL 时，Django 应能正确解析 URL，并将请求分派给对应的视图函数，使用该参数的默认值（或将其作为关键字参数正确处理），使得视图函数能正常执行并返回 HTTP 响应，而不是抛出 TypeError。",
+  "evidence": [
+    "Issue 提到该用例在 Django 2.2 中运行正常，暗示了修复后的期望行为",
+    "检索测试 test_re_path_with_optional_parameter 表明，对于可选参数缺失的情况，resolve 得到的 match.kwargs 不包含该参数，这暗示了视图函数应能处理参数缺失的情况"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "re_path",
+    "kind": "function",
+    "source_path": "django/urls/conf.py",
+    "reason": "Issue 中用于定义包含可选参数的正则 URL 模式的关键函数。"
+  },
+  {
+    "name": "resolve",
+    "kind": "function",
+    "source_path": "",
+    "reason": "检索测试中用于解析 URL 并获取匹配信息的函数，有助于理解 URL 解析结果。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "call_chain",
+    "current_pattern": "测试中使用 resolve(url) 获取匹配对象，然后断言其属性。",
+    "target_pattern": "使用 test client（如 self.client.get(url)）发起对 URL 的实际 HTTP 请求，从而触发完整的请求处理链，包括视图函数调用。",
+    "reason": "Issue 中的错误发生在请求处理链的视图调用阶段（wrapped_callback），仅解析 URL 不会触发此错误。需要实际调用视图函数。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "测试中使用的 URL 模式是 '/regex_optional/(?P<arg1>\\d+)/(?:(?P<arg2>\\d+)/)?'，视图函数未知。",
+    "target_pattern": "创建一个新的 URL 配置和视图函数，模拟 Issue 中的模式：一个带有可选命名参数的正则路径，映射到一个带有默认参数值的视图函数。",
+    "reason": "需要复现 Issue 中特定的 URL 模式结构和视图函数签名，以触发参数数量不匹配的错误。",
+    "confidence": "high"
+  },
+  {
+    "slot": "input",
+    "current_pattern": "测试中访问的 URL 提供了所有参数（如 '/regex_optional/1/2/'）或仅提供必需参数（如 '/regex_optional/1/'）。",
+    "target_pattern": "访问不提供可选参数的 URL 变体，例如对于模式 '^module/(?P<format>(html|json|xml))?/?$'，访问 '/module/'。",
+    "reason": "Issue 表明错误在可选参数缺失时触发。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "在调用 self.client.get(url) 时捕获的异常（如使用 assertRaises 上下文管理器）。观察异常的类型和消息。",
+    "reason": "Issue 的核心症状是 TypeError，观测是否抛出此异常是判断缺陷是否触发的直接方式。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "如果视图调用成功，观察 HTTP 响应的状态码（如 response.status_code）或响应内容。",
+    "reason": "修复后期望视图正常执行并返回响应（如 200），而非崩溃。"
+  },
+  {
+    "kind": "warning",
+    "expression_hint": "观察在 URL 解析或请求处理过程中是否产生任何 warnings。",
+    "reason": "参数处理问题有时会伴随警告。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "当访问缺失可选参数的 URL 时，请求应成功处理，不抛出 TypeError。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言完整的异常消息字符串，因为消息可能因 Python 版本略有不同。",
+    "reason": "直接验证是否出现 Issue 中描述的关键异常。在缺陷存在时，断言会捕获 TypeError；修复后，断言将失败，表明行为已纠正。"
+  },
+  {
+    "assertion_goal": "视图函数应被正常调用并返回一个 HTTP 响应（例如状态码为 200）。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言响应内容的完整 HTML 或文本。",
+    "reason": "修复后，视图应能正常执行，返回有效的响应。状态码是一个稳定的公开属性。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要创建一个测试专用的 URL 配置模块（或使用 override_settings 内联定义），其中包含类似 Issue 中描述的正则 URL 模式。",
+    "source": "issue",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要定义一个对应的视图函数，其签名与 Issue 中类似（例如 def modules(request, format='html'): ...），并返回一个简单的 HttpResponse。",
+    "source": "issue",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试类应继承自 Django 的测试用例，如 SimpleTestCase 或 TestCase，以提供 test client 和 URL 覆盖功能。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 @override_settings(ROOT_URLCONF=...) 装饰器来指定测试使用的 URL 配置。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "错误是否只发生在 re_path 中，还是 path 也有类似问题？",
+  "除了 TypeError，是否还有其他副作用或错误？",
+  "当可选参数在 URL 中被提供时（如 '/module/html/'），是否工作正常？",
+  "视图函数参数默认值是否必须是字符串？其他类型是否有影响？",
+  "Django 3.0 中具体哪个代码变更导致了此回归？"
+]

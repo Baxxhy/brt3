@@ -1,0 +1,149 @@
+instance_id: django__django-13315
+
+issue_summary: 当 ForeignKey 的 limit_choices_to 参数为涉及连接的 Q 对象时，生成的表单字段选项会出现重复。
+
+trigger_condition:
+{
+  "text": "创建一个 ForeignKey 字段，并将其 limit_choices_to 参数设置为一个涉及跨表连接（例如使用双下划线 __）的 Q 对象。然后调用该字段的 formfield() 方法，或使用该字段生成 ModelForm，并检查生成的 ModelChoiceField 的 queryset 或渲染出的选项。",
+  "evidence": [
+    "Issue: 'If you pass a Q object as limit_choices_to on a ForeignKey field involving a join'",
+    "源码: ForeignKey 类有 limit_choices_to 参数和 formfield 方法。",
+    "源码: Q 类用于构建查询条件。",
+    "测试: 相关测试涉及 limit_choices_to 和 formfield/queryset 的断言。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "表单字段（ModelChoiceField）的选项列表（queryset 或 choices）中包含重复的模型实例或重复的选项值/标签。",
+  "symptom_type": "wrong_order",
+  "evidence": [
+    "Issue: 'you may end up with duplicate options in your form.'"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "即使 limit_choices_to 是一个涉及连接的复杂 Q 对象，生成的表单字段的选项列表（queryset/choices）也不应包含重复项，每个符合条件的相关模型实例只应出现一次。",
+  "evidence": [
+    "Issue 暗示这是非预期行为，修复后应消除重复。",
+    "测试中 assertSequenceEqual 检查 queryset 序列，隐含了序列应无重复的预期。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "django.db.models.ForeignKey",
+    "kind": "class",
+    "source_path": "django/db/models/fields/related.py",
+    "reason": "缺陷直接关联到 ForeignKey 字段及其 limit_choices_to 参数。"
+  },
+  {
+    "name": "django.db.models.Q",
+    "kind": "class",
+    "source_path": "django/db/models/query_utils.py",
+    "reason": "触发条件需要将 Q 对象作为 limit_choices_to 的值。"
+  },
+  {
+    "name": "django.db.models.ForeignKey.formfield",
+    "kind": "method",
+    "source_path": "django/db/models/fields/related.py",
+    "reason": "这是生成表单字段并可能触发缺陷的核心方法。"
+  },
+  {
+    "name": "django.forms.ModelChoiceField",
+    "kind": "class",
+    "source_path": "",
+    "reason": "formfield 方法返回此字段，其 queryset 属性包含选项。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "limit_choices_to 被设置为一个字典（如 {'a': 'a'}）或一个返回字典的简单可调用对象。",
+    "target_pattern": "limit_choices_to 应被设置为一个 Q 对象，该对象包含一个涉及跨表连接的条件，例如 Q(related_model__field=value)。",
+    "reason": "Issue 明确指出缺陷在 limit_choices_to 为涉及连接的 Q 对象时触发。将参数变异为此模式是复现缺陷的关键。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "测试模型关系简单，可能只涉及单表过滤。",
+    "target_pattern": "需要设置至少两个具有外键关系的模型，并确保 Q 对象中的条件需要通过连接（join）到相关表才能评估。",
+    "reason": "'involving a join' 是触发条件的一部分。需要构建能产生连接查询的模型关系和数据。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "field.formfield().queryset 或 form_instance.fields['field_name'].queryset",
+    "reason": "直接观察表单字段的查询集，检查其中是否包含重复的模型实例。这是错误现象的核心。"
+  },
+  {
+    "kind": "sql",
+    "expression_hint": "str(field.formfield().queryset.query)",
+    "reason": "观察生成的 SQL 查询，检查是否因为连接导致了重复行（例如缺少 DISTINCT）。这有助于定位问题根源。"
+  },
+  {
+    "kind": "repr",
+    "expression_hint": "list(field.formfield().queryset) 或 field.formfield().queryset.count()",
+    "reason": "将 queryset 转换为列表可以直观看到重复项，count() 可以快速判断数量是否多于去重后的预期数量。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "表单字段的 queryset 中的元素数量应等于去重后的预期模型实例数量。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的 SQL 字符串或完整的 repr 字符串相等。",
+    "reason": "直接检查数量关系是稳定且与 Issue 核心（重复项）对齐的断言。它不依赖于易变的字符串表示。"
+  },
+  {
+    "assertion_goal": "表单字段的 queryset 转换成的列表应与其 set 后的列表长度相等（即无重复）。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言私有属性 _result_cache 或内部查询结构。",
+    "reason": "通过比较列表和集合的长度，可以公开、稳定地验证 queryset 是否包含重复项。"
+  },
+  {
+    "assertion_goal": "表单字段渲染出的选项（如 choices 属性）应不包含重复的 (value, label) 对。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言完整的 HTML 输出字符串相等。",
+    "reason": "直接检查选项对列表可以验证用户最终看到的表单选项是否重复，这是 Issue 描述的最终表现。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要继承自 django.test.TestCase 以使用数据库支持。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要定义至少两个具有 ForeignKey 关系的模型，并插入测试数据。",
+    "source": "inference",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要使用 ModelForm 或直接调用字段的 formfield() 方法来生成待测字段。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "具体的模型定义和 Q 对象示例。",
+  "重复项是出现在 queryset 查询结果层面，还是在后续转换为 choices 的层面。",
+  "是否所有涉及连接的 Q 对象都会触发，还是特定类型的连接。",
+  "修复后，正确的行为是 queryset 自动应用 distinct()，还是在其他地方去重。"
+]

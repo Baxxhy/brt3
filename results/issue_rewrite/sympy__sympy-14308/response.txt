@@ -1,0 +1,176 @@
+```json
+{
+  "original_issue": {
+    "text": "vectors break pretty printing\n```py\nIn [1]: from sympy.vector import *\n\nIn [2]: e = CoordSysCartesian('e')\n\nIn [3]: (x/y)**t*e.j\nOut[3]:\n⎛   t⎞ e_j\n⎜⎛x⎞ e_j ⎟\n⎜⎜─⎟ ⎟\n⎝⎝y⎠ ⎠\n```\n\nAlso, when it does print correctly, the baseline is wrong (it should be centered).",
+    "source": "raw_issue"
+  },
+  "clarified_issue": {
+    "text": "在 SymPy 中，当向量表达式（如 e.j）与幂运算表达式（如 (x/y)**t）相乘时，pretty printing 会输出错误的格式。具体表现为：1) 向量符号 e_j 被错误地重复打印两次（一次在括号内，一次在括号外），导致输出格式混乱；2) 即使在某些情况下打印格式正确，基线（baseline）也未居中。这影响了向量表达式的美观显示。相关 API 可能涉及 sympy.vector 模块中的向量打印逻辑。",
+    "facts_from_issue": [
+      "向量表达式 (x/y)**t * e.j 的 pretty printing 输出格式错误。",
+      "输出中向量符号 e_j 被重复打印了两次。",
+      "即使打印正确，基线（baseline）也未居中。"
+    ],
+    "facts_from_retrieved_context": [
+      "检索到的测试代码表明 sympy.vector.tests.test_printing 模块包含向量和并矢（dyadic）的 pretty printing 测试。",
+      "测试中使用了 upretty() 和 pretty() 函数来验证向量和并矢的 Unicode 和 ASCII 格式输出。",
+      "CoordSysCartesian 已被弃用，建议使用 CoordSys3D。"
+    ],
+    "inferences": [
+      "缺陷可能与向量对象（如 e.j）的 _pretty_form 属性或其 pretty printer 方法有关。",
+      "幂运算表达式与向量相乘时，打印逻辑可能未正确处理向量部分的格式。",
+      "基线未居中的问题可能与 pretty printer 计算字符位置或对齐的逻辑有关。"
+    ],
+    "do_not_assume": [
+      "缺陷只存在于 CoordSysCartesian 中（因为它已被弃用）。",
+      "缺陷只影响 ASCII 或 Unicode 中的一种格式。",
+      "具体的修复代码位置或完整的正确输出字符串。"
+    ]
+  },
+  "issue_summary": "向量表达式与幂运算表达式相乘时，pretty printing 输出格式错误，表现为向量符号重复打印且基线未居中。",
+  "trigger_condition": {
+    "text": "构造一个向量表达式，其中包含幂运算（如 (x/y)**t）与一个向量基（如 e.j）相乘，然后调用其 pretty printing 方法（如 str()、pretty() 或在交互式环境中直接输出）。",
+    "evidence": [
+      "原始 Issue 中给出了触发代码：`(x/y)**t*e.j`。",
+      "相关测试代码中大量使用了 pretty() 和 upretty() 函数来测试向量打印。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "pretty printing 输出格式混乱：向量符号 e_j 被重复打印两次（一次在括号内，一次在括号外），导致视觉上出现多余的 e_j 和错误的括号嵌套。此外，基线（baseline）未居中。",
+    "symptom_type": "wrong_return",
+    "evidence": [
+      "原始 Issue 中展示了错误的输出格式：`⎛   t⎞ e_j\n⎜⎛x⎞ e_j ⎟\n⎜⎜─⎟ ⎟\n⎝⎝y⎠ ⎠`。",
+      "Issue 明确说明“when it does print correctly, the baseline is wrong”。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "修复后，向量表达式 (x/y)**t * e.j 的 pretty printing 应输出格式正确、美观的数学表达式，向量符号 e_j 应只出现一次且位置正确，表达式的基线应居中。",
+    "evidence": [
+      "Issue 描述暗示了正确的打印格式应避免重复的 e_j 和错误的括号嵌套。",
+      "Issue 明确指出基线“should be centered”。",
+      "相关测试代码展示了其他向量表达式正确打印的预期格式（如 `(a) N_i + (-b) N_j`）。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "CoordSys3D",
+      "kind": "class",
+      "source_path": "sympy/vector/coordsysrect.py",
+      "reason": "Issue 中使用了 CoordSysCartesian（已弃用，实际调用 CoordSys3D）来创建坐标系和向量基（如 e.j）。"
+    },
+    {
+      "name": "pretty",
+      "kind": "function",
+      "source_path": "",
+      "reason": "相关测试代码中使用 pretty() 函数进行 ASCII 格式的 pretty printing 测试。"
+    },
+    {
+      "name": "upretty",
+      "kind": "function",
+      "source_path": "",
+      "reason": "相关测试代码中使用 upretty() 函数进行 Unicode 格式的 pretty printing 测试。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sympy/vector/vector.py",
+      "object": "向量类的 _pretty 或 _latex 方法，或与 pretty printing 相关的特殊方法",
+      "lines": "",
+      "reason": "该文件是向量模块的核心文件，很可能包含向量对象的打印逻辑。缺陷可能在于向量对象在与幂运算等表达式结合时，其打印表示生成错误。"
+    },
+    {
+      "path": "sympy/printing/pretty/pretty.py 或 sympy/printing 相关模块",
+      "object": "处理幂运算（Pow）与乘法（Mul）的 pretty printer 方法",
+      "lines": "",
+      "reason": "缺陷涉及幂运算 (x/y)**t 与向量 e.j 的乘法打印。可能是 pretty printer 在处理 Mul 节点包含 Pow 和 Vector 时，未正确协调两者的打印格式和基线对齐。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_pretty_print_unicode",
+      "test_file": "sympy/vector/tests/test_printing.py",
+      "why_relevant": "该测试直接验证向量（v[...]）和并矢（d[...]）的 Unicode pretty printing 输出，使用了 upretty() 函数，与 Issue 中涉及的打印功能高度相关。",
+      "reusable_parts": [
+        "导入语句（如 from sympy.vector import ...）",
+        "使用 upretty() 函数进行断言",
+        "向量和坐标系对象的构造方式（可从测试上下文推断）"
+      ],
+      "possible_gap": "该测试使用的向量表达式是简单的线性组合（如 (a) N_i + (-b) N_j），不包含幂运算与向量相乘的复杂情况。需要变异输入表达式以触发缺陷。"
+    },
+    {
+      "test_name": "test_vector_pretty_print",
+      "test_file": "sympy/physics/vector/tests/test_printing.py",
+      "why_relevant": "该测试专门针对向量（和并矢）的 pretty printing，使用了 ascii_vpretty 和 unicode_vpretty 函数，并检查了包含除法等运算的向量表达式输出。",
+      "reusable_parts": [
+        "向量表达式构造模式（如 alpha * N.x + sin(omega) * N.y）",
+        "对打印输出进行字符串比较的断言风格",
+        "涉及除法和幂运算的表达式示例（测试中已有注释提到除法打印问题）"
+      ],
+      "possible_gap": "该测试位于 physics.vector 子模块，可能与 sympy.vector 模块的打印实现略有不同。且测试中未直接使用 CoordSys3D 和 e.j 这样的向量基。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "相似测试中使用的向量表达式多为线性组合，如 `(a) N_i + (-b) N_j` 或 `alpha * N.x + sin(omega) * N.y`。",
+      "target_pattern": "将输入表达式变异为包含幂运算与向量基相乘的形式，如 `(x/y)**t * e.j` 或更一般的 `(base)**exponent * vector_base`。",
+      "reason": "Issue 明确指出缺陷在幂运算表达式与向量相乘时触发，而现有测试未覆盖此模式。",
+      "confidence": "high"
+    },
+    {
+      "slot": "object_state",
+      "current_pattern": "测试中可能使用预定义的、已命名的坐标系（如 `N`）及其向量基（`N.i`, `N.j`, `N.k`）。",
+      "target_pattern": "使用 `CoordSys3D('e')` 动态创建一个坐标系，并使用其向量基 `e.j`。",
+      "reason": "Issue 示例中使用了 `e = CoordSysCartesian('e')` 和 `e.j`。使用动态创建的坐标系和其向量基可能更接近触发条件。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "str",
+      "expression_hint": "`str((x/y)**t * e.j)` 或 `pretty((x/y)**t * e.j)` 或 `upretty((x/y)**t * e.j)` 的返回值。",
+      "reason": "Issue 的核心是 pretty printing 的输出格式错误。直接观察打印函数的返回值是最直接的观测点。"
+    },
+    {
+      "kind": "repr",
+      "expression_hint": "在交互式环境中直接输出表达式（如 `(x/y)**t * e.j`）得到的表示。",
+      "reason": "原始 Issue 是在 IPython 交互式环境中触发并观察到的。观测 repr 输出可以复现原始场景。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "向量符号（如 'e_j'）在 pretty printing 输出中只应出现一次，且位置正确（不应在括号内外重复）。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言完整的输出字符串与某个猜测的正确字符串完全相等，因为正确的完整格式可能不确定。",
+      "reason": "Issue 明确显示了重复的 'e_j' 是错误现象。检查输出中不包含重复的向量符号片段是一个稳定且与问题核心对齐的断言。"
+    },
+    {
+      "assertion_goal": "输出的字符串在视觉上应表示一个格式良好的数学表达式，没有明显的格式错乱（如多余的括号或错位的符号）。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言私有属性 `_pretty_form` 的值，或检查内部缓存。",
+      "reason": "除了重复符号，Issue 还提到格式混乱。可以检查输出是否包含预期的数学结构片段（如正确的分数线和指数位置），但避免脆弱的完整字符串匹配。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "测试可能需要导入 sympy.vector 模块中的 CoordSys3D, Vector, 以及 sympy 的符号 x, y, t。还需要从 sympy.printing.pretty 导入 pretty 和 upretty。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "使用 pytest 运行测试。可能需要设置特定的环境变量或配置来确保 pretty printer 使用正确的模式（如 Unicode 或 ASCII）。",
+      "source": "inference",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "缺陷是只影响 Unicode 打印（upretty）还是也影响 ASCII 打印（pretty）？相关测试中有一个标记为 @XFAIL 的 ASCII 测试。",
+    "基线未居中的具体表现和检测方法是什么？如何通过程序化断言来验证基线是否居中？",
+    "除了 (x/y)**t * e.j 这种形式，是否还有其他类型的表达式（如其他二元运算）与向量结合时会触发同样的打印缺陷？",
+    "sympy.vector 和 sympy.physics.vector 两个子模块的打印实现是否共享同一套逻辑？缺陷可能存在于哪个具体子模块？"
+  ]
+}
+```

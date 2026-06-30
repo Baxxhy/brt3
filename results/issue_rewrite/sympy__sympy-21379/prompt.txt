@@ -1,0 +1,568 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+Unexpected `PolynomialError` when using simple `subs()` for particular expressions
+I am seeing weird behavior with `subs` for particular expressions with hyperbolic sinusoids with piecewise arguments. When applying `subs`, I obtain an unexpected `PolynomialError`. For context, I was umbrella-applying a casting from int to float of all int atoms for a bunch of random expressions before using a tensorflow lambdify to avoid potential tensorflow type errors. You can pretend the expression below has a `+ 1` at the end, but below is the MWE that I could produce.
+
+See the expression below, and the conditions in which the exception arises.
+
+Sympy version: 1.8.dev
+
+```python
+from sympy import *
+from sympy.core.cache import clear_cache
+
+x, y, z = symbols('x y z')
+
+clear_cache()
+expr = exp(sinh(Piecewise((x, y > x), (y, True)) / z))
+# This works fine
+expr.subs({1: 1.0})
+
+clear_cache()
+x, y, z = symbols('x y z', real=True)
+expr = exp(sinh(Piecewise((x, y > x), (y, True)) / z))
+# This fails with "PolynomialError: Piecewise generators do not make sense"
+expr.subs({1: 1.0})  # error
+# Now run it again (isympy...) w/o clearing cache and everything works as expected without error
+expr.subs({1: 1.0})
+```
+
+I am not really sure where the issue is, but I think it has something to do with the order of assumptions in this specific type of expression. Here is what I found-
+
+- The error only (AFAIK) happens with `cosh` or `tanh` in place of `sinh`, otherwise it succeeds
+- The error goes away if removing the division by `z`
+- The error goes away if removing `exp` (but stays for most unary functions, `sin`, `log`, etc.)
+- The error only happens with real symbols for `x` and `y` (`z` does not have to be real)
+
+Not too sure how to debug this one.
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sympy/core/cache.py
+对象名称：clear_cache
+节点类型：class_function
+父节点：_cache
+行号范围：23-32
+代码：
+    def clear_cache(self):
+        """clear cache content"""
+        for item in self:
+            myfunc = item
+            while hasattr(myfunc, '__wrapped__'):
+                if hasattr(myfunc, 'cache_clear'):
+                    myfunc.cache_clear()
+                    break
+                else:
+                    myfunc = myfunc.__wrapped__
+
+
+【源码片段 2】
+文件路径：sympy/stats/rv.py
+对象名称：symbols
+节点类型：class_function
+父节点：RandomDomain
+行号范围：64-65
+代码：
+    def symbols(self):
+        return self.args[0]
+
+
+【源码片段 3】
+文件路径：sympy/plotting/intervalmath/lib_interval.py
+对象名称：exp
+节点类型：top-level function
+父节点：lib_interval
+行号范围：22-30
+代码：
+def exp(x):
+    """evaluates the exponential of an interval"""
+    np = import_module('numpy')
+    if isinstance(x, (int, float)):
+        return interval(np.exp(x), np.exp(x))
+    elif isinstance(x, interval):
+        return interval(np.exp(x.start), np.exp(x.end), is_valid=x.is_valid)
+    else:
+        raise NotImplementedError
+
+
+【源码片段 4】
+文件路径：sympy/plotting/intervalmath/lib_interval.py
+对象名称：sinh
+节点类型：top-level function
+父节点：lib_interval
+行号范围：222-230
+代码：
+def sinh(x):
+    """Evaluates the hyperbolic sine of an interval"""
+    np = import_module('numpy')
+    if isinstance(x, (int, float)):
+        return interval(np.sinh(x), np.sinh(x))
+    elif isinstance(x, interval):
+        return interval(np.sinh(x.start), np.sinh(x.end), is_valid=x.is_valid)
+    else:
+        raise NotImplementedError
+
+
+【源码片段 5】
+文件路径：sympy/functions/elementary/piecewise.py
+对象名称：Piecewise
+节点类型：class
+父节点：piecewise
+行号范围：60-1041
+代码：
+class Piecewise(Function):
+    """
+    Represents a piecewise function.
+
+    Usage:
+
+      Piecewise( (expr,cond), (expr,cond), ... )
+        - Each argument is a 2-tuple defining an expression and condition
+        - The conds are evaluated in turn returning the first that is True.
+          If any of the evaluated conds are not determined explicitly False,
+          e.g. x < 1, the function is returned in symbolic form.
+        - If the function is evaluated at a place where all conditions are False,
+          nan will be returned.
+        - Pairs where the cond is explicitly False, will be removed.
+
+    Examples
+    ========
+
+    >>> from sympy import Piecewise, log, piecewise_fold
+    >>> from sympy.abc import x, y
+    >>> f = x**2
+    >>> g = log(x)
+    >>> p = Piecewise((0, x < -1), (f, x <= 1), (g, True))
+    >>> p.subs(x,1)
+    1
+    >>> p.subs(x,5)
+    log(5)
+
+    Booleans can contain Piecewise elements:
+
+    >>> cond = (x < y).subs(x, Piecewise((2, x < 0), (3, True))); cond
+    Piecewise((2, x < 0), (3, True)) < y
+
+    The folded version of this results in a Piecewise whose
+    expressions are Booleans:
+
+    >>> folded_cond = piecewise_fold(cond); folded_cond
+    Piecewise((2 < y, x < 0), (3 < y, True))
+
+    When a Boolean containing Piecewise (like cond) or a Piecewise
+    with Boolean expressions (like folded_cond) is used as a condition,
+    it is converted to an equivalent ITE object:
+
+    >>> Piecewise((1, folded_cond))
+    Piecewise((1, ITE(x < 0, y > 2, y > 3)))
+
+    When a condition is an ITE, it will be converted to a simplified
+    Boolean expression:
+
+    >>> piecewise_fold(_)
+    Piecewise((1, ((x >= 0) | (y > 2)) & ((y > 3) | (x < 0))))
+
+    See Also
+    ========
+    piecewise_fold, ITE
+    """
+    nargs = None
+    is_Piecewise = True
+    def __new__(cls, *args, **options):
+    @classmethod
+    def eval(cls, *_args):
+    def doit(self, **hints):
+    def _eval_simplify(self, **kwargs):
+    def _eval_as_leading_term(self, x, cdir=0):
+    def _eval_adjoint(self):
+    def _eval_conjugate(self):
+    def _eval_derivative(self, x):
+    def _eval_evalf(self, prec):
+    def piecewise_integrate(self, x, **kwargs):
+    def _handle_irel(self, x, handler):
+    def _eval_integral(self, x, _first=True, **kwargs):
+    def _eval_interval(self, sym, a, b, _first=True):
+    def _intervals(self, sym):
+    def _eval_nseries(self, x, n, logx, cdir=0):
+    def _eval_power(self, s):
+    def _eval_subs(self, old, new):
+    def _eval_transpose(self):
+    def _eval_template_is_attr(self, is_attr):
+    _eval_is_finite = lambda self: self._eval_template_is_attr(
+        'is_finite')
+    _eval_is_complex = lambda self: self._eval_template_is_attr('is_complex')
+    _eval_is_even = lambda self: self._eval_template_is_attr('is_even')
+    _eval_is_imaginary = lambda self: self._eval_template_is_attr(
+        'is_imaginary')
+    _eval_is_integer = lambda self: self._eval_template_is_attr('is_integer')
+    _eval_is_irrational = lambda self: self._eval_template_is_attr(
+        'is_irrational')
+    _eval_is_negative = lambda self: self._eval_template_is_attr('is_negative')
+    _eval_is_nonnegative = lambda self: self._eval_template_is_attr(
+        'is_nonnegative')
+    _eval_is_nonpositive = lambda self: self._eval_template_is_attr(
+        'is_nonpositive')
+    _eval_is_nonzero = lambda self: self._eval_template_is_attr(
+        'is_nonzero')
+    _eval_is_odd = lambda self: self._eval_template_is_attr('is_odd')
+    _eval_is_polar = lambda self: self._eval_template_is_attr('is_polar')
+    _eval_is_positive = lambda self: self._eval_template_is_attr('is_positive')
+    _eval_is_extended_real = lambda self: self._eval_template_is_attr(
+            'is_extended_real')
+    _eval_is_extended_positive = lambda self: self._eval_template_is_attr(
+            'is_extended_positive')
+    _eval_is_extended_negative = lambda self: self._eval_template_is_attr(
+            'is_extended_negative')
+    _eval_is_extended_nonzero = lambda self: self._eval_template_is_attr(
+            'is_extended_nonzero')
+    _eval_is_extended_nonpositive = lambda self: self._eval_template_is_attr(
+            'is_extended_nonpositive')
+    _eval_is_extended_nonnegative = lambda self: self._eval_template_is_attr(
+            'is_extended_nonnegative')
+    _eval_is_real = lambda self: self._eval_template_is_attr('is_real')
+    _eval_is_zero = lambda self: self._eval_template_is_attr(
+        'is_zero')
+    @classmethod
+    def __eval_cond(cls, cond):
+    def as_expr_set_pairs(self, domain=None):
+    def _eval_rewrite_as_ITE(self, *args, **kwargs):
+    def _eval_rewrite_as_KroneckerDelta(self, *args):
+
+
+【源码片段 6】
+文件路径：sympy/matrices/common.py
+对象名称：subs
+节点类型：class_function
+父节点：MatrixOperations
+行号范围：2377-2396
+代码：
+    def subs(self, *args, **kwargs):  # should mirror core.basic.subs
+        """Return a new matrix with subs applied to each entry.
+
+        Examples
+        ========
+
+        >>> from sympy.abc import x, y
+        >>> from sympy.matrices import SparseMatrix, Matrix
+        >>> SparseMatrix(1, 1, [x])
+        Matrix([[x]])
+        >>> _.subs(x, y)
+        Matrix([[y]])
+        >>> Matrix(_).subs(y, x)
+        Matrix([[x]])
+        """
+
+        if len(args) == 1 and  not isinstance(args[0], (dict, set)) and iter(args[0]) and not is_sequence(args[0]):
+            args = (list(args[0]),)
+
+        return self.applyfunc(lambda x: x.subs(*args, **kwargs))
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sympy/core/tests/test_subs.py
+测试名称：test_Function_subs
+测试代码：
+def test_Function_subs():
+    f, g, h, i = symbols('f g h i', cls=Function)
+    p = Piecewise((g(f(x, y)), x < -1), (g(x), x <= 1))
+    assert p.subs(g, h) == Piecewise((h(f(x, y)), x < -1), (h(x), x <= 1))
+    assert (f(y) + g(x)).subs({f: h, g: i}) == i(x) + h(y)
+
+【相关测试 2】
+测试文件：sympy/core/tests/test_subs.py
+测试名称：test_subs_mixed
+测试代码：
+def test_subs_mixed():
+    a, b, c, d, K = symbols('a b c d K', commutative=True)
+    w, x, y, z, L = symbols('w x y z L', commutative=False)
+    R, S, T, U = symbols('R S T U', cls=Wild)
+
+    assert (a*x*y).subs(x*y, L) == a*L
+    assert (a*b*x*y*x).subs(x*y, L) == a*b*L*x
+    assert (R*x*y*exp(x*y)).subs(x*y, L) == R*L*exp(L)
+    assert (a*x*y*y*x - x*y*z*exp(a*b)).subs(x*y, L) == a*L*y*x - L*z*exp(a*b)
+    e = c*y*x*y*x**(R*S - a*b) - T*(a*R*b*S)
+    assert e.subs(x*y, L).subs(a*b, K).subs(R*S, U) == \
+        c*y*L*x**(U - K) - T*(U*K)
+
+【相关测试 3】
+测试文件：sympy/core/tests/test_subs.py
+测试名称：test_issue_5261
+测试代码：
+def test_issue_5261():
+    x = symbols('x', real=True)
+    e = I*x
+    assert exp(e).subs(exp(x), y) == y**I
+    assert (2**e).subs(2**x, y) == y**I
+    eq = (-2)**e
+    assert eq.subs((-2)**x, y) == eq
+
+【相关测试 4】
+测试文件：sympy/functions/elementary/tests/test_piecewise.py
+测试名称：test_issue_11045
+测试代码：
+def test_issue_11045():
+    assert integrate(1/(x*sqrt(x**2 - 1)), (x, 1, 2)) == pi/3
+
+    # handle And with Or arguments
+    assert Piecewise((1, And(Or(x < 1, x > 3), x < 2)), (0, True)
+        ).integrate((x, 0, 3)) == 1
+
+    # hidden false
+    assert Piecewise((1, x > 1), (2, x > x + 1), (3, True)
+        ).integrate((x, 0, 3)) == 5
+    # targetcond is Eq
+    assert Piecewise((1, x > 1), (2, Eq(1, x)), (3, True)
+        ).integrate((x, 0, 4)) == 6
+    # And has Relational needing to be solved
+    assert Piecewise((1, And(2*x > x + 1, x < 2)), (0, True)
+        ).integrate((x, 0, 3)) == 1
+    # Or has Relational needing to be solved
+    assert Piecewise((1, Or(2*x > x + 2, x < 1)), (0, True)
+        ).integrate((x, 0, 3)) == 2
+    # ignore hidden false (handled in canonicalization)
+    assert Piecewise((1, x > 1), (2, x > x + 1), (3, True)
+        ).integrate((x, 0, 3)) == 5
+    # watch for hidden True Piecewise
+    assert Piecewise((2, Eq(1 - x, x*(1/x - 1))), (0, True)
+        ).integrate((x, 0, 3)) == 6
+
+    # overlapping conditions of targetcond are recognized and ignored;
+    # the condition x > 3 will be pre-empted by the first condition
+    assert Piecewise((1, Or(x < 1, x > 2)), (2, x > 3), (3, True)
+        ).integrate((x, 0, 4)) == 6
+
+    # convert Ne to Or
+    assert Piecewise((1, Ne(x, 0)), (2, True)
+        ).integrate((x, -1, 1)) == 2
+
+    # no default but well defined
+    assert Piecewise((x, (x > 1) & (x < 3)), (1, (x < 4))
+        ).integrate((x, 1, 4)) == 5
+
+    p = Piecewise((x, (x > 1) & (x < 3)), (1, (x < 4)))
+    nan = Undefined
+    i = p.integrate((x, 1, y))
+    assert i == Piecewise(
+        (y - 1, y < 1),
+        (Min(3, y)**2/2 - Min(3, y) + Min(4, y) - S.Half,
+            y <= Min(4, y)),
+        (nan, True))
+    assert p.integrate((x, 1, -1)) == i.subs(y, -1)
+    assert p.integrate((x, 1, 4)) == 5
+    assert p.integrate((x, 1, 5)) is nan
+
+    # handle Not
+    p = Piecewise((1, x > 1), (2, Not(And(x > 1, x< 3))), (3, True))
+    assert p.integrate((x, 0, 3)) == 4
+
+    # handle updating of int_expr when there is overlap
+    p = Piecewise(
+        (1, And(5 > x, x > 1)),
+        (2, Or(x < 3, x > 7)),
+        (4, x < 8))
+    assert p.integrate((x, 0, 10)) == 20
+
+    # And with Eq arg handling
+    assert Piecewise((1, x < 1), (2, And(Eq(x, 3), x > 1))
+        ).integrate((x, 0, 3)) is S.NaN
+    assert Piecewise((1, x < 1), (2, And(Eq(x, 3), x > 1)), (3, True)
+        ).integrate((x, 0, 3)) == 7
+    assert Piecewise((1, x < 0), (2, And(Eq(x, 3), x < 1)), (3, True)
+        ).integrate((x, -1, 1)) == 4
+    # middle condition doesn't matter: it's a zero width interval
+    assert Piecewise((1, x < 1), (2, Eq(x, 3) & (y < x)), (3, True)
+        ).integrate((x, 0, 3)) == 7
+
+【相关测试 5】
+测试文件：sympy/functions/elementary/tests/test_piecewise.py
+测试名称：test_issue_10087
+测试代码：
+def test_issue_10087():
+    a, b = Piecewise((x, x > 1), (2, True)), Piecewise((x, x > 3), (3, True))
+    m = a*b
+    f = piecewise_fold(m)
+    for i in (0, 2, 4):
+        assert m.subs(x, i) == f.subs(x, i)
+    m = a + b
+    f = piecewise_fold(m)
+    for i in (0, 2, 4):
+        assert m.subs(x, i) == f.subs(x, i)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

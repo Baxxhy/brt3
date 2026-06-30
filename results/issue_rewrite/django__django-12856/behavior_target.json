@@ -1,0 +1,354 @@
+{
+  "instance_id": "django__django-12856",
+  "issue_summary": "Django 的 `UniqueConstraint` 在 `makemigrations` 时不会验证其 `fields` 参数中的字段是否存在，而 `unique_together` 会验证并报错。",
+  "trigger_condition": {
+    "text": "定义一个 Django 模型，在其 `Meta.constraints` 中包含一个 `UniqueConstraint`，但该约束的 `fields` 列表中包含一个或多个该模型中不存在的字段名。然后运行 `makemigrations` 命令或调用 `Model.check()` 方法。",
+    "evidence": [
+      "Issue 描述：\"When a model gains a UniqueConstraint, makemigrations doesn't check that the fields named therein actually exist.\"",
+      "Issue 描述：\"...which raises models.E012 if the fields don't exist.\"",
+      "检索源码 1 显示 `UniqueConstraint` 的 `__init__` 接受 `fields` 参数。",
+      "检索测试 2、4、5 展示了在模型 `Meta.constraints` 中定义 `UniqueConstraint` 的模式。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "当 `UniqueConstraint` 引用了不存在的字段时，`makemigrations` 命令静默通过，不产生任何错误或警告。而期望的行为是应该产生一个错误（如 `models.E012`）。",
+    "symptom_type": "warning",
+    "evidence": [
+      "Issue 描述：\"makemigrations doesn't check that the fields named therein actually exist.\"",
+      "Issue 描述：\"...which raises models.E012 if the fields don't exist.\" 这暗示了当前 `UniqueConstraint` 没有引发类似的错误。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "修复后，当 `UniqueConstraint` 的 `fields` 参数中包含模型中不存在的字段时，`makemigrations` 命令（或相关的模型检查）应该产生一个错误（例如 `models.E012` 或类似的错误/警告），以指示字段不存在。",
+    "evidence": [
+      "Issue 描述：\"This is in contrast to the older unique_together syntax, which raises models.E012 if the fields don't exist.\" 这暗示了期望 `UniqueConstraint` 具有与 `unique_together` 相同的行为。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "UniqueConstraint",
+      "kind": "class",
+      "source_path": "django/db/models/constraints.py",
+      "reason": "Issue 的核心是关于 `UniqueConstraint` 约束的字段验证问题。"
+    },
+    {
+      "name": "makemigrations",
+      "kind": "module",
+      "source_path": "django/core/management/commands/makemigrations.py",
+      "reason": "Issue 明确指出 `makemigrations` 命令没有执行检查。"
+    },
+    {
+      "name": "Model.check",
+      "kind": "method",
+      "source_path": "",
+      "reason": "检索到的测试代码普遍使用 `Model.check(databases=...)` 来验证模型约束，这可能是触发验证的入口。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/db/models/constraints.py",
+      "object": "UniqueConstraint.__init__ 或相关的验证方法",
+      "lines": "",
+      "reason": "`UniqueConstraint` 类负责定义约束，其初始化或内部方法可能缺失对 `fields` 存在性的验证。"
+    },
+    {
+      "path": "django/core/management/commands/makemigrations.py",
+      "object": "makemigrations 命令处理逻辑",
+      "lines": "",
+      "reason": "Issue 明确指出 `makemigrations` 命令没有进行检查，因此验证逻辑可能应该集成到该命令的流程中。"
+    },
+    {
+      "path": "django/db/models/options.py",
+      "object": "模型 Meta 选项处理或约束收集逻辑",
+      "lines": "",
+      "reason": "模型约束的收集和验证可能发生在处理 `Meta` 选项的代码中，这里可能区分对待 `unique_together` 和 `constraints`。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_unique_constraint_with_condition",
+      "test_file": "tests/invalid_models_tests/test_models.py",
+      "why_relevant": "该测试在 `ConstraintsTests` 类中，使用 `isolate_apps` 装饰器定义了一个包含 `UniqueConstraint` 的模型，并调用 `Model.check()` 来验证约束。这复用了测试无效模型的协议和 `Model.check` API。",
+      "reusable_parts": [
+        "@isolate_apps('invalid_models_tests') 装饰器",
+        "class ConstraintsTests(TestCase)",
+        "在测试方法内动态定义模型类",
+        "在 `Meta.constraints` 中定义 `models.UniqueConstraint`",
+        "调用 `Model.check(databases=self.databases)`",
+        "使用 `self.assertEqual` 断言错误列表"
+      ],
+      "possible_gap": "该测试中 `UniqueConstraint` 的 `fields=['age']` 引用了模型中真实存在的字段 `age`。为了复现 Issue，需要将 `fields` 改为一个不存在的字段名，例如 `fields=['non_existent_field']`。此外，当前测试主要检查条件或延迟约束的支持情况，而不是字段存在性。"
+    },
+    {
+      "test_name": "test_deferrable_unique_constraint",
+      "test_file": "tests/invalid_models_tests/test_models.py",
+      "why_relevant": "同样在 `ConstraintsTests` 类中，定义了包含 `UniqueConstraint` 的模型并调用 `Model.check()`。它展示了如何测试约束与数据库特性的兼容性，其断言风格（比较错误列表）可用于检查字段存在性错误。",
+      "reusable_parts": [
+        "测试类结构",
+        "模型定义模式",
+        "`Model.check()` 调用",
+        "错误列表收集与断言模式"
+      ],
+      "possible_gap": "该测试的 `fields=['age']` 也是有效的。需要变异 `fields` 参数。同时，其 `expected` 错误列表是针对 `deferrable` 特性的警告 (`models.W038`)，而不是字段不存在的错误 (`models.E012` 或类似)。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "argument",
+      "current_pattern": "fields=['age'] (其中 'age' 是模型中定义的 IntegerField)",
+      "target_pattern": "fields=['non_existent_field'] 或 fields=['age', 'missing'] (其中字段名在模型中不存在)",
+      "reason": "Issue 的核心是 `UniqueConstraint` 未检查字段存在性。将 `fields` 参数改为不存在的字段名，应该触发缺失的验证逻辑。",
+      "confidence": "high"
+    },
+    {
+      "slot": "config",
+      "current_pattern": "测试中 `UniqueConstraint` 可能包含 `condition` 或 `deferrable` 等额外参数。",
+      "target_pattern": "移除 `condition` 和 `deferrable` 参数，只保留 `fields` 和 `name`，以隔离字段存在性检查问题。",
+      "reason": "简化约束定义，确保任何观察到的错误或警告只与字段存在性相关，而不是与其他特性（如部分索引、延迟约束）的兼容性相关。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "warning",
+      "expression_hint": "`Model.check(databases=...)` 的返回值（一个错误/警告对象列表）。观察列表中是否包含与字段不存在相关的错误（如 `Error` 或 `Warning` 对象，其 `id` 可能为 `'models.E012'` 或类似）。",
+      "reason": "Issue 提到 `unique_together` 会引发 `models.E012`。修复后，`UniqueConstraint` 的检查也应返回类似的错误对象。观察错误列表的内容是判断验证是否触发的直接方式。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "调用 `makemigrations` 命令（或模拟其核心逻辑的函数）的退出代码或输出内容（stdout/stderr）。观察是否有错误消息输出。",
+      "reason": "Issue 描述的是 `makemigrations` 命令的行为。最终需要验证该命令在遇到无效字段时会失败或输出错误。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "当 `UniqueConstraint` 的 `fields` 包含不存在的字段时，`Model.check()` 应返回一个非空的错误列表，且其中至少包含一个与字段不存在相关的错误。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的错误消息字符串相等，因为消息可能因本地化或细节而变。避免断言私有属性。",
+      "reason": "检查错误列表是否包含特定错误（例如通过错误 `id` 如 `'models.E012'` 或错误文本片段如 `'field'` 和 `'not exist'`）是稳定且与 Issue 对齐的方式。它不依赖于完整的消息格式。"
+    },
+    {
+      "assertion_goal": "`makemigrations` 命令在遇到上述无效约束时应以非零状态退出或向 stderr 输出错误信息。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的命令行输出。避免依赖具体的退出代码值（如果不是标准化的）。",
+      "reason": "观察命令的标准错误输出中是否包含指示字段不存在的关键词片段，是验证 `makemigrations` 行为是否符合期望的公开且稳定的方法。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "使用 `TestCase` 类，并可能使用 `isolate_apps` 装饰器来隔离测试模型，防止污染其他测试。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "测试可能需要配置 `databases` 参数（如 `self.databases`）传递给 `Model.check()`，如检索到的测试所示。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "如果直接测试 `makemigrations` 命令，可能需要使用 `call_command` 辅助函数，并捕获其输出。",
+      "source": "inference",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "错误代码 `models.E012` 是否专门用于 `unique_together`，还是会有一个新的错误代码用于 `UniqueConstraint` 的字段检查。",
+    "验证是应该在 `UniqueConstraint` 对象创建时立即发生，还是在 `Model.check()` 中被调用，亦或是在 `makemigrations` 的某个特定阶段触发。",
+    "修复后，错误是以 `Error` 还是 `Warning` 的形式返回。",
+    "除了 `Model.check()`，是否还有其他公开API或入口点会触发相同的验证逻辑。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "Add check for fields of UniqueConstraints.\nDescription\n\t \n\t\t(last modified by Marnanel Thurman)\n\t \nWhen a model gains a UniqueConstraint, makemigrations doesn't check that the fields named therein actually exist.\nThis is in contrast to the older unique_together syntax, which raises models.E012 if the fields don't exist.\nIn the attached demonstration, you'll need to uncomment \"with_unique_together\" in settings.py in order to show that unique_together raises E012.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 Django 模型中，当使用 `UniqueConstraint` 约束时，`makemigrations` 命令不会检查 `fields` 参数中指定的字段是否真实存在于模型中。这与旧的 `unique_together` 语法形成对比，后者在字段不存在时会引发 `models.E012` 错误。因此，当 `UniqueConstraint` 引用了不存在的字段时，`makemigrations` 会静默通过，而 `unique_together` 则会正确报错。缺陷可能位于 `makemigrations` 命令或 `UniqueConstraint` 的验证逻辑中，未能对字段存在性进行检查。",
+      "facts_from_issue": [
+        "使用 `UniqueConstraint` 时，`makemigrations` 不会检查 `fields` 中命名的字段是否存在。",
+        "使用旧的 `unique_together` 语法时，如果字段不存在，会引发 `models.E012` 错误。",
+        "Issue 作者提供了一个演示，需要取消注释 settings.py 中的 \"with_unique_together\" 来展示 `unique_together` 如何引发 E012。"
+      ],
+      "facts_from_retrieved_context": [
+        "`UniqueConstraint` 类定义在 `django/db/models/constraints.py` 中，其 `__init__` 方法接受 `fields` 参数。",
+        "`makemigrations` 命令定义在 `django/core/management/commands/makemigrations.py` 文件中。",
+        "检索到的测试代码展示了如何使用 `UniqueConstraint` 以及如何调用 `Model.check()` 方法进行模型验证。",
+        "测试代码中使用了 `isolate_apps` 装饰器和 `TestCase` 来隔离测试应用。"
+      ],
+      "inferences": [
+        "`models.E012` 是一个错误代码，用于标识字段不存在的错误。",
+        "`UniqueConstraint` 的验证逻辑可能缺失或与 `unique_together` 的验证逻辑不一致。",
+        "`makemigrations` 命令在生成迁移文件前，应该调用某种模型检查（可能是 `Model.check`）来验证约束的合法性。"
+      ],
+      "do_not_assume": [
+        "`UniqueConstraint` 的 `__init__` 方法内部是否包含字段验证逻辑。",
+        "`makemigrations` 命令内部调用 `Model.check` 的确切位置和条件。",
+        "`models.E012` 错误的具体触发条件和完整错误消息。",
+        "修复后是应该在 `UniqueConstraint` 初始化时、`Model.check` 时，还是在 `makemigrations` 运行时进行验证。"
+      ]
+    },
+    "issue_summary": "Django 的 `UniqueConstraint` 在 `makemigrations` 时不会验证其 `fields` 参数中的字段是否存在，而 `unique_together` 会验证并报错。",
+    "trigger_condition": {
+      "text": "定义一个 Django 模型，在其 `Meta.constraints` 中包含一个 `UniqueConstraint`，但该约束的 `fields` 列表中包含一个或多个该模型中不存在的字段名。然后运行 `makemigrations` 命令或调用 `Model.check()` 方法。",
+      "evidence": [
+        "Issue 描述：\"When a model gains a UniqueConstraint, makemigrations doesn't check that the fields named therein actually exist.\"",
+        "Issue 描述：\"...which raises models.E012 if the fields don't exist.\"",
+        "检索源码 1 显示 `UniqueConstraint` 的 `__init__` 接受 `fields` 参数。",
+        "检索测试 2、4、5 展示了在模型 `Meta.constraints` 中定义 `UniqueConstraint` 的模式。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "当 `UniqueConstraint` 引用了不存在的字段时，`makemigrations` 命令静默通过，不产生任何错误或警告。而期望的行为是应该产生一个错误（如 `models.E012`）。",
+      "symptom_type": "warning",
+      "evidence": [
+        "Issue 描述：\"makemigrations doesn't check that the fields named therein actually exist.\"",
+        "Issue 描述：\"...which raises models.E012 if the fields don't exist.\" 这暗示了当前 `UniqueConstraint` 没有引发类似的错误。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "修复后，当 `UniqueConstraint` 的 `fields` 参数中包含模型中不存在的字段时，`makemigrations` 命令（或相关的模型检查）应该产生一个错误（例如 `models.E012` 或类似的错误/警告），以指示字段不存在。",
+      "evidence": [
+        "Issue 描述：\"This is in contrast to the older unique_together syntax, which raises models.E012 if the fields don't exist.\" 这暗示了期望 `UniqueConstraint` 具有与 `unique_together` 相同的行为。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "UniqueConstraint",
+        "kind": "class",
+        "source_path": "django/db/models/constraints.py",
+        "reason": "Issue 的核心是关于 `UniqueConstraint` 约束的字段验证问题。"
+      },
+      {
+        "name": "makemigrations",
+        "kind": "module",
+        "source_path": "django/core/management/commands/makemigrations.py",
+        "reason": "Issue 明确指出 `makemigrations` 命令没有执行检查。"
+      },
+      {
+        "name": "Model.check",
+        "kind": "method",
+        "source_path": "",
+        "reason": "检索到的测试代码普遍使用 `Model.check(databases=...)` 来验证模型约束，这可能是触发验证的入口。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/db/models/constraints.py",
+        "object": "UniqueConstraint.__init__ 或相关的验证方法",
+        "lines": "",
+        "reason": "`UniqueConstraint` 类负责定义约束，其初始化或内部方法可能缺失对 `fields` 存在性的验证。"
+      },
+      {
+        "path": "django/core/management/commands/makemigrations.py",
+        "object": "makemigrations 命令处理逻辑",
+        "lines": "",
+        "reason": "Issue 明确指出 `makemigrations` 命令没有进行检查，因此验证逻辑可能应该集成到该命令的流程中。"
+      },
+      {
+        "path": "django/db/models/options.py",
+        "object": "模型 Meta 选项处理或约束收集逻辑",
+        "lines": "",
+        "reason": "模型约束的收集和验证可能发生在处理 `Meta` 选项的代码中，这里可能区分对待 `unique_together` 和 `constraints`。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_unique_constraint_with_condition",
+        "test_file": "tests/invalid_models_tests/test_models.py",
+        "why_relevant": "该测试在 `ConstraintsTests` 类中，使用 `isolate_apps` 装饰器定义了一个包含 `UniqueConstraint` 的模型，并调用 `Model.check()` 来验证约束。这复用了测试无效模型的协议和 `Model.check` API。",
+        "reusable_parts": [
+          "@isolate_apps('invalid_models_tests') 装饰器",
+          "class ConstraintsTests(TestCase)",
+          "在测试方法内动态定义模型类",
+          "在 `Meta.constraints` 中定义 `models.UniqueConstraint`",
+          "调用 `Model.check(databases=self.databases)`",
+          "使用 `self.assertEqual` 断言错误列表"
+        ],
+        "possible_gap": "该测试中 `UniqueConstraint` 的 `fields=['age']` 引用了模型中真实存在的字段 `age`。为了复现 Issue，需要将 `fields` 改为一个不存在的字段名，例如 `fields=['non_existent_field']`。此外，当前测试主要检查条件或延迟约束的支持情况，而不是字段存在性。"
+      },
+      {
+        "test_name": "test_deferrable_unique_constraint",
+        "test_file": "tests/invalid_models_tests/test_models.py",
+        "why_relevant": "同样在 `ConstraintsTests` 类中，定义了包含 `UniqueConstraint` 的模型并调用 `Model.check()`。它展示了如何测试约束与数据库特性的兼容性，其断言风格（比较错误列表）可用于检查字段存在性错误。",
+        "reusable_parts": [
+          "测试类结构",
+          "模型定义模式",
+          "`Model.check()` 调用",
+          "错误列表收集与断言模式"
+        ],
+        "possible_gap": "该测试的 `fields=['age']` 也是有效的。需要变异 `fields` 参数。同时，其 `expected` 错误列表是针对 `deferrable` 特性的警告 (`models.W038`)，而不是字段不存在的错误 (`models.E012` 或类似)。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "argument",
+        "current_pattern": "fields=['age'] (其中 'age' 是模型中定义的 IntegerField)",
+        "target_pattern": "fields=['non_existent_field'] 或 fields=['age', 'missing'] (其中字段名在模型中不存在)",
+        "reason": "Issue 的核心是 `UniqueConstraint` 未检查字段存在性。将 `fields` 参数改为不存在的字段名，应该触发缺失的验证逻辑。",
+        "confidence": "high"
+      },
+      {
+        "slot": "config",
+        "current_pattern": "测试中 `UniqueConstraint` 可能包含 `condition` 或 `deferrable` 等额外参数。",
+        "target_pattern": "移除 `condition` 和 `deferrable` 参数，只保留 `fields` 和 `name`，以隔离字段存在性检查问题。",
+        "reason": "简化约束定义，确保任何观察到的错误或警告只与字段存在性相关，而不是与其他特性（如部分索引、延迟约束）的兼容性相关。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "warning",
+        "expression_hint": "`Model.check(databases=...)` 的返回值（一个错误/警告对象列表）。观察列表中是否包含与字段不存在相关的错误（如 `Error` 或 `Warning` 对象，其 `id` 可能为 `'models.E012'` 或类似）。",
+        "reason": "Issue 提到 `unique_together` 会引发 `models.E012`。修复后，`UniqueConstraint` 的检查也应返回类似的错误对象。观察错误列表的内容是判断验证是否触发的直接方式。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "调用 `makemigrations` 命令（或模拟其核心逻辑的函数）的退出代码或输出内容（stdout/stderr）。观察是否有错误消息输出。",
+        "reason": "Issue 描述的是 `makemigrations` 命令的行为。最终需要验证该命令在遇到无效字段时会失败或输出错误。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "当 `UniqueConstraint` 的 `fields` 包含不存在的字段时，`Model.check()` 应返回一个非空的错误列表，且其中至少包含一个与字段不存在相关的错误。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的错误消息字符串相等，因为消息可能因本地化或细节而变。避免断言私有属性。",
+        "reason": "检查错误列表是否包含特定错误（例如通过错误 `id` 如 `'models.E012'` 或错误文本片段如 `'field'` 和 `'not exist'`）是稳定且与 Issue 对齐的方式。它不依赖于完整的消息格式。"
+      },
+      {
+        "assertion_goal": "`makemigrations` 命令在遇到上述无效约束时应以非零状态退出或向 stderr 输出错误信息。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的命令行输出。避免依赖具体的退出代码值（如果不是标准化的）。",
+        "reason": "观察命令的标准错误输出中是否包含指示字段不存在的关键词片段，是验证 `makemigrations` 行为是否符合期望的公开且稳定的方法。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "使用 `TestCase` 类，并可能使用 `isolate_apps` 装饰器来隔离测试模型，防止污染其他测试。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "测试可能需要配置 `databases` 参数（如 `self.databases`）传递给 `Model.check()`，如检索到的测试所示。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "如果直接测试 `makemigrations` 命令，可能需要使用 `call_command` 辅助函数，并捕获其输出。",
+        "source": "inference",
+        "confidence": "medium"
+      }
+    ],
+    "uncertainties": [
+      "错误代码 `models.E012` 是否专门用于 `unique_together`，还是会有一个新的错误代码用于 `UniqueConstraint` 的字段检查。",
+      "验证是应该在 `UniqueConstraint` 对象创建时立即发生，还是在 `Model.check()` 中被调用，亦或是在 `makemigrations` 的某个特定阶段触发。",
+      "修复后，错误是以 `Error` 还是 `Warning` 的形式返回。",
+      "除了 `Model.check()`，是否还有其他公开API或入口点会触发相同的验证逻辑。"
+    ]
+  }
+}

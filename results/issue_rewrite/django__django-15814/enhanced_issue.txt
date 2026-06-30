@@ -1,0 +1,130 @@
+instance_id: django__django-15814
+
+issue_summary: 在代理模型作为外键目标的查询中，组合使用 select_related() 和 only() 方法会导致 ValueError，因为内部字段列表缺失主键字段。
+
+trigger_condition:
+{
+  "text": "构建一个代理模型（ProxyCustomModel）和一个引用它的外键模型（AnotherModel）。创建实例后，执行查询：AnotherModel.objects.select_related(\"custom\").only(\"custom__name\").all() 并对其进行求值（如转换为列表）。",
+  "evidence": [
+    "Issue 中的模型定义和命令代码。",
+    "Issue 中的错误堆栈显示在 __len__ 和 _fetch_all 时触发。",
+    "相关测试 DeferRegressionTest.test_proxy_model_defer_with_select_related 展示了类似的 API 调用模式。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "ValueError: 'id' is not in list，发生在 django/db/models/query.py 的 RelatedPopulator.__init__ 中，当尝试在 init_list 中查找主键字段名时。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中提供的完整错误堆栈和异常信息。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "查询应正常执行并返回结果列表，不引发 ValueError 异常。使用 only() 限制加载字段后，应能正确访问代理模型外键的指定字段。",
+  "evidence": [
+    "Issue 提供者表示修改后 \"all works as expected\"。",
+    "相关测试 DeferRegressionTest.test_proxy_model_defer_with_select_related 展示了代理模型上 select_related().only() 的成功场景。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "QuerySet.select_related",
+    "kind": "method",
+    "source_path": "django/db/models/query.py",
+    "reason": "Issue 中明确调用的方法，用于指定预取相关对象。"
+  },
+  {
+    "name": "QuerySet.only",
+    "kind": "method",
+    "source_path": "django/db/models/query.py",
+    "reason": "Issue 中明确调用的方法，用于指定立即加载的字段。"
+  },
+  {
+    "name": "RelatedPopulator",
+    "kind": "class",
+    "source_path": "django/db/models/query.py",
+    "reason": "错误堆栈中直接引发异常的类，负责填充相关对象数据。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试 DeferRegressionTest.test_proxy_model_defer_with_select_related 中，外键指向具体模型（Item），only() 指定具体模型字段（\"item__name\"）。",
+    "target_pattern": "将外键目标改为代理模型（如 ProxyCustomModel），并保持 only() 指定代理模型字段（如 \"custom__name\"）。",
+    "reason": "Issue 的核心是外键指向代理模型，而非具体模型。这种对象状态的差异可能导致内部字段列表生成逻辑走入缺陷路径。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试中调用顺序为：ProxyRelated.objects.select_related().only(\"item__name\")[0]。",
+    "target_pattern": "调用顺序调整为：AnotherModel.objects.select_related(\"custom\").only(\"custom__name\").all() 并求值（如 list()）。",
+    "reason": "Issue 中的调用链明确包含了 .all() 和 list() 转换，这触发了查询集的求值过程，从而执行到错误的内部代码路径。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "尝试执行查询并捕获 ValueError，检查其错误信息是否包含 \"'id' is not in list\"。",
+    "reason": "这是 Issue 中直接观察到的错误现象，是判断缺陷是否触发的明确信号。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "如果未发生异常，观察查询返回的列表长度、列表中对象的类型以及能否正常访问 only() 指定的字段（如 obj.custom.name）。",
+    "reason": "用于验证修复后的预期行为：查询成功执行并返回正确数据。"
+  },
+  {
+    "kind": "sql",
+    "expression_hint": "在查询执行前后，通过 connection.queries 或类似机制观察生成的 SQL 语句，特别是 SELECT 子句中是否包含了主键字段。",
+    "reason": "缺陷可能与生成的 SQL 字段列表缺失主键有关，观察 SQL 可以帮助理解内部状态。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "查询执行不应引发 ValueError 异常。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言完整的异常消息字符串，因为具体格式可能变化。",
+    "reason": "Issue 的核心症状是异常崩溃。修复后应不再引发此异常。"
+  },
+  {
+    "assertion_goal": "查询应成功返回结果列表，并且可以访问 only() 指定的代理模型外键字段。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的对象 repr 或内部 _meta 属性。",
+    "reason": "验证修复后的正向功能：查询正常工作并能获取指定字段的值。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要使用 Django 的 TestCase 基类，并设置测试数据库。模型定义（CustomModel, ProxyCustomModel, AnotherModel）需要放在测试文件或迁移中。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要创建 CustomModel 和 AnotherModel 的实例以执行查询。",
+    "source": "inference",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "缺陷是否只发生在 only() 指定代理模型外键字段时，还是也发生在其他 defer/only 模式中。",
+  "除了 ValueError，是否还有其他潜在的错误症状（如错误数据、缺失字段）。",
+  "django/db/models/sql/query.py 第 745 行具体在哪个函数或上下文中，以及其与 RelatedPopulator 的关联。"
+]

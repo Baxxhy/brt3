@@ -1,0 +1,339 @@
+{
+  "instance_id": "sympy__sympy-24213",
+  "issue_summary": "`SI._collect_factor_and_dimension` 在处理具有等价维度的物理量相加时，错误地抛出了维度不匹配的异常。",
+  "trigger_condition": {
+    "text": "使用 `SI._collect_factor_and_dimension` 计算一个表达式，该表达式是多个 `Quantity` 对象的和，且这些对象的维度在物理上是等价的（例如 `velocity` 和 `acceleration*time`）。",
+    "evidence": [
+      "Issue 中的复现代码：`expr1 = a1*t1 + v1; SI._collect_factor_and_dimension(expr1)`。",
+      "相关测试 `test_factor_and_dimension` 展示了 `SI._collect_factor_and_dimension` 的正常调用模式。",
+      "相关测试 `test_check_unit_consistency` 展示了在维度不匹配时该方法会抛出 `ValueError`。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "调用 `SI._collect_factor_and_dimension(expr1)` 时，抛出了 `ValueError`，错误信息为 \"Dimension of \\\"v1\\\" is Dimension(velocity), but it should be Dimension(acceleration*time)\"。",
+    "symptom_type": "exception",
+    "evidence": [
+      "Issue 中提供的完整 Traceback 和错误信息。",
+      "相关测试 `test_check_unit_consistency` 也表明在维度不一致时会抛出 `ValueError`。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "修复后，`SI._collect_factor_and_dimension` 在处理具有等价维度的物理量相加时，应该成功计算并返回一个包含比例因子和正确维度的元组，而不抛出 `ValueError`。",
+    "evidence": [
+      "Issue 标题和描述暗示 `collect_factor_and_dimension` 应该能够 \"detect equivalent dimensions in addition\"。",
+      "相关测试 `test_factor_and_dimension` 展示了该方法在维度一致时成功返回结果的例子。",
+      "根据物理原理，`acceleration*time` 等价于 `velocity`，因此加法应该被允许。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "SI._collect_factor_and_dimension",
+      "kind": "method",
+      "source_path": "sympy/physics/units/unitsystem.py",
+      "reason": "这是触发缺陷的直接 API 调用，也是 Issue 的核心。"
+    },
+    {
+      "name": "SI.set_quantity_dimension",
+      "kind": "method",
+      "source_path": "sympy/physics/units/dimensions.py",
+      "reason": "用于设置物理量 `v1`、`a1`、`t1` 的维度，是构造触发条件所必需的。"
+    },
+    {
+      "name": "SI.set_quantity_scale_factor",
+      "kind": "method",
+      "source_path": "sympy/physics/units/dimensions.py",
+      "reason": "用于设置物理量 `v1`、`a1`、`t1` 的比例因子，是构造触发条件所必需的。"
+    },
+    {
+      "name": "units.Quantity",
+      "kind": "class",
+      "source_path": "sympy/physics/units/quantities.py",
+      "reason": "用于创建物理量对象 `v1`、`a1`、`t1`。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sympy/physics/units/unitsystem.py",
+      "object": "_collect_factor_and_dimension",
+      "lines": "179",
+      "reason": "错误 Traceback 指向该文件的第179行，该行抛出了 ValueError。该方法负责检查加法操作中的维度一致性，很可能在这里未能正确识别等价维度。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_factor_and_dimension",
+      "test_file": "sympy/physics/units/tests/test_quantities.py",
+      "why_relevant": "该测试直接调用了 `SI._collect_factor_and_dimension` 方法，并验证了其在各种表达式（包括加法）上的行为，提供了完整的测试协议和断言风格。",
+      "reusable_parts": [
+        "从 `sympy.physics.units.systems.si` 导入 `SI`",
+        "使用 `Quantity` 创建物理量对象",
+        "使用 `SI.set_quantity_dimension` 和 `SI.set_quantity_scale_factor` 设置对象属性",
+        "构造包含 `Quantity` 对象的表达式",
+        "调用 `SI._collect_factor_and_dimension(expr)`",
+        "使用 `assert (expected_factor, expected_dim) == SI._collect_factor_and_dimension(expr)` 进行断言"
+      ],
+      "possible_gap": "该测试中的加法用例（如 `meter + km`）涉及的是相同维度的量相加（都是长度）。它没有测试不同维度但物理等价的量（如 `velocity` 和 `acceleration*time`）相加的场景。需要变异表达式构造部分，引入维度等价但表示不同的量。"
+    },
+    {
+      "test_name": "test_check_unit_consistency",
+      "test_file": "sympy/physics/units/tests/test_quantities.py",
+      "why_relevant": "该测试专门验证 `SI._collect_factor_and_dimension` 在维度不一致时会抛出 `ValueError`，与当前 Issue 的错误症状（抛出异常）相关。",
+      "reusable_parts": [
+        "使用 `Quantity` 创建对象并设置比例因子",
+        "定义包装函数调用 `SI._collect_factor_and_dimension`",
+        "使用 `raises(ValueError, lambda: ...)` 来断言异常"
+      ],
+      "possible_gap": "该测试断言的是“应该抛出异常”的情况，而当前 Issue 的期望行为是“不应该抛出异常”。需要将测试逻辑反转，从断言异常变为断言成功返回，并修改表达式的构造以触发维度等价性检查的缺陷。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "相似测试 `test_factor_and_dimension` 中，加法表达式由相同维度的量构成（如 `meter + km`，都是长度）。",
+      "target_pattern": "构造一个加法表达式，其中各项的维度在物理上等价但表示不同（如 `a1*t1`（维度为 `acceleration*time`）加上 `v1`（维度为 `velocity`））。",
+      "reason": "当前缺陷在于方法未能识别这种物理等价性。将输入变异为这种模式，可以触发缺陷路径，导致本应成功的计算抛出异常。",
+      "confidence": "high"
+    },
+    {
+      "slot": "object_state",
+      "current_pattern": "相似测试中，物理量的维度通常直接设置为预定义的简单维度（如 `length`、`time`）。",
+      "target_pattern": "将物理量的维度设置为需要通过乘法组合才能与另一项等价的维度（如将 `a1` 设为 `acceleration`，`t1` 设为 `time`，`v1` 设为 `velocity`）。",
+      "reason": "缺陷可能发生在对复合维度（如 `acceleration*time`）与简单维度（如 `velocity`）进行等价性比较时。设置这样的对象状态是触发比较逻辑的必要条件。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "调用 `SI._collect_factor_and_dimension(expr)` 时是否抛出 `ValueError` 及其错误信息。",
+      "reason": "Issue 的核心错误现象就是抛出了特定的 `ValueError`。观测异常是判断缺陷是否触发的直接方式。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "`SI._collect_factor_and_dimension(expr)` 成功调用后的返回值，应为一个 `(scale_factor, dimension)` 元组。",
+      "reason": "修复后的期望行为是方法成功返回。观测返回值可以验证计算是否正确，以及返回的维度是否合理（例如，可能是 `velocity` 或 `acceleration*time` 的规范化形式）。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "`SI._collect_factor_and_dimension(expr)` 的调用不应抛出 `ValueError` 异常。",
+      "preferred_assertion_style": "raises",
+      "avoid": "断言完整的错误信息字符串，因为修复后的错误信息可能改变。",
+      "reason": "Issue 的核心是异常不应该被抛出。使用 `pytest.raises` 或 `raises` 的否定形式（或直接调用并断言成功）可以稳定地验证这一点。"
+    },
+    {
+      "assertion_goal": "`SI._collect_factor_and_dimension(expr)` 成功返回，且返回的维度与 `velocity` 或 `acceleration*time` 在物理上等价。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言返回的维度对象必须完全等于某个特定的 `Dimension` 实例（如 `velocity`），因为实现可能返回规范化的等价形式。",
+      "reason": "修复后方法应能计算表达式。断言成功返回并检查维度是合理的。但维度等价性可能通过维度系统来验证，而非简单的对象相等。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "测试需要从 `sympy.physics.units` 导入 `units` 或相关维度（如 `velocity`, `acceleration`, `time`），以及从 `sympy.physics.units.systems.si` 导入 `SI`。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "需要使用 `units.Quantity` 创建物理量对象，并使用 `SI.set_quantity_dimension` 和 `SI.set_quantity_scale_factor` 设置其属性。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "测试文件可能位于 `sympy/physics/units/tests/` 目录下，遵循现有的测试命名和结构惯例。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "修复后 `SI._collect_factor_and_dimension` 对于 `a1*t1 + v1` 返回的具体维度是 `velocity` 还是 `acceleration*time`，或是其他规范形式。",
+    "维度等价性检查是在 `_collect_factor_and_dimension` 内部完成，还是依赖另一个维度系统（`DimensionSystem`）的方法。",
+    "除了 `velocity` 和 `acceleration*time`，该缺陷是否影响其他物理等价的维度组合。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "collect_factor_and_dimension does not detect equivalent dimensions in addition\nCode to reproduce:\n```python\nfrom sympy.physics import units\nfrom sympy.physics.units.systems.si import SI\n\nv1 = units.Quantity('v1')\nSI.set_quantity_dimension(v1, units.velocity)\nSI.set_quantity_scale_factor(v1, 2 * units.meter / units.second)\n\na1 = units.Quantity('a1')\nSI.set_quantity_dimension(a1, units.acceleration)\nSI.set_quantity_scale_factor(a1, -9.8 * units.meter / units.second**2)\n\nt1 = units.Quantity('t1')\nSI.set_quantity_dimension(t1, units.time)\nSI.set_quantity_scale_factor(t1, 5 * units.second)\n\nexpr1 = a1*t1 + v1\nSI._collect_factor_and_dimension(expr1)\n```\nResults in:\n```\nTraceback (most recent call last):\n  File \"<stdin>\", line 1, in <module>\n  File \"C:\\Python\\Python310\\lib\\site-packages\\sympy\\physics\\units\\unitsystem.py\", line 179, in _collect_factor_and_dimension\n    raise ValueError(\nValueError: Dimension of \"v1\" is Dimension(velocity), but it should be Dimension(acceleration*time)\n```",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当使用 `SI._collect_factor_and_dimension` 计算一个包含不同物理量相加的表达式时，该方法未能识别出这些物理量在维度上是等价的，从而错误地抛出了 ValueError。具体来说，表达式 `a1*t1 + v1` 中，`a1` 的维度是加速度，`t1` 的维度是时间，`v1` 的维度是速度。根据物理原理，加速度乘以时间的结果维度是速度，因此 `a1*t1` 和 `v1` 的维度相同，应该可以相加。但当前实现错误地认为维度不匹配。",
+      "facts_from_issue": [
+        "使用 `SI._collect_factor_and_dimension` 计算表达式 `a1*t1 + v1` 会抛出 ValueError。",
+        "错误信息指出 `v1` 的维度是 `Dimension(velocity)`，但期望的维度是 `Dimension(acceleration*time)`。",
+        "涉及的物理量 `v1`、`a1`、`t1` 分别通过 `SI.set_quantity_dimension` 和 `SI.set_quantity_scale_factor` 设置了维度和比例因子。"
+      ],
+      "facts_from_retrieved_context": [
+        "`_collect_factor_and_dimension` 是 `UnitSystem` 类（如 `SI`）的一个方法，用于返回表达式的比例因子和维度表达式。",
+        "`set_quantity_dimension` 和 `set_quantity_scale_factor` 是 `_QuantityMapper` 类（`SI` 继承自它）的方法，用于设置物理量的维度和比例因子。",
+        "`velocity` 和 `acceleration` 是预定义的 `Dimension` 对象。",
+        "相关测试 `test_factor_and_dimension` 和 `test_check_unit_consistency` 使用了 `SI._collect_factor_and_dimension` 来验证维度一致性。"
+      ],
+      "inferences": [
+        "`a1*t1` 的维度是 `acceleration * time`，根据物理定义，这应该等价于 `velocity` 维度。",
+        "`_collect_factor_and_dimension` 方法在处理加法时，应该能够识别并接受维度等价的项。",
+        "错误可能源于维度等价性检查的逻辑缺陷，可能在 `unitsystem.py` 第179行附近。"
+      ],
+      "do_not_assume": [
+        "修复后的具体实现逻辑。",
+        "除了 `velocity` 和 `acceleration*time` 之外，还有哪些维度组合被认为是等价的。",
+        "`_collect_factor_and_dimension` 方法内部处理维度等价性的具体算法。"
+      ]
+    },
+    "issue_summary": "`SI._collect_factor_and_dimension` 在处理具有等价维度的物理量相加时，错误地抛出了维度不匹配的异常。",
+    "trigger_condition": {
+      "text": "使用 `SI._collect_factor_and_dimension` 计算一个表达式，该表达式是多个 `Quantity` 对象的和，且这些对象的维度在物理上是等价的（例如 `velocity` 和 `acceleration*time`）。",
+      "evidence": [
+        "Issue 中的复现代码：`expr1 = a1*t1 + v1; SI._collect_factor_and_dimension(expr1)`。",
+        "相关测试 `test_factor_and_dimension` 展示了 `SI._collect_factor_and_dimension` 的正常调用模式。",
+        "相关测试 `test_check_unit_consistency` 展示了在维度不匹配时该方法会抛出 `ValueError`。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "调用 `SI._collect_factor_and_dimension(expr1)` 时，抛出了 `ValueError`，错误信息为 \"Dimension of \\\"v1\\\" is Dimension(velocity), but it should be Dimension(acceleration*time)\"。",
+      "symptom_type": "exception",
+      "evidence": [
+        "Issue 中提供的完整 Traceback 和错误信息。",
+        "相关测试 `test_check_unit_consistency` 也表明在维度不一致时会抛出 `ValueError`。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "修复后，`SI._collect_factor_and_dimension` 在处理具有等价维度的物理量相加时，应该成功计算并返回一个包含比例因子和正确维度的元组，而不抛出 `ValueError`。",
+      "evidence": [
+        "Issue 标题和描述暗示 `collect_factor_and_dimension` 应该能够 \"detect equivalent dimensions in addition\"。",
+        "相关测试 `test_factor_and_dimension` 展示了该方法在维度一致时成功返回结果的例子。",
+        "根据物理原理，`acceleration*time` 等价于 `velocity`，因此加法应该被允许。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "SI._collect_factor_and_dimension",
+        "kind": "method",
+        "source_path": "sympy/physics/units/unitsystem.py",
+        "reason": "这是触发缺陷的直接 API 调用，也是 Issue 的核心。"
+      },
+      {
+        "name": "SI.set_quantity_dimension",
+        "kind": "method",
+        "source_path": "sympy/physics/units/dimensions.py",
+        "reason": "用于设置物理量 `v1`、`a1`、`t1` 的维度，是构造触发条件所必需的。"
+      },
+      {
+        "name": "SI.set_quantity_scale_factor",
+        "kind": "method",
+        "source_path": "sympy/physics/units/dimensions.py",
+        "reason": "用于设置物理量 `v1`、`a1`、`t1` 的比例因子，是构造触发条件所必需的。"
+      },
+      {
+        "name": "units.Quantity",
+        "kind": "class",
+        "source_path": "sympy/physics/units/quantities.py",
+        "reason": "用于创建物理量对象 `v1`、`a1`、`t1`。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sympy/physics/units/unitsystem.py",
+        "object": "_collect_factor_and_dimension",
+        "lines": "179",
+        "reason": "错误 Traceback 指向该文件的第179行，该行抛出了 ValueError。该方法负责检查加法操作中的维度一致性，很可能在这里未能正确识别等价维度。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_factor_and_dimension",
+        "test_file": "sympy/physics/units/tests/test_quantities.py",
+        "why_relevant": "该测试直接调用了 `SI._collect_factor_and_dimension` 方法，并验证了其在各种表达式（包括加法）上的行为，提供了完整的测试协议和断言风格。",
+        "reusable_parts": [
+          "从 `sympy.physics.units.systems.si` 导入 `SI`",
+          "使用 `Quantity` 创建物理量对象",
+          "使用 `SI.set_quantity_dimension` 和 `SI.set_quantity_scale_factor` 设置对象属性",
+          "构造包含 `Quantity` 对象的表达式",
+          "调用 `SI._collect_factor_and_dimension(expr)`",
+          "使用 `assert (expected_factor, expected_dim) == SI._collect_factor_and_dimension(expr)` 进行断言"
+        ],
+        "possible_gap": "该测试中的加法用例（如 `meter + km`）涉及的是相同维度的量相加（都是长度）。它没有测试不同维度但物理等价的量（如 `velocity` 和 `acceleration*time`）相加的场景。需要变异表达式构造部分，引入维度等价但表示不同的量。"
+      },
+      {
+        "test_name": "test_check_unit_consistency",
+        "test_file": "sympy/physics/units/tests/test_quantities.py",
+        "why_relevant": "该测试专门验证 `SI._collect_factor_and_dimension` 在维度不一致时会抛出 `ValueError`，与当前 Issue 的错误症状（抛出异常）相关。",
+        "reusable_parts": [
+          "使用 `Quantity` 创建对象并设置比例因子",
+          "定义包装函数调用 `SI._collect_factor_and_dimension`",
+          "使用 `raises(ValueError, lambda: ...)` 来断言异常"
+        ],
+        "possible_gap": "该测试断言的是“应该抛出异常”的情况，而当前 Issue 的期望行为是“不应该抛出异常”。需要将测试逻辑反转，从断言异常变为断言成功返回，并修改表达式的构造以触发维度等价性检查的缺陷。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "相似测试 `test_factor_and_dimension` 中，加法表达式由相同维度的量构成（如 `meter + km`，都是长度）。",
+        "target_pattern": "构造一个加法表达式，其中各项的维度在物理上等价但表示不同（如 `a1*t1`（维度为 `acceleration*time`）加上 `v1`（维度为 `velocity`））。",
+        "reason": "当前缺陷在于方法未能识别这种物理等价性。将输入变异为这种模式，可以触发缺陷路径，导致本应成功的计算抛出异常。",
+        "confidence": "high"
+      },
+      {
+        "slot": "object_state",
+        "current_pattern": "相似测试中，物理量的维度通常直接设置为预定义的简单维度（如 `length`、`time`）。",
+        "target_pattern": "将物理量的维度设置为需要通过乘法组合才能与另一项等价的维度（如将 `a1` 设为 `acceleration`，`t1` 设为 `time`，`v1` 设为 `velocity`）。",
+        "reason": "缺陷可能发生在对复合维度（如 `acceleration*time`）与简单维度（如 `velocity`）进行等价性比较时。设置这样的对象状态是触发比较逻辑的必要条件。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "调用 `SI._collect_factor_and_dimension(expr)` 时是否抛出 `ValueError` 及其错误信息。",
+        "reason": "Issue 的核心错误现象就是抛出了特定的 `ValueError`。观测异常是判断缺陷是否触发的直接方式。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "`SI._collect_factor_and_dimension(expr)` 成功调用后的返回值，应为一个 `(scale_factor, dimension)` 元组。",
+        "reason": "修复后的期望行为是方法成功返回。观测返回值可以验证计算是否正确，以及返回的维度是否合理（例如，可能是 `velocity` 或 `acceleration*time` 的规范化形式）。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "`SI._collect_factor_and_dimension(expr)` 的调用不应抛出 `ValueError` 异常。",
+        "preferred_assertion_style": "raises",
+        "avoid": "断言完整的错误信息字符串，因为修复后的错误信息可能改变。",
+        "reason": "Issue 的核心是异常不应该被抛出。使用 `pytest.raises` 或 `raises` 的否定形式（或直接调用并断言成功）可以稳定地验证这一点。"
+      },
+      {
+        "assertion_goal": "`SI._collect_factor_and_dimension(expr)` 成功返回，且返回的维度与 `velocity` 或 `acceleration*time` 在物理上等价。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言返回的维度对象必须完全等于某个特定的 `Dimension` 实例（如 `velocity`），因为实现可能返回规范化的等价形式。",
+        "reason": "修复后方法应能计算表达式。断言成功返回并检查维度是合理的。但维度等价性可能通过维度系统来验证，而非简单的对象相等。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "测试需要从 `sympy.physics.units` 导入 `units` 或相关维度（如 `velocity`, `acceleration`, `time`），以及从 `sympy.physics.units.systems.si` 导入 `SI`。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "需要使用 `units.Quantity` 创建物理量对象，并使用 `SI.set_quantity_dimension` 和 `SI.set_quantity_scale_factor` 设置其属性。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "测试文件可能位于 `sympy/physics/units/tests/` 目录下，遵循现有的测试命名和结构惯例。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "修复后 `SI._collect_factor_and_dimension` 对于 `a1*t1 + v1` 返回的具体维度是 `velocity` 还是 `acceleration*time`，或是其他规范形式。",
+      "维度等价性检查是在 `_collect_factor_and_dimension` 内部完成，还是依赖另一个维度系统（`DimensionSystem`）的方法。",
+      "除了 `velocity` 和 `acceleration*time`，该缺陷是否影响其他物理等价的维度组合。"
+    ]
+  }
+}

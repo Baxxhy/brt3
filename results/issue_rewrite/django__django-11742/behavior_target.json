@@ -1,0 +1,316 @@
+{
+  "instance_id": "django__django-11742",
+  "issue_summary": "Django 模型字段缺少对 `max_length` 是否足够容纳 `choices` 中最长选项值的验证检查。",
+  "trigger_condition": {
+    "text": "创建一个 Django 模型字段（例如 `CharField`），设置 `choices` 参数为一个包含字符串选项的列表，并将 `max_length` 参数设置为一个小于 `choices` 中某个选项字符串长度的值。然后尝试使用该字段（例如调用其 `clean` 方法或尝试保存模型实例）。",
+    "evidence": [
+      "Issue 描述明确指出 `Field.max_length` 可能小于 `Field.choices` 中最长的值。",
+      "相关测试 `ValidationTests.test_enum_choices_invalid_input` 和 `ValidationTests.test_charfield_with_choices_raises_error_on_invalid_choice` 展示了如何构造带有 `choices` 和 `max_length` 的 `CharField` 并调用 `clean` 方法。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "当尝试保存一个包含超长选项值的记录时，系统可能没有在早期（如字段定义或数据验证阶段）检测到 `max_length` 与 `choices` 不匹配的问题，导致错误在保存时才被发现，可能引发数据库错误或数据截断。",
+    "symptom_type": "unknown",
+    "evidence": [
+      "Issue 描述：“This would be very helpful as often this mistake is not noticed until an attempt is made to save a record with those values that are too long.”"
+    ],
+    "confidence": "medium"
+  },
+  "expected_behavior": {
+    "text": "在字段定义或数据验证的早期阶段，系统应该能够检测到 `max_length` 参数值小于 `choices` 中某个选项字符串长度的情况，并引发一个适当的错误（如 `ValidationError`），从而防止后续的保存操作失败。",
+    "evidence": [
+      "Issue 标题“Add check to ensure max_length fits longest choice.” 暗示期望添加一个检查。",
+      "相关测试 `ValidationTests.test_enum_choices_invalid_input` 和 `ValidationTests.test_charfield_with_choices_raises_error_on_invalid_choice` 展示了字段验证会引发 `ValidationError` 的模式。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "CharField",
+      "kind": "class",
+      "source_path": "django.db.models",
+      "reason": "Issue 核心是关于模型字段的 `max_length` 和 `choices` 属性，`CharField` 是典型的具有这些属性的字段。"
+    },
+    {
+      "name": "clean",
+      "kind": "method",
+      "source_path": "django.db.models.fields.CharField",
+      "reason": "相关测试中使用了 `f.clean(...)` 来触发字段验证，这是观察验证行为的关键方法。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/db/models/fields/__init__.py",
+      "object": "CharField 或其父类 Field 的初始化或验证逻辑",
+      "lines": "",
+      "reason": "这是 Django 模型字段（包括 `CharField`）定义的核心文件，`max_length` 和 `choices` 的处理逻辑很可能在此。"
+    },
+    {
+      "path": "django/db/models/fields/__init__.py",
+      "object": "Field 类的 `_check_choices` 或类似验证方法",
+      "lines": "",
+      "reason": "Issue 描述需要添加一个检查，这很可能是在字段的内部检查方法中。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "ValidationTests.test_enum_choices_invalid_input",
+      "test_file": "tests/model_fields/test_charfield.py",
+      "why_relevant": "该测试直接构造了一个带有 `choices` 和 `max_length` 的 `CharField` 对象，并调用其 `clean` 方法进行验证，这与 Issue 的触发场景高度相似。",
+      "reusable_parts": [
+        "导入 `models` 和 `ValidationError`",
+        "使用 `models.CharField(choices=..., max_length=...)` 构造字段对象",
+        "使用 `f.clean(value, model_instance)` 调用验证",
+        "使用 `self.assertRaises(ValidationError)` 断言异常"
+      ],
+      "possible_gap": "该测试的 `max_length=1` 和 `choices` 值 `'a'` 是匹配的（长度都为1），因此不会触发 Issue 描述的不匹配场景。需要将 `choices` 中的某个值长度修改为大于 `max_length`。"
+    },
+    {
+      "test_name": "ValidationTests.test_charfield_with_choices_raises_error_on_invalid_choice",
+      "test_file": "tests/model_fields/test_charfield.py",
+      "why_relevant": "该测试展示了为 `CharField` 设置 `choices` 后，对无效输入进行验证并期望引发 `ValidationError` 的模式。",
+      "reusable_parts": [
+        "构造 `CharField` 并设置 `choices` 列表",
+        "调用 `clean` 方法并断言 `ValidationError`"
+      ],
+      "possible_gap": "该测试没有设置 `max_length` 参数，因此不涉及 `max_length` 与 `choices` 值长度的比较。需要添加 `max_length` 参数并使其与 `choices` 值长度冲突。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "argument",
+      "current_pattern": "在相似测试中，`choices` 列表中的选项值长度等于或未与 `max_length` 比较（例如 `choices=[('a', 'A'), ('b', 'B')]`, `max_length=1` 且 `'a'` 长度为1）。",
+      "target_pattern": "将 `choices` 列表中的至少一个选项值的字符串长度设置为大于 `max_length` 参数的值（例如 `choices=[('short', 'S'), ('verylongvalue', 'V')]`, `max_length=5`）。",
+      "reason": "Issue 的核心是 `max_length` 不足以容纳 `choices` 中最长的值。通过构造这种不匹配的参数，可以触发缺失的检查逻辑。",
+      "confidence": "high"
+    },
+    {
+      "slot": "call_chain",
+      "current_pattern": "相似测试中直接调用 `f.clean('invalid_value', None)` 来验证无效的选项值。",
+      "target_pattern": "调用 `f.clean('valid_but_too_long_choice_value', None)`，其中 `'valid_but_too_long_choice_value'` 是 `choices` 中定义的一个有效选项键，但其字符串长度超过了 `max_length`。",
+      "reason": "即使选项值在 `choices` 列表中，如果其长度超过 `max_length`，根据 Issue 描述，也应该在验证阶段被检测出来。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "调用 `field.clean(value, model_instance)` 时是否引发 `ValidationError` 异常及其 `messages` 属性。",
+      "reason": "Issue 期望添加检查，最直接的公开行为就是在验证时引发异常。观察异常类型和消息可以判断是否触发了预期的检查。"
+    },
+    {
+      "kind": "warning",
+      "expression_hint": "在构造字段对象（`models.CharField(...)`）或进行验证时，是否产生任何 `Warning` 消息。",
+      "reason": "另一种可能的修复行为是发出警告而非异常。观察警告可以捕捉到这种较轻微的错误提示。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "当 `max_length` 小于 `choices` 中某个选项值的长度时，字段验证应引发 `ValidationError`。",
+      "preferred_assertion_style": "raises",
+      "avoid": "断言完整的异常消息字符串相等，因为消息内容可能未在 Issue 中指定且容易变化。",
+      "reason": "`ValidationError` 是 Django 字段验证的标准错误类型，相关测试也使用它。断言引发此异常是稳定且与 Issue 目标（添加检查）对齐的。"
+    },
+    {
+      "assertion_goal": "引发的 `ValidationError` 应包含指示 `max_length` 与 `choices` 不匹配的相关信息片段。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的、具体的错误消息。",
+      "reason": "Issue 未指定精确错误消息，但错误内容应能反映出长度问题。检查错误消息中是否包含如 'max_length'、'choice'、'long' 等稳定关键词片段是更稳健的做法。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "测试需要继承自 Django 的 `SimpleTestCase` 或 `TestCase`，以使用其断言方法和数据库支持（如果测试涉及保存操作）。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "需要从 `django.core.exceptions` 导入 `ValidationError`。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "需要从 `django.db` 导入 `models` 以使用 `CharField`。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "检查是在模型字段 `__init__` 时执行，还是在第一次调用 `clean` 或 `formfield` 时执行？",
+    "如果 `choices` 是一个 `Enum` 类或可调用对象，检查逻辑是否相同？",
+    "修复后，错误是在字段初始化时、表单字段创建时还是在数据清理时被引发？",
+    "对于 `IntegerField` 等非字符串字段，其 `choices` 与 `max_length`（如果存在）的关系是否需要类似检查？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "Add check to ensure max_length fits longest choice.\nDescription\n\nThere is currently no check to ensure that Field.max_length is large enough to fit the longest value in Field.choices.\nThis would be very helpful as often this mistake is not noticed until an attempt is made to save a record with those values that are too long.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当定义一个 Django 模型字段（如 CharField）时，如果设置了 `choices` 选项，并且 `max_length` 小于 `choices` 中某个选项值的长度，当前系统缺少一个验证检查来确保 `max_length` 足够容纳最长的选项值。这个错误通常只在尝试保存一个包含超长选项值的记录时才会被发现。期望的行为是：在字段定义或验证阶段，系统应该能检测到 `max_length` 与 `choices` 选项值长度不匹配的问题，并给出适当的警告或错误。可能相关的 API 或文件包括 `django.db.models.CharField`、`Field` 类以及相关的验证逻辑。",
+      "facts_from_issue": [
+        "当前没有检查来确保 `Field.max_length` 足够容纳 `Field.choices` 中最长的值。",
+        "这个错误通常只在尝试保存包含超长值的记录时才会被注意到。"
+      ],
+      "facts_from_retrieved_context": [
+        "检索到的测试代码中涉及 `models.CharField` 与 `choices` 和 `max_length` 参数的组合使用。",
+        "检索到的测试代码中涉及 `ValidationError` 异常和字段的 `clean` 方法。",
+        "检索到的测试代码中涉及 `SimpleArrayField` 的 `max_length` 验证。"
+      ],
+      "inferences": [
+        "Issue 中提到的 `Field` 很可能指的是 Django 模型字段（如 `CharField`），而不是检索到的 `django.contrib.gis.gdal.field.Field` 类。",
+        "验证检查可能应该在字段初始化、表单字段创建或数据清理阶段进行。",
+        "当 `max_length` 小于 `choices` 中某个选项值的长度时，可能应该引发一个 `ValidationError` 或类似的错误。"
+      ],
+      "do_not_assume": [
+        "具体的错误消息内容。",
+        "检查是在模型字段初始化时、表单字段创建时还是在数据验证时进行。",
+        "是否所有类型的字段（如 `IntegerField`）都需要此检查，还是仅针对基于字符串的字段。",
+        "修复后是引发异常、记录警告还是静默调整 `max_length`。"
+      ]
+    },
+    "issue_summary": "Django 模型字段缺少对 `max_length` 是否足够容纳 `choices` 中最长选项值的验证检查。",
+    "trigger_condition": {
+      "text": "创建一个 Django 模型字段（例如 `CharField`），设置 `choices` 参数为一个包含字符串选项的列表，并将 `max_length` 参数设置为一个小于 `choices` 中某个选项字符串长度的值。然后尝试使用该字段（例如调用其 `clean` 方法或尝试保存模型实例）。",
+      "evidence": [
+        "Issue 描述明确指出 `Field.max_length` 可能小于 `Field.choices` 中最长的值。",
+        "相关测试 `ValidationTests.test_enum_choices_invalid_input` 和 `ValidationTests.test_charfield_with_choices_raises_error_on_invalid_choice` 展示了如何构造带有 `choices` 和 `max_length` 的 `CharField` 并调用 `clean` 方法。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "当尝试保存一个包含超长选项值的记录时，系统可能没有在早期（如字段定义或数据验证阶段）检测到 `max_length` 与 `choices` 不匹配的问题，导致错误在保存时才被发现，可能引发数据库错误或数据截断。",
+      "symptom_type": "unknown",
+      "evidence": [
+        "Issue 描述：“This would be very helpful as often this mistake is not noticed until an attempt is made to save a record with those values that are too long.”"
+      ],
+      "confidence": "medium"
+    },
+    "expected_behavior": {
+      "text": "在字段定义或数据验证的早期阶段，系统应该能够检测到 `max_length` 参数值小于 `choices` 中某个选项字符串长度的情况，并引发一个适当的错误（如 `ValidationError`），从而防止后续的保存操作失败。",
+      "evidence": [
+        "Issue 标题“Add check to ensure max_length fits longest choice.” 暗示期望添加一个检查。",
+        "相关测试 `ValidationTests.test_enum_choices_invalid_input` 和 `ValidationTests.test_charfield_with_choices_raises_error_on_invalid_choice` 展示了字段验证会引发 `ValidationError` 的模式。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "CharField",
+        "kind": "class",
+        "source_path": "django.db.models",
+        "reason": "Issue 核心是关于模型字段的 `max_length` 和 `choices` 属性，`CharField` 是典型的具有这些属性的字段。"
+      },
+      {
+        "name": "clean",
+        "kind": "method",
+        "source_path": "django.db.models.fields.CharField",
+        "reason": "相关测试中使用了 `f.clean(...)` 来触发字段验证，这是观察验证行为的关键方法。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/db/models/fields/__init__.py",
+        "object": "CharField 或其父类 Field 的初始化或验证逻辑",
+        "lines": "",
+        "reason": "这是 Django 模型字段（包括 `CharField`）定义的核心文件，`max_length` 和 `choices` 的处理逻辑很可能在此。"
+      },
+      {
+        "path": "django/db/models/fields/__init__.py",
+        "object": "Field 类的 `_check_choices` 或类似验证方法",
+        "lines": "",
+        "reason": "Issue 描述需要添加一个检查，这很可能是在字段的内部检查方法中。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "ValidationTests.test_enum_choices_invalid_input",
+        "test_file": "tests/model_fields/test_charfield.py",
+        "why_relevant": "该测试直接构造了一个带有 `choices` 和 `max_length` 的 `CharField` 对象，并调用其 `clean` 方法进行验证，这与 Issue 的触发场景高度相似。",
+        "reusable_parts": [
+          "导入 `models` 和 `ValidationError`",
+          "使用 `models.CharField(choices=..., max_length=...)` 构造字段对象",
+          "使用 `f.clean(value, model_instance)` 调用验证",
+          "使用 `self.assertRaises(ValidationError)` 断言异常"
+        ],
+        "possible_gap": "该测试的 `max_length=1` 和 `choices` 值 `'a'` 是匹配的（长度都为1），因此不会触发 Issue 描述的不匹配场景。需要将 `choices` 中的某个值长度修改为大于 `max_length`。"
+      },
+      {
+        "test_name": "ValidationTests.test_charfield_with_choices_raises_error_on_invalid_choice",
+        "test_file": "tests/model_fields/test_charfield.py",
+        "why_relevant": "该测试展示了为 `CharField` 设置 `choices` 后，对无效输入进行验证并期望引发 `ValidationError` 的模式。",
+        "reusable_parts": [
+          "构造 `CharField` 并设置 `choices` 列表",
+          "调用 `clean` 方法并断言 `ValidationError`"
+        ],
+        "possible_gap": "该测试没有设置 `max_length` 参数，因此不涉及 `max_length` 与 `choices` 值长度的比较。需要添加 `max_length` 参数并使其与 `choices` 值长度冲突。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "argument",
+        "current_pattern": "在相似测试中，`choices` 列表中的选项值长度等于或未与 `max_length` 比较（例如 `choices=[('a', 'A'), ('b', 'B')]`, `max_length=1` 且 `'a'` 长度为1）。",
+        "target_pattern": "将 `choices` 列表中的至少一个选项值的字符串长度设置为大于 `max_length` 参数的值（例如 `choices=[('short', 'S'), ('verylongvalue', 'V')]`, `max_length=5`）。",
+        "reason": "Issue 的核心是 `max_length` 不足以容纳 `choices` 中最长的值。通过构造这种不匹配的参数，可以触发缺失的检查逻辑。",
+        "confidence": "high"
+      },
+      {
+        "slot": "call_chain",
+        "current_pattern": "相似测试中直接调用 `f.clean('invalid_value', None)` 来验证无效的选项值。",
+        "target_pattern": "调用 `f.clean('valid_but_too_long_choice_value', None)`，其中 `'valid_but_too_long_choice_value'` 是 `choices` 中定义的一个有效选项键，但其字符串长度超过了 `max_length`。",
+        "reason": "即使选项值在 `choices` 列表中，如果其长度超过 `max_length`，根据 Issue 描述，也应该在验证阶段被检测出来。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "调用 `field.clean(value, model_instance)` 时是否引发 `ValidationError` 异常及其 `messages` 属性。",
+        "reason": "Issue 期望添加检查，最直接的公开行为就是在验证时引发异常。观察异常类型和消息可以判断是否触发了预期的检查。"
+      },
+      {
+        "kind": "warning",
+        "expression_hint": "在构造字段对象（`models.CharField(...)`）或进行验证时，是否产生任何 `Warning` 消息。",
+        "reason": "另一种可能的修复行为是发出警告而非异常。观察警告可以捕捉到这种较轻微的错误提示。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "当 `max_length` 小于 `choices` 中某个选项值的长度时，字段验证应引发 `ValidationError`。",
+        "preferred_assertion_style": "raises",
+        "avoid": "断言完整的异常消息字符串相等，因为消息内容可能未在 Issue 中指定且容易变化。",
+        "reason": "`ValidationError` 是 Django 字段验证的标准错误类型，相关测试也使用它。断言引发此异常是稳定且与 Issue 目标（添加检查）对齐的。"
+      },
+      {
+        "assertion_goal": "引发的 `ValidationError` 应包含指示 `max_length` 与 `choices` 不匹配的相关信息片段。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的、具体的错误消息。",
+        "reason": "Issue 未指定精确错误消息，但错误内容应能反映出长度问题。检查错误消息中是否包含如 'max_length'、'choice'、'long' 等稳定关键词片段是更稳健的做法。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "测试需要继承自 Django 的 `SimpleTestCase` 或 `TestCase`，以使用其断言方法和数据库支持（如果测试涉及保存操作）。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "需要从 `django.core.exceptions` 导入 `ValidationError`。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "需要从 `django.db` 导入 `models` 以使用 `CharField`。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "检查是在模型字段 `__init__` 时执行，还是在第一次调用 `clean` 或 `formfield` 时执行？",
+      "如果 `choices` 是一个 `Enum` 类或可调用对象，检查逻辑是否相同？",
+      "修复后，错误是在字段初始化时、表单字段创建时还是在数据清理时被引发？",
+      "对于 `IntegerField` 等非字符串字段，其 `choices` 与 `max_length`（如果存在）的关系是否需要类似检查？"
+    ]
+  }
+}

@@ -1,0 +1,398 @@
+{
+  "instance_id": "sphinx-doc__sphinx-11445",
+  "issue_summary": "当配置了 `rst_prolog` 时，Sphinx 无法正确处理以域指令（如 `:mod:`）开头的文档顶级标题，导致标题渲染错误且不包含在目录树中。",
+  "trigger_condition": {
+    "text": "1. 在 Sphinx 项目的 `conf.py` 中设置 `rst_prolog` 配置项（例如 `rst_prolog = '.. |psf| replace:: Python Software Foundation'`）。2. 构建一个 reStructuredText 文档，其第一个顶级标题是一个域指令，例如 `:mod:\\`mypackage2\\`\\n=================`。3. 运行 `sphinx-build` 生成 HTML。",
+    "evidence": [
+      "Issue 中的复现步骤明确描述了这些条件。",
+      "Issue 说明：'If `rst_prolog` is set, then any documents that contain a domain directive as the first heading (eg `:mod:`) do not render the heading correctly...'",
+      "Issue 中的复现代码设置了 `rst_prolog` 并创建了包含 `:mod:` 标题的文档。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "生成的 HTML 输出中，包含域指令的标题没有被正确渲染（可能缺失或格式错误），并且该标题对应的条目没有出现在生成的 toctree（目录树）中。使用 `grep 'mypackage2' docs/_build/index.html` 可能找不到预期内容。",
+    "symptom_type": "wrong_return",
+    "evidence": [
+      "Issue 描述：'do not render the heading correctly or include the heading in the toctree'。",
+      "复现步骤最后使用 `grep` 检查输出，暗示预期内容缺失。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "即使配置了 `rst_prolog`，以域指令（如 `:mod:`）开头的文档顶级标题也应被正确解析、渲染，并包含在生成的 toctree 和最终输出（如 HTML）中。",
+    "evidence": [
+      "Issue 说明：如果不设置 `rst_prolog` 或标题不是域指令，则行为正常。这隐含了期望行为。",
+      "Issue 中的对比：'if the heading of `docs/mypackage.rst` were `mypackage2` instead of `:mod:mypackage2` then the heading displays correctly.'"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "prepend_prolog",
+      "kind": "function",
+      "source_path": "",
+      "reason": "测试代码显示此函数负责将 `rst_prolog` 内容插入到文档输入之前，与触发条件直接相关。"
+    },
+    {
+      "name": "RSTParser",
+      "kind": "class",
+      "source_path": "",
+      "reason": "测试 `test_RSTParser_prolog_epilog` 涉及此类，它处理 `rst_prolog` 和文档解析。"
+    },
+    {
+      "name": "sphinx.domains.rst",
+      "kind": "module",
+      "source_path": "sphinx/domains/rst.py",
+      "reason": "检索到的源码文件路径，可能包含处理 `:mod:` 等域指令的逻辑。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sphinx/domains/rst.py",
+      "object": "处理域指令（如 `:mod:`）解析的相关函数或类",
+      "lines": "",
+      "reason": "该文件与域指令相关，而缺陷涉及以域指令开头的标题。"
+    },
+    {
+      "path": "sphinx/parsers/rst.py 或相关解析器模块",
+      "object": "处理 `rst_prolog` 插入和文档标题解析的逻辑",
+      "lines": "",
+      "reason": "缺陷仅在设置 `rst_prolog` 时触发，表明问题可能在解析器处理 prolog 与标题的交互处。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_RSTParser_prolog_epilog",
+      "test_file": "tests/test_parser.py",
+      "why_relevant": "该测试直接测试 `RSTParser` 对 `rst_prolog` 和 `rst_epilog` 的处理，并检查解析后的内容项。它使用了 `app` fixture 和 `RSTParser` 对象，与 Issue 的触发条件（`rst_prolog`）高度相关。",
+      "reusable_parts": [
+        "`@pytest.mark.sphinx` 装饰器和 `app` fixture 用于创建 Sphinx 应用。",
+        "`RSTParser` 对象的创建和 `parse` 方法调用。",
+        "检查 `content.xitems()` 输出列表的断言模式。",
+        "通过 `app.env.config.rst_prolog` 设置配置。"
+      ],
+      "possible_gap": "该测试使用简单的文本输入，没有测试包含域指令（如 `:mod:`）的标题。需要变异输入文本以包含 `:mod:\\`mypackage2\\`\\n=================` 这样的标题。"
+    },
+    {
+      "test_name": "test_rst_prolog",
+      "test_file": "tests/test_markup.py",
+      "why_relevant": "该测试验证 `rst_prolog` 和 `rst_epilog` 在完整文档构建中的效果，并检查生成的文档树（doctree）。它使用了 `app` fixture 和 `build_all()`，更接近 Issue 的端到端场景。",
+      "reusable_parts": [
+        "`@pytest.mark.sphinx('dummy', testroot='prolog')` 设置。",
+        "`app.builder.build_all()` 调用。",
+        "使用 `app.env.get_doctree` 获取解析后的文档树。",
+        "使用 `assert_node` 检查文档树节点的模式。"
+      ],
+      "possible_gap": "测试使用的 `testroot='prolog'` 可能不包含以域指令为标题的文档。需要修改测试数据或创建新的测试文档来包含 `:mod:` 标题。"
+    },
+    {
+      "test_name": "test_prepend_prolog",
+      "test_file": "tests/test_util_rst.py",
+      "why_relevant": "该测试直接测试 `prepend_prolog` 函数，该函数是 `rst_prolog` 插入机制的核心。它检查插入 prolog 后 `StringList` 的内容项，与解析输入的准备阶段相关。",
+      "reusable_parts": [
+        "`prepend_prolog` 函数的导入和调用。",
+        "`StringList` 的创建和使用。",
+        "通过 `list(content.xitems())` 断言内容项列表的模式。"
+      ],
+      "possible_gap": "测试输入是普通的 reStructuredText 元数据行和内容，没有包含域指令标题。需要变异输入以包含 `:mod:` 标题，并可能观察插入 prolog 后标题行的处理。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "相似测试中使用普通文本作为输入，例如 `'hello Sphinx world\\nSphinx is a document generator'` 或包含 `:title:` 的元数据。",
+      "target_pattern": "将输入文本变异为以域指令开头的标题，例如 `':mod:\\`mypackage2\\`\\n=================\\n\\nContent'`。",
+      "reason": "Issue 明确指出缺陷在标题是域指令时触发。变异输入可以引导解析器进入缺陷路径。",
+      "confidence": "high"
+    },
+    {
+      "slot": "config",
+      "current_pattern": "相似测试中可能设置 `app.env.config.rst_prolog` 为普通字符串。",
+      "target_pattern": "保持设置 `app.env.config.rst_prolog` 为非 `None` 值（如 `'.. |psf| replace:: Python Software Foundation'`），这是触发条件。",
+      "reason": "缺陷仅在 `rst_prolog` 设置时发生，因此配置必须存在。",
+      "confidence": "high"
+    },
+    {
+      "slot": "call_chain",
+      "current_pattern": "在单元测试中可能直接调用 `parser.parse(text, document)`。",
+      "target_pattern": "在端到端测试中，使用 `app.builder.build_all()` 构建整个项目，并检查输出文件（如 HTML）。",
+      "reason": "Issue 的症状体现在最终输出（HTML 和 toctree）中，端到端构建能更完整地捕获错误。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "file_output",
+      "expression_hint": "生成的 HTML 文件的内容（例如 `_build/index.html` 的文本）。",
+      "reason": "Issue 使用 `grep` 检查输出，错误症状直接体现在最终 HTML 文件中标题是否出现。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "解析后文档树（doctree）的结构，特别是顶级标题节点（`nodes.section` 或 `nodes.title`）的存在和内容。",
+      "reason": "标题渲染和 toctree 生成依赖于正确的文档树结构。检查 doctree 可以定位解析阶段的问题。"
+    },
+    {
+      "kind": "warning",
+      "expression_hint": "Sphinx 构建过程中产生的警告信息（可通过 `app._warning` 或 `warning` stream 捕获）。",
+      "reason": "解析错误可能伴随警告产生，警告内容可能提供线索。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "生成的 HTML 输出应包含标题文本（如 'mypackage2'）的片段。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的 HTML 字符串相等，因为 HTML 结构可能变化。避免断言私有解析器状态。",
+      "reason": "Issue 的核心是标题内容缺失。检查输出中是否包含标题文本的片段是稳定且直接的对齐方式。"
+    },
+    {
+      "assertion_goal": "文档树中应存在代表顶级标题的节点，且其内容应正确包含域指令的文本。",
+      "preferred_assertion_style": "isinstance",
+      "avoid": "断言节点内部私有属性或完整的原始源字符串。",
+      "reason": "这可以验证解析阶段是否正确处理了标题，是更接近根本原因的检查。"
+    },
+    {
+      "assertion_goal": "构建过程不应产生与标题解析相关的特定错误或警告。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言完全没有警告（可能不现实），或断言特定的警告消息字面量。",
+      "reason": "如果标题被正确处理，不应有相关错误。但需谨慎，因为其他警告可能无关。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "使用 `@pytest.mark.sphinx` 装饰器和 `app` fixture 来创建 Sphinx 测试应用。可以参考 `testroot` 参数或手动创建 `conf.py` 和 `.rst` 文件。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要创建临时目录来存放测试用的 Sphinx 项目源文件（`conf.py`, `index.rst`, `mypackage.rst`）。",
+      "source": "issue",
+      "confidence": "high"
+    },
+    {
+      "hint": "使用 `tmp_path` fixture 管理临时文件。使用 `(tmp_path / 'conf.py').write_text(...)` 等方式创建配置文件。",
+      "source": "inference",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "缺陷的确切代码位置是在 `prepend_prolog` 函数、`RSTParser` 的某个方法，还是在域指令的解析逻辑中。",
+    "标题是完全没有被解析为标题节点，还是被解析但后续处理出错（例如在 toctree 生成中）。",
+    "是否所有类型的域指令（`:func:`, `:class:`, `:data:` 等）都会触发此问题，还是仅限于 `:mod:`。",
+    "`rst_epilog` 配置是否也存在类似的交互问题。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "Using rst_prolog removes top level headings containing a domain directive\n### Describe the bug\n\nIf `rst_prolog` is set, then any documents that contain a domain directive as the first heading (eg `:mod:`) do not render the heading correctly or include the heading in the toctree.\n\nIn the example below, if the heading of `docs/mypackage.rst` were `mypackage2` instead of `:mod:mypackage2` then the heading displays correctly.\nSimilarly, if you do not set `rst_prolog` then the heading will display correctly.\n\nThis appears to have been broken for some time because I can reproduce it in v4.0.0 of Sphinx\n\n### How to Reproduce\n\n```bash\n$ sphinx-quickstart --no-sep --project mypackage --author me -v 0.1.0 --release 0.1.0 --language en docs\n$ echo -e 'Welcome\\n=======\\n\\n.. toctree::\\n\\n   mypackage\\n' > docs/index.rst\n$ echo -e ':mod:`mypackage2`\\n=================\\n\\nContent\\n\\nSubheading\\n----------\\n' > docs/mypackage.rst\n$ echo -e 'rst_prolog = \"\"\"\\n.. |psf| replace:: Python Software Foundation\\n\"\"\"\\n' >> docs/conf.py\n$ sphinx-build -b html . _build\n$ grep 'mypackage2' docs/_build/index.html\n```\n\n`docs/index.rst`:\n\n```rst\nWelcome\n=======\n\n.. toctree::\n\n   mypackage\n```\n\n`docs/mypackage.rst`:\n\n```rst\n:mod:`mypackage2`\n=================\n\nContent\n\nSubheading\n----------\n```\n\n### Environment Information\n\n```text\nPlatform:              linux; (Linux-6.3.2-arch1-1-x86_64-with-glibc2.37)\nPython version:        3.11.3 (main, Apr  5 2023, 15:52:25) [GCC 12.2.1 20230201])\nPython implementation: CPython\nSphinx version:        7.1.0+/d3c91f951\nDocutils version:      0.20.1\nJinja2 version:        3.1.2\nPygments version:      2.15.1\n```\n\n\n### Sphinx extensions\n\n```python\n[]\n```\n\n\n### Additional context\n\n_No response_",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当 Sphinx 项目的 `conf.py` 中设置了 `rst_prolog` 配置项时，如果某个 reStructuredText 文档的第一个顶级标题是一个域指令（例如 `:mod:`），则该标题无法正确渲染，并且不会被包含在生成的 toctree（目录树）中。例如，文档内容为 `:mod:\\`mypackage2\\`\\n=================` 时，标题显示不正确且索引缺失。如果不设置 `rst_prolog`，或者标题不是域指令，则行为正常。",
+      "facts_from_issue": [
+        "设置 `rst_prolog` 配置项会触发此缺陷。",
+        "缺陷现象：文档的第一个顶级标题是域指令（如 `:mod:`）时，标题渲染不正确且不包含在 toctree 中。",
+        "不设置 `rst_prolog` 或标题不是域指令时，行为正常。",
+        "复现步骤涉及创建 Sphinx 项目、配置 `rst_prolog`、创建包含域指令标题的 `.rst` 文件、运行 `sphinx-build` 并检查输出 HTML。"
+      ],
+      "facts_from_retrieved_context": [
+        "存在 `sphinx/domains/rst.py` 文件，可能处理域指令。",
+        "存在 `prepend_prolog` 函数（在 `test_prepend_prolog` 测试中），用于将 `rst_prolog` 内容前置到文档。",
+        "`RSTParser` 类（在 `test_RSTParser_prolog_epilog` 测试中）处理 `rst_prolog` 和 `rst_epilog`。",
+        "`test_rst_prolog` 测试验证了 `rst_prolog` 和 `rst_epilog` 在文档树中的正确插入。",
+        "`test_rst_directive` 测试展示了 `rst:directive` 域指令的解析。"
+      ],
+      "inferences": [
+        "`rst_prolog` 的插入机制可能与文档标题的解析存在交互问题，特别是当标题以域指令开头时。",
+        "问题可能出现在解析阶段，`prepend_prolog` 或 `RSTParser` 在处理包含域指令的标题时产生了副作用。",
+        "缺陷影响 HTML 输出中标题的渲染和 toctree 的生成。"
+      ],
+      "do_not_assume": [
+        "具体的内部解析错误位置（例如是 `prepend_prolog` 函数还是 `RSTParser` 的某个方法）。",
+        "标题被完全移除还是仅格式错误的确切细节。",
+        "是否所有域指令（如 `:func:`、`:class:`）都会触发此问题，还是仅限于 `:mod:`。",
+        "`rst_epilog` 是否也存在类似问题。"
+      ]
+    },
+    "issue_summary": "当配置了 `rst_prolog` 时，Sphinx 无法正确处理以域指令（如 `:mod:`）开头的文档顶级标题，导致标题渲染错误且不包含在目录树中。",
+    "trigger_condition": {
+      "text": "1. 在 Sphinx 项目的 `conf.py` 中设置 `rst_prolog` 配置项（例如 `rst_prolog = '.. |psf| replace:: Python Software Foundation'`）。2. 构建一个 reStructuredText 文档，其第一个顶级标题是一个域指令，例如 `:mod:\\`mypackage2\\`\\n=================`。3. 运行 `sphinx-build` 生成 HTML。",
+      "evidence": [
+        "Issue 中的复现步骤明确描述了这些条件。",
+        "Issue 说明：'If `rst_prolog` is set, then any documents that contain a domain directive as the first heading (eg `:mod:`) do not render the heading correctly...'",
+        "Issue 中的复现代码设置了 `rst_prolog` 并创建了包含 `:mod:` 标题的文档。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "生成的 HTML 输出中，包含域指令的标题没有被正确渲染（可能缺失或格式错误），并且该标题对应的条目没有出现在生成的 toctree（目录树）中。使用 `grep 'mypackage2' docs/_build/index.html` 可能找不到预期内容。",
+      "symptom_type": "wrong_return",
+      "evidence": [
+        "Issue 描述：'do not render the heading correctly or include the heading in the toctree'。",
+        "复现步骤最后使用 `grep` 检查输出，暗示预期内容缺失。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "即使配置了 `rst_prolog`，以域指令（如 `:mod:`）开头的文档顶级标题也应被正确解析、渲染，并包含在生成的 toctree 和最终输出（如 HTML）中。",
+      "evidence": [
+        "Issue 说明：如果不设置 `rst_prolog` 或标题不是域指令，则行为正常。这隐含了期望行为。",
+        "Issue 中的对比：'if the heading of `docs/mypackage.rst` were `mypackage2` instead of `:mod:mypackage2` then the heading displays correctly.'"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "prepend_prolog",
+        "kind": "function",
+        "source_path": "",
+        "reason": "测试代码显示此函数负责将 `rst_prolog` 内容插入到文档输入之前，与触发条件直接相关。"
+      },
+      {
+        "name": "RSTParser",
+        "kind": "class",
+        "source_path": "",
+        "reason": "测试 `test_RSTParser_prolog_epilog` 涉及此类，它处理 `rst_prolog` 和文档解析。"
+      },
+      {
+        "name": "sphinx.domains.rst",
+        "kind": "module",
+        "source_path": "sphinx/domains/rst.py",
+        "reason": "检索到的源码文件路径，可能包含处理 `:mod:` 等域指令的逻辑。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sphinx/domains/rst.py",
+        "object": "处理域指令（如 `:mod:`）解析的相关函数或类",
+        "lines": "",
+        "reason": "该文件与域指令相关，而缺陷涉及以域指令开头的标题。"
+      },
+      {
+        "path": "sphinx/parsers/rst.py 或相关解析器模块",
+        "object": "处理 `rst_prolog` 插入和文档标题解析的逻辑",
+        "lines": "",
+        "reason": "缺陷仅在设置 `rst_prolog` 时触发，表明问题可能在解析器处理 prolog 与标题的交互处。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_RSTParser_prolog_epilog",
+        "test_file": "tests/test_parser.py",
+        "why_relevant": "该测试直接测试 `RSTParser` 对 `rst_prolog` 和 `rst_epilog` 的处理，并检查解析后的内容项。它使用了 `app` fixture 和 `RSTParser` 对象，与 Issue 的触发条件（`rst_prolog`）高度相关。",
+        "reusable_parts": [
+          "`@pytest.mark.sphinx` 装饰器和 `app` fixture 用于创建 Sphinx 应用。",
+          "`RSTParser` 对象的创建和 `parse` 方法调用。",
+          "检查 `content.xitems()` 输出列表的断言模式。",
+          "通过 `app.env.config.rst_prolog` 设置配置。"
+        ],
+        "possible_gap": "该测试使用简单的文本输入，没有测试包含域指令（如 `:mod:`）的标题。需要变异输入文本以包含 `:mod:\\`mypackage2\\`\\n=================` 这样的标题。"
+      },
+      {
+        "test_name": "test_rst_prolog",
+        "test_file": "tests/test_markup.py",
+        "why_relevant": "该测试验证 `rst_prolog` 和 `rst_epilog` 在完整文档构建中的效果，并检查生成的文档树（doctree）。它使用了 `app` fixture 和 `build_all()`，更接近 Issue 的端到端场景。",
+        "reusable_parts": [
+          "`@pytest.mark.sphinx('dummy', testroot='prolog')` 设置。",
+          "`app.builder.build_all()` 调用。",
+          "使用 `app.env.get_doctree` 获取解析后的文档树。",
+          "使用 `assert_node` 检查文档树节点的模式。"
+        ],
+        "possible_gap": "测试使用的 `testroot='prolog'` 可能不包含以域指令为标题的文档。需要修改测试数据或创建新的测试文档来包含 `:mod:` 标题。"
+      },
+      {
+        "test_name": "test_prepend_prolog",
+        "test_file": "tests/test_util_rst.py",
+        "why_relevant": "该测试直接测试 `prepend_prolog` 函数，该函数是 `rst_prolog` 插入机制的核心。它检查插入 prolog 后 `StringList` 的内容项，与解析输入的准备阶段相关。",
+        "reusable_parts": [
+          "`prepend_prolog` 函数的导入和调用。",
+          "`StringList` 的创建和使用。",
+          "通过 `list(content.xitems())` 断言内容项列表的模式。"
+        ],
+        "possible_gap": "测试输入是普通的 reStructuredText 元数据行和内容，没有包含域指令标题。需要变异输入以包含 `:mod:` 标题，并可能观察插入 prolog 后标题行的处理。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "相似测试中使用普通文本作为输入，例如 `'hello Sphinx world\\nSphinx is a document generator'` 或包含 `:title:` 的元数据。",
+        "target_pattern": "将输入文本变异为以域指令开头的标题，例如 `':mod:\\`mypackage2\\`\\n=================\\n\\nContent'`。",
+        "reason": "Issue 明确指出缺陷在标题是域指令时触发。变异输入可以引导解析器进入缺陷路径。",
+        "confidence": "high"
+      },
+      {
+        "slot": "config",
+        "current_pattern": "相似测试中可能设置 `app.env.config.rst_prolog` 为普通字符串。",
+        "target_pattern": "保持设置 `app.env.config.rst_prolog` 为非 `None` 值（如 `'.. |psf| replace:: Python Software Foundation'`），这是触发条件。",
+        "reason": "缺陷仅在 `rst_prolog` 设置时发生，因此配置必须存在。",
+        "confidence": "high"
+      },
+      {
+        "slot": "call_chain",
+        "current_pattern": "在单元测试中可能直接调用 `parser.parse(text, document)`。",
+        "target_pattern": "在端到端测试中，使用 `app.builder.build_all()` 构建整个项目，并检查输出文件（如 HTML）。",
+        "reason": "Issue 的症状体现在最终输出（HTML 和 toctree）中，端到端构建能更完整地捕获错误。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "file_output",
+        "expression_hint": "生成的 HTML 文件的内容（例如 `_build/index.html` 的文本）。",
+        "reason": "Issue 使用 `grep` 检查输出，错误症状直接体现在最终 HTML 文件中标题是否出现。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "解析后文档树（doctree）的结构，特别是顶级标题节点（`nodes.section` 或 `nodes.title`）的存在和内容。",
+        "reason": "标题渲染和 toctree 生成依赖于正确的文档树结构。检查 doctree 可以定位解析阶段的问题。"
+      },
+      {
+        "kind": "warning",
+        "expression_hint": "Sphinx 构建过程中产生的警告信息（可通过 `app._warning` 或 `warning` stream 捕获）。",
+        "reason": "解析错误可能伴随警告产生，警告内容可能提供线索。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "生成的 HTML 输出应包含标题文本（如 'mypackage2'）的片段。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的 HTML 字符串相等，因为 HTML 结构可能变化。避免断言私有解析器状态。",
+        "reason": "Issue 的核心是标题内容缺失。检查输出中是否包含标题文本的片段是稳定且直接的对齐方式。"
+      },
+      {
+        "assertion_goal": "文档树中应存在代表顶级标题的节点，且其内容应正确包含域指令的文本。",
+        "preferred_assertion_style": "isinstance",
+        "avoid": "断言节点内部私有属性或完整的原始源字符串。",
+        "reason": "这可以验证解析阶段是否正确处理了标题，是更接近根本原因的检查。"
+      },
+      {
+        "assertion_goal": "构建过程不应产生与标题解析相关的特定错误或警告。",
+        "preferred_assertion_style": "not_contains_fragment",
+        "avoid": "断言完全没有警告（可能不现实），或断言特定的警告消息字面量。",
+        "reason": "如果标题被正确处理，不应有相关错误。但需谨慎，因为其他警告可能无关。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "使用 `@pytest.mark.sphinx` 装饰器和 `app` fixture 来创建 Sphinx 测试应用。可以参考 `testroot` 参数或手动创建 `conf.py` 和 `.rst` 文件。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要创建临时目录来存放测试用的 Sphinx 项目源文件（`conf.py`, `index.rst`, `mypackage.rst`）。",
+        "source": "issue",
+        "confidence": "high"
+      },
+      {
+        "hint": "使用 `tmp_path` fixture 管理临时文件。使用 `(tmp_path / 'conf.py').write_text(...)` 等方式创建配置文件。",
+        "source": "inference",
+        "confidence": "medium"
+      }
+    ],
+    "uncertainties": [
+      "缺陷的确切代码位置是在 `prepend_prolog` 函数、`RSTParser` 的某个方法，还是在域指令的解析逻辑中。",
+      "标题是完全没有被解析为标题节点，还是被解析但后续处理出错（例如在 toctree 生成中）。",
+      "是否所有类型的域指令（`:func:`, `:class:`, `:data:` 等）都会触发此问题，还是仅限于 `:mod:`。",
+      "`rst_epilog` 配置是否也存在类似的交互问题。"
+    ]
+  }
+}

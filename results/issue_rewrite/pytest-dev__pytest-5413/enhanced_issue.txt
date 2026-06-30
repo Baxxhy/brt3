@@ -1,0 +1,114 @@
+instance_id: pytest-dev__pytest-5413
+
+issue_summary: `pytest.raises` 上下文管理器返回的对象的 `str()` 行为与标准 Python 异常对象的 `str()` 行为不一致，导致获取完整异常消息的方式不同。
+
+trigger_condition:
+{
+  "text": "使用 `pytest.raises(SomeException) as e:` 捕获一个具有多行消息（或可能任何消息）的异常，然后对捕获的上下文变量 `e` 调用 `str(e)`。",
+  "evidence": [
+    "Issue 中的代码示例：`with pytest.raises(LookupError) as e:` 后跟 `print(str(e))`。",
+    "检索到的测试 `test_excinfo_str` 中直接对 `pytest.raises` 的返回值调用 `str()`。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "对 `pytest.raises` 捕获的上下文变量调用 `str()` 返回一个截断的、可能包含额外位置信息的字符串（如 '<console>:3: LookupError: A'），而不是返回完整的异常消息（如 'A\\nB\\nC'）。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue 中明确对比了两种 `str()` 调用的输出。",
+    "Issue 指出 `str(e)` 打印 '<console>:3: LookupError: A'，而 `str(e.value)` 才能得到完整消息。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，对 `pytest.raises` 上下文管理器捕获的变量（例如 `e`）调用 `str(e)` 应该返回与对标准 Python `try...except` 块中捕获的异常对象调用 `str()` 相同的内容，即完整的异常消息字符串。",
+  "evidence": [
+    "Issue 作者期望 `str()` 在两种上下文中的行为一致。",
+    "Issue 作者询问行为是否可以改变以消除不一致性，暗示期望的行为是 `str(e)` 返回完整消息。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "pytest.raises",
+    "kind": "function",
+    "source_path": "src/_pytest/python_api.py",
+    "reason": "这是触发问题的核心 API，用于捕获异常并返回一个上下文对象。"
+  },
+  {
+    "name": "str",
+    "kind": "method",
+    "source_path": "",
+    "reason": "Issue 的核心是关于 `pytest.raises` 返回对象的 `__str__` 方法的行为。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "测试 `test_excinfo_str` 中引发一个简单的 `ValueError`（通过函数 `h`）。",
+    "target_pattern": "引发一个具有多行消息的异常，例如 `LookupError('A\\nB\\nC')`，以匹配 Issue 中的触发条件。",
+    "reason": "Issue 中展示的不一致在异常消息包含换行时尤为明显。使用多行消息可以触发 `str()` 输出被截断或格式化的行为。",
+    "confidence": "high"
+  },
+  {
+    "slot": "assertion",
+    "current_pattern": "断言 `str()` 输出的字符串以文件名开头并以异常类型结尾。",
+    "target_pattern": "断言 `str()` 输出的字符串等于（或包含）完整的异常消息 'A\\nB\\nC'。",
+    "reason": "Issue 的期望是 `str()` 返回完整的异常消息，而不是包含位置信息的格式化字符串。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "str",
+    "expression_hint": "`str(excinfo)` 和 `str(excinfo.value)` 的返回值。",
+    "reason": "直接观察 `pytest.raises` 返回对象的 `__str__` 输出与实际异常对象的 `__str__` 输出，可以清晰对比不一致性。"
+  },
+  {
+    "kind": "type",
+    "expression_hint": "`type(excinfo)` 和 `type(excinfo.value)`。",
+    "reason": "确认 `pytest.raises` 返回的对象类型及其 `value` 属性的类型，有助于理解包装关系。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "对 `pytest.raises` 捕获的上下文变量调用 `str()` 返回的字符串应等于（或至少包含）被捕获异常的完整消息字符串。",
+    "preferred_assertion_style": "equals",
+    "avoid": "避免断言完整的输出字符串包含文件名、行号等可能变化的格式细节。优先比较稳定的异常消息内容。",
+    "reason": "Issue 的核心是比较 `str()` 的输出与异常消息本身，期望它们一致。直接相等断言最能验证此目标。如果实现上难以完全相等（例如可能添加了不可见的空格），则使用 `contains_fragment` 检查消息主体。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要导入 `pytest`。不需要特殊的 fixture 或外部资源。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可以在一个简单的函数或方法中编写，无需复杂的类继承。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "`pytest.raises` 返回的对象的精确类名和 `__str__` 方法的实现位置。",
+  "`str(e)` 当前输出格式的确切规则（例如，什么情况下会包含 `<console>:3:` 这样的前缀）。",
+  "除了多行消息，是否还有其他情况会导致 `str()` 行为不一致（例如，消息中包含特殊字符）。",
+  "`pytest.raises` 的 `match` 参数是否会影响 `str()` 的行为。"
+]

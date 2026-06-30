@@ -1,0 +1,688 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+[Bug]: Unable to pickle figure with draggable legend
+### Bug summary
+
+I am unable to pickle figure with draggable legend. Same error comes for draggable annotations.
+
+
+
+
+
+### Code for reproduction
+
+```python
+import matplotlib.pyplot as plt
+import pickle
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+
+time=[0,1,2,3,4]
+speed=[40,43,45,47,48]
+
+ax.plot(time,speed,label="speed")
+
+leg=ax.legend()
+leg.set_draggable(True) #pickling works after removing this line 
+
+pickle.dumps(fig)
+plt.show()
+```
+
+
+### Actual outcome
+
+`TypeError: cannot pickle 'FigureCanvasQTAgg' object`
+
+### Expected outcome
+
+Pickling successful
+
+### Additional information
+
+_No response_
+
+### Operating system
+
+Windows 10
+
+### Matplotlib Version
+
+3.7.0
+
+### Matplotlib Backend
+
+_No response_
+
+### Python version
+
+3.10
+
+### Jupyter version
+
+_No response_
+
+### Installation
+
+pip
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：figure
+节点类型：top-level function
+父节点：pyplot
+行号范围：691-868
+代码：
+def figure(num=None,  # autoincrement if None, else integer from 1-N
+           figsize=None,  # defaults to rc figure.figsize
+           dpi=None,  # defaults to rc figure.dpi
+           facecolor=None,  # defaults to rc figure.facecolor
+           edgecolor=None,  # defaults to rc figure.edgecolor
+           frameon=True,
+           FigureClass=Figure,
+           clear=False,
+           **kwargs
+           ):
+    """
+    Create a new figure, or activate an existing figure.
+
+    Parameters
+    ----------
+    num : int or str or `.Figure` or `.SubFigure`, optional
+        A unique identifier for the figure.
+
+        If a figure with that identifier already exists, this figure is made
+        active and returned. An integer refers to the ``Figure.number``
+        attribute, a string refers to the figure label.
+
+        If there is no figure with the identifier or *num* is not given, a new
+        figure is created, made active and returned.  If *num* is an int, it
+        will be used for the ``Figure.number`` attribute, otherwise, an
+        auto-generated integer value is used (starting at 1 and incremented
+        for each new figure). If *num* is a string, the figure label and the
+        window title is set to this value.  If num is a ``SubFigure``, its
+        parent ``Figure`` is activated.
+
+    figsize : (float, float), default: :rc:`figure.figsize`
+        Width, height in inches.
+
+    dpi : float, default: :rc:`figure.dpi`
+        The resolution of the figure in dots-per-inch.
+
+    facecolor : color, default: :rc:`figure.facecolor`
+        The background color.
+
+    edgecolor : color, default: :rc:`figure.edgecolor`
+        The border color.
+
+    frameon : bool, default: True
+        If False, suppress drawing the figure frame.
+
+    FigureClass : subclass of `~matplotlib.figure.Figure`
+        If set, an instance of this subclass will be created, rather than a
+        plain `.Figure`.
+
+    clear : bool, default: False
+        If True and the figure already exists, then it is cleared.
+
+    layout : {'constrained', 'compressed', 'tight', 'none', `.LayoutEngine`, None}, \
+default: None
+        The layout mechanism for positioning of plot elements to avoid
+        overlapping Axes decorations (labels, ticks, etc). Note that layout
+        managers can measurably slow down figure display.
+
+        - 'constrained': The constrained layout solver adjusts axes sizes
+          to avoid overlapping axes decorations.  Can handle complex plot
+          layouts and colorbars, and is thus recommended.
+
+          See :doc:`/tutorials/intermediate/constrainedlayout_guide`
+          for examples.
+
+        - 'compressed': uses the same algorithm as 'constrained', but
+          removes extra space between fixed-aspect-ratio Axes.  Best for
+          simple grids of axes.
+
+        - 'tight': Use the tight layout mechanism. This is a relatively
+          simple algorithm that adjusts the subplot parameters so that
+          decorations do not overlap. See `.Figure.set_tight_layout` for
+          further details.
+
+        - 'none': Do not use a layout engine.
+
+        - A `.LayoutEngine` instance. Builtin layout classes are
+          `.ConstrainedLayoutEngine` and `.TightLayoutEngine`, more easily
+          accessible by 'constrained' and 'tight'.  Passing an instance
+          allows third parties to provide their own layout engine.
+
+        If not given, fall back to using the parameters *tight_layout* and
+        *constrained_layout*, including their config defaults
+        :rc:`figure.autolayout` and :rc:`figure.constrained_layout.use`.
+
+    **kwargs
+        Additional keyword arguments are passed to the `.Figure` constructor.
+
+    Returns
+    -------
+    `~matplotlib.figure.Figure`
+
+    Notes
+    -----
+    A newly created figure is passed to the `~.FigureCanvasBase.new_manager`
+    method or the `new_figure_manager` function provided by the current
+    backend, which install a canvas and a manager on the figure.
+
+    Once this is done, :rc:`figure.hooks` are called, one at a time, on the
+    figure; these hooks allow arbitrary customization of the figure (e.g.,
+    attaching callbacks) or of associated elements (e.g., modifying the
+    toolbar).  See :doc:`/gallery/user_interfaces/mplcvd` for an example of
+    toolbar customization.
+
+    If you are creating many figures, make sure you explicitly call
+    `.pyplot.close` on the figures you are not using, because this will
+    enable pyplot to properly clean up the memory.
+
+    `~matplotlib.rcParams` defines the default values, which can be modified
+    in the matplotlibrc file.
+    """
+    if isinstance(num, FigureBase):
+        if num.canvas.manager is None:
+            raise ValueError("The passed figure is not managed by pyplot")
+        _pylab_helpers.Gcf.set_active(num.canvas.manager)
+        return num.figure
+
+    allnums = get_fignums()
+    next_num = max(allnums) + 1 if allnums else 1
+    fig_label = ''
+    if num is None:
+        num = next_num
+    elif isinstance(num, str):
+        fig_label = num
+        all_labels = get_figlabels()
+        if fig_label not in all_labels:
+            if fig_label == 'all':
+                _api.warn_external("close('all') closes all existing figures.")
+            num = next_num
+        else:
+            inum = all_labels.index(fig_label)
+            num = allnums[inum]
+    else:
+        num = int(num)  # crude validation of num argument
+
+    manager = _pylab_helpers.Gcf.get_fig_manager(num)
+    if manager is None:
+        max_open_warning = rcParams['figure.max_open_warning']
+        if len(allnums) == max_open_warning >= 1:
+            _api.warn_external(
+                f"More than {max_open_warning} figures have been opened. "
+                f"Figures created through the pyplot interface "
+                f"(`matplotlib.pyplot.figure`) are retained until explicitly "
+                f"closed and may consume too much memory. (To control this "
+                f"warning, see the rcParam `figure.max_open_warning`). "
+                f"Consider using `matplotlib.pyplot.close()`.",
+                RuntimeWarning)
+
+        manager = new_figure_manager(
+            num, figsize=figsize, dpi=dpi,
+            facecolor=facecolor, edgecolor=edgecolor, frameon=frameon,
+            FigureClass=FigureClass, **kwargs)
+        fig = manager.canvas.figure
+        if fig_label:
+            fig.set_label(fig_label)
+
+        for hookspecs in rcParams["figure.hooks"]:
+            module_name, dotted_name = hookspecs.split(":")
+            obj = importlib.import_module(module_name)
+            for part in dotted_name.split("."):
+                obj = getattr(obj, part)
+            obj(fig)
+
+        _pylab_helpers.Gcf._set_new_active_manager(manager)
+
+        # make sure backends (inline) that we don't ship that expect this
+        # to be called in plotting commands to make the figure call show
+        # still work.  There is probably a better way to do this in the
+        # FigureManager base class.
+        draw_if_interactive()
+
+        if _REPL_DISPLAYHOOK is _ReplDisplayHook.PLAIN:
+            fig.stale_callback = _auto_draw_if_interactive
+
+    if clear:
+        manager.canvas.figure.clear()
+
+    return manager.canvas.figure
+
+
+【源码片段 2】
+文件路径：lib/matplotlib/figure.py
+对象名称：add_subplot
+节点类型：class_function
+父节点：FigureBase
+行号范围：632-758
+代码：
+    def add_subplot(self, *args, **kwargs):
+        """
+        Add an `~.axes.Axes` to the figure as part of a subplot arrangement.
+
+        Call signatures::
+
+           add_subplot(nrows, ncols, index, **kwargs)
+           add_subplot(pos, **kwargs)
+           add_subplot(ax)
+           add_subplot()
+
+        Parameters
+        ----------
+        *args : int, (int, int, *index*), or `.SubplotSpec`, default: (1, 1, 1)
+            The position of the subplot described by one of
+
+            - Three integers (*nrows*, *ncols*, *index*). The subplot will
+              take the *index* position on a grid with *nrows* rows and
+              *ncols* columns. *index* starts at 1 in the upper left corner
+              and increases to the right.  *index* can also be a two-tuple
+              specifying the (*first*, *last*) indices (1-based, and including
+              *last*) of the subplot, e.g., ``fig.add_subplot(3, 1, (1, 2))``
+              makes a subplot that spans the upper 2/3 of the figure.
+            - A 3-digit integer. The digits are interpreted as if given
+              separately as three single-digit integers, i.e.
+              ``fig.add_subplot(235)`` is the same as
+              ``fig.add_subplot(2, 3, 5)``. Note that this can only be used
+              if there are no more than 9 subplots.
+            - A `.SubplotSpec`.
+
+            In rare circumstances, `.add_subplot` may be called with a single
+            argument, a subplot Axes instance already created in the
+            present figure but not in the figure's list of Axes.
+
+        projection : {None, 'aitoff', 'hammer', 'lambert', 'mollweide', \
+'polar', 'rectilinear', str}, optional
+            The projection type of the subplot (`~.axes.Axes`). *str* is the
+            name of a custom projection, see `~matplotlib.projections`. The
+            default None results in a 'rectilinear' projection.
+
+        polar : bool, default: False
+            If True, equivalent to projection='polar'.
+
+        axes_class : subclass type of `~.axes.Axes`, optional
+            The `.axes.Axes` subclass that is instantiated.  This parameter
+            is incompatible with *projection* and *polar*.  See
+            :ref:`axisartist_users-guide-index` for examples.
+
+        sharex, sharey : `~.axes.Axes`, optional
+            Share the x or y `~matplotlib.axis` with sharex and/or sharey.
+            The axis will have the same limits, ticks, and scale as the axis
+            of the shared axes.
+
+        label : str
+            A label for the returned Axes.
+
+        Returns
+        -------
+        `~.axes.Axes`
+
+            The Axes of the subplot. The returned Axes can actually be an
+            instance of a subclass, such as `.projections.polar.PolarAxes` for
+            polar projections.
+
+        Other Parameters
+        ----------------
+        **kwargs
+            This method also takes the keyword arguments for the returned Axes
+            base class; except for the *figure* argument. The keyword arguments
+            for the rectilinear base class `~.axes.Axes` can be found in
+            the following table but there might also be other keyword
+            arguments if another projection is used.
+
+            %(Axes:kwdoc)s
+
+        See Also
+        --------
+        .Figure.add_axes
+        .pyplot.subplot
+        .pyplot.axes
+        .Figure.subplots
+        .pyplot.subplots
+
+        Examples
+        --------
+        ::
+
+            fig = plt.figure()
+
+            fig.add_subplot(231)
+            ax1 = fig.add_subplot(2, 3, 1)  # equivalent but more general
+
+            fig.add_subplot(232, frameon=False)  # subplot with no frame
+            fig.add_subplot(233, projection='polar')  # polar subplot
+            fig.add_subplot(234, sharex=ax1)  # subplot sharing x-axis with ax1
+            fig.add_subplot(235, facecolor="red")  # red subplot
+
+            ax1.remove()  # delete ax1 from the figure
+            fig.add_subplot(ax1)  # add ax1 back to the figure
+        """
+        if 'figure' in kwargs:
+            # Axes itself allows for a 'figure' kwarg, but since we want to
+            # bind the created Axes to self, it is not allowed here.
+            raise _api.kwarg_error("add_subplot", "figure")
+
+        if (len(args) == 1
+                and isinstance(args[0], mpl.axes._base._AxesBase)
+                and args[0].get_subplotspec()):
+            ax = args[0]
+            key = ax._projection_init
+            if ax.get_figure() is not self:
+                raise ValueError("The Axes must have been created in "
+                                 "the present figure")
+        else:
+            if not args:
+                args = (1, 1, 1)
+            # Normalize correct ijk values to (i, j, k) here so that
+            # add_subplot(211) == add_subplot(2, 1, 1).  Invalid values will
+            # trigger errors later (via SubplotSpec._from_subplot_args).
+            if (len(args) == 1 and isinstance(args[0], Integral)
+                    and 100 <= args[0] <= 999):
+                args = tuple(map(int, str(args[0])))
+            projection_class, pkw = self._process_projection_requirements(
+                *args, **kwargs)
+            ax = projection_class(self, *args, **pkw)
+            key = (projection_class, pkw)
+        return self._add_axes_internal(ax, key)
+
+
+【源码片段 3】
+文件路径：lib/matplotlib/legend.py
+对象名称：set_draggable
+节点类型：class_function
+父节点：Legend
+行号范围：1173-1205
+代码：
+    def set_draggable(self, state, use_blit=False, update='loc'):
+        """
+        Enable or disable mouse dragging support of the legend.
+
+        Parameters
+        ----------
+        state : bool
+            Whether mouse dragging is enabled.
+        use_blit : bool, optional
+            Use blitting for faster image composition. For details see
+            :ref:`func-animation`.
+        update : {'loc', 'bbox'}, optional
+            The legend parameter to be changed when dragged:
+
+            - 'loc': update the *loc* parameter of the legend
+            - 'bbox': update the *bbox_to_anchor* parameter of the legend
+
+        Returns
+        -------
+        `.DraggableLegend` or *None*
+            If *state* is ``True`` this returns the `.DraggableLegend` helper
+            instance. Otherwise this returns *None*.
+        """
+        if state:
+            if self._draggable is None:
+                self._draggable = DraggableLegend(self,
+                                                  use_blit,
+                                                  update=update)
+        else:
+            if self._draggable is not None:
+                self._draggable.disconnect()
+            self._draggable = None
+        return self._draggable
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：lib/matplotlib/tests/test_legend.py
+测试名称：test_legend_draggable
+测试代码：
+@pytest.mark.parametrize('draggable', (True, False))
+def test_legend_draggable(draggable):
+    fig, ax = plt.subplots()
+    ax.plot(range(10), label='shabnams')
+    leg = ax.legend(draggable=draggable)
+    assert leg.get_draggable() is draggable
+
+【相关测试 2】
+测试文件：lib/matplotlib/tests/test_pickle.py
+测试名称：test_no_pyplot
+测试代码：
+def test_no_pyplot():
+    # tests pickle-ability of a figure not created with pyplot
+    from matplotlib.backends.backend_pdf import FigureCanvasPdf
+    fig = mfigure.Figure()
+    _ = FigureCanvasPdf(fig)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([1, 2, 3], [1, 2, 3])
+    pickle.dump(fig, BytesIO(), pickle.HIGHEST_PROTOCOL)
+
+【相关测试 3】
+测试文件：lib/matplotlib/tests/test_pickle.py
+测试名称：test_simple
+测试代码：
+def test_simple():
+    fig = plt.figure()
+    pickle.dump(fig, BytesIO(), pickle.HIGHEST_PROTOCOL)
+
+    ax = plt.subplot(121)
+    pickle.dump(ax, BytesIO(), pickle.HIGHEST_PROTOCOL)
+
+    ax = plt.axes(projection='polar')
+    plt.plot(np.arange(10), label='foobar')
+    plt.legend()
+
+    pickle.dump(ax, BytesIO(), pickle.HIGHEST_PROTOCOL)
+
+#    ax = plt.subplot(121, projection='hammer')
+#    pickle.dump(ax, BytesIO(), pickle.HIGHEST_PROTOCOL)
+
+    plt.figure()
+    plt.bar(x=np.arange(10), height=np.arange(10))
+    pickle.dump(plt.gca(), BytesIO(), pickle.HIGHEST_PROTOCOL)
+
+    fig = plt.figure()
+    ax = plt.axes()
+    plt.plot(np.arange(10))
+    ax.set_yscale('log')
+    pickle.dump(fig, BytesIO(), pickle.HIGHEST_PROTOCOL)
+
+【相关测试 4】
+测试文件：lib/matplotlib/tests/test_legend.py
+测试名称：test_get_set_draggable
+测试代码：
+def test_get_set_draggable():
+    legend = plt.legend()
+    assert not legend.get_draggable()
+    legend.set_draggable(True)
+    assert legend.get_draggable()
+    legend.set_draggable(False)
+    assert not legend.get_draggable()
+
+【相关测试 5】
+测试文件：lib/matplotlib/tests/test_pickle.py
+测试名称：test_shared
+测试代码：
+def test_shared():
+    fig, axs = plt.subplots(2, sharex=True)
+    fig = pickle.loads(pickle.dumps(fig))
+    fig.axes[0].set_xlim(10, 20)
+    assert fig.axes[1].get_xlim() == (10, 20)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

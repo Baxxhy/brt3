@@ -1,0 +1,131 @@
+instance_id: pytest-dev__pytest-5227
+
+issue_summary: pytest的默认日志格式缺少模块名（logger name），导致日志输出信息不足，难以追踪日志来源。
+
+trigger_condition:
+{
+  "text": "启用pytest的日志输出功能（如设置log_cli=true），并执行会产生日志的测试。具体来说，在pytest.ini中配置log_cli=true，然后在测试代码中调用logging.getLogger('some.module').warning('message')。",
+  "evidence": [
+    "Issue展示了当前格式的日志输出示例",
+    "相关测试2、3、4、5都涉及log_cli=true配置下的日志输出验证"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "使用当前默认日志格式输出的日志条目中不包含模块名（logger name），只有文件名、行号、级别和消息。这使得难以区分来自不同模块但相同文件名的日志。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue中当前格式输出示例：\"utils.py                   114 DEBUG    (0.000) SELECT ...\" - 缺少模块名",
+    "Issue中建议格式输出示例：\"DEBUG    django.db.backends:utils.py:114 (0.000) SELECT ...\" - 包含模块名django.db.backends"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，使用默认日志格式输出的日志条目应包含模块名（logger name），提供更完整的日志来源信息，便于调试和追踪。",
+  "evidence": [
+    "Issue明确表示\"name (module name) would be very useful here\"",
+    "Issue提供了包含%(name)s的建议格式示例"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "DEFAULT_LOG_FORMAT",
+    "kind": "global_var",
+    "source_path": "src/_pytest/logging.py",
+    "reason": "这是Issue讨论的核心变量，定义了默认日志格式"
+  },
+  {
+    "name": "ColoredLevelFormatter",
+    "kind": "class",
+    "source_path": "",
+    "reason": "测试中使用了这个格式化器，它可能使用DEFAULT_LOG_FORMAT"
+  },
+  {
+    "name": "logging.LogRecord",
+    "kind": "class",
+    "source_path": "",
+    "reason": "日志记录对象，包含name、filename、lineno等属性，用于格式化输出"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "config",
+    "current_pattern": "测试中使用硬编码的格式字符串或默认配置",
+    "target_pattern": "确保测试使用DEFAULT_LOG_FORMAT（或修改后的默认格式），并创建来自特定模块的日志记录",
+    "reason": "需要触发使用默认日志格式的场景，并验证输出是否包含模块名",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "测试中创建通用的LogRecord对象",
+    "target_pattern": "创建具有特定name属性（如'django.db.backends'）的LogRecord对象",
+    "reason": "需要验证格式化输出是否包含特定的模块名",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "str",
+    "expression_hint": "formatter.format(record)的输出字符串或result.stdout.str()中的日志行",
+    "reason": "这是日志格式化的最终输出，可以直接观察是否包含模块名"
+  },
+  {
+    "kind": "config",
+    "expression_hint": "DEFAULT_LOG_FORMAT变量的值",
+    "reason": "这是默认日志格式的定义，观察其是否包含%(name)s占位符"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "验证日志格式化输出包含模块名（logger name）",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "完整字符串相等断言（因为格式可能包含颜色标记、空格等变化）",
+    "reason": "只需要验证输出包含模块名，不需要验证完整的格式字符串"
+  },
+  {
+    "assertion_goal": "验证DEFAULT_LOG_FORMAT包含%(name)s占位符",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "硬编码完整的格式字符串断言",
+    "reason": "只需要验证格式包含模块名占位符，具体格式细节可能调整"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要使用testdir fixture来创建测试文件和配置，模拟真实的pytest运行环境",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要导入logging模块创建LogRecord，或使用logging.getLogger()获取logger",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要导入_pytest.logging模块来访问DEFAULT_LOG_FORMAT",
+    "source": "retrieved_source",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "DEFAULT_LOG_FORMAT是否在所有日志场景下都被使用，还是仅用于特定格式化器",
+  "除了ColoredLevelFormatter，是否还有其他格式化器使用这个默认格式",
+  "如果修改DEFAULT_LOG_FORMAT，是否会破坏现有测试的断言（它们可能依赖当前格式）",
+  "是否应该完全替换格式，还是提供配置选项让用户选择"
+]

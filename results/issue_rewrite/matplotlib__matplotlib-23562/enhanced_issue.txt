@@ -1,0 +1,122 @@
+instance_id: matplotlib__matplotlib-23562
+
+issue_summary: 调用通过 `Axes3D.plot_surface` 创建的 `Poly3DCollection` 对象的 `get_facecolors()` 方法会因缺少 `_facecolors2d` 属性而引发 AttributeError。
+
+trigger_condition:
+{
+  "text": "使用 `Axes3D.plot_surface` 方法创建一个 3D 曲面，获取返回的 `Poly3DCollection` 对象，然后调用该对象的 `get_facecolors()` 方法。",
+  "evidence": [
+    "原始 Issue 中的代码示例：`r = ax.plot_surface(x,y,z2, cmap='hot'); r.get_facecolors()`。",
+    "相关测试 `test_surface3d` 展示了 `ax.plot_surface` 的调用，但未调用 `get_facecolors()`。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "调用 `get_facecolors()` 时引发 `AttributeError`，提示 `'Poly3DCollection' object has no attribute '_facecolors2d'`。",
+  "symptom_type": "exception",
+  "evidence": [
+    "原始 Issue 中的错误追踪显示 `AttributeError` 发生在 `art3d.py` 的 `get_facecolors` 方法中。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，`Poly3DCollection` 对象应具有 `_facecolors2d` 属性（或 `get_facecolors` 方法能通过其他方式工作），使得调用 `get_facecolors()` 方法能正常执行并返回颜色数据，而不引发 AttributeError。",
+  "evidence": [
+    "`art3d.py` 中 `get_facecolors` 方法的定义表明其意图是返回 `self._facecolors2d`。",
+    "`get_facecolors` 是 `PolyCollection` 的公共 API 的一部分，预期应能工作。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Axes3D.plot_surface",
+    "kind": "method",
+    "source_path": "lib/mpl_toolkits/mplot3d/axes3d.py",
+    "reason": "这是创建问题中 `Poly3DCollection` 对象的方法。"
+  },
+  {
+    "name": "Poly3DCollection.get_facecolors",
+    "kind": "method",
+    "source_path": "lib/mpl_toolkits/mplot3d/art3d.py",
+    "reason": "这是直接引发 AttributeError 的方法。"
+  },
+  {
+    "name": "art3d.Poly3DCollection",
+    "kind": "class",
+    "source_path": "lib/mpl_toolkits/mplot3d/art3d.py",
+    "reason": "这是错误发生的对象类型。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试 `test_surface3d` 中，调用 `ax.plot_surface` 后，没有对返回的对象进行进一步的方法调用（除了可能用于 colorbar）。",
+    "target_pattern": "在调用 `ax.plot_surface` 并获取返回对象后，立即调用该对象的 `get_facecolors()` 方法。",
+    "reason": "添加 `get_facecolors()` 调用是触发 AttributeError 的直接原因。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 `surf.get_facecolors()` 时是否引发 `AttributeError`，以及错误消息是否包含 `'_facecolors2d'`。",
+    "reason": "这是 Issue 中报告的直接错误症状。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "如果 `get_facecolors()` 成功执行，观察其返回值的类型（例如 `np.ndarray`）和形状。",
+    "reason": "修复后，方法应正常返回，返回值是颜色数据。"
+  },
+  {
+    "kind": "state",
+    "expression_hint": "`Poly3DCollection` 对象是否具有 `_facecolors2d` 属性（例如使用 `hasattr(surf, '_facecolors2d')`）。",
+    "reason": "`get_facecolors` 方法依赖于这个属性。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "调用 `surf.get_facecolors()` 不应引发 `AttributeError`。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言返回的颜色数组的具体值，因为这可能依赖于输入数据和颜色映射。",
+    "reason": "核心问题是缺失属性导致的异常，修复后异常应消失。"
+  },
+  {
+    "assertion_goal": "`surf.get_facecolors()` 应成功返回一个表示颜色的数组。",
+    "preferred_assertion_style": "isinstance",
+    "avoid": "断言返回数组的完整精确值。",
+    "reason": "验证方法功能恢复正常，返回了预期类型的数据。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要 matplotlib 的 3D 投影支持。使用 `plt.figure()` 和 `fig.add_subplot(projection='3d')` 创建 3D 坐标轴。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要导入 `numpy` 来生成测试数据，以及 `matplotlib.pyplot` 和 `mpl_toolkits.mplot3d` 的相关模块。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "`_facecolors2d` 属性是否应该由 `Poly3DCollection.__init__` 设置，还是由 `set_3d_properties` 或其他方法设置。",
+  "修复后 `get_facecolors()` 返回值的具体格式和内容（例如，是 RGBA 数组还是其他形式）。",
+  "是否所有通过 `Axes3D.plot_surface` 创建的 `Poly3DCollection` 都会出现此问题，还是仅在特定参数（如使用 `cmap`）下出现。"
+]

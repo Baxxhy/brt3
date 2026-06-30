@@ -1,0 +1,431 @@
+{
+  "instance_id": "django__django-16229",
+  "issue_summary": "在 Django Admin 中，包含带有可调用默认值的 ArrayField 的内联表单，在第一次提交验证失败后，第二次提交会错误地绕过验证并丢失字段值。",
+  "trigger_condition": {
+    "text": "1. 在 Django Admin 中访问一个模型的添加页面（/admin/my_app/thing/add/）。2. 该模型有一个内联（TabularInline），内联模型包含一个 ArrayField，其 default 参数设置为可调用对象（如 list）。3. 为该内联的 ArrayField 输入任意值。4. 内联表单的 clean 方法被重写以始终抛出 ValidationError。5. 提交表单（第一次），会看到验证错误。6. 不修改任何输入，再次提交表单（第二次）。",
+    "evidence": [
+      "Issue 描述中的操作步骤：'go to /admin/my_app/thing/add/ type anything in plop submit -> it shows an error on the inline submit again -> no errors, plop become unfilled'",
+      "Issue 中提供的模型和表单代码，展示了 ArrayField(default=list) 和总是抛出错误的 clean 方法。",
+      "相关测试 test_add_view_form_and_formsets_run_validation 展示了 Admin 中表单和表单集验证的测试模式。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "第二次提交表单时，内联表单的验证被绕过（没有显示错误），内联被忽略（可能未保存），并且 ArrayField 的输入值变为空（unfilled）。",
+    "symptom_type": "state_not_updated",
+    "evidence": [
+      "Issue 描述：'submit again -> no errors, plop become unfilled'",
+      "Issue 描述：'the validation will be bypassed (and the inline dismissed)'"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "修复后，在连续提交包含验证错误的内联表单时，验证错误应持续显示，并且 ArrayField 的输入值应在后续提交中正确保留（或根据表单逻辑重置），而不是被静默忽略并清空。",
+    "evidence": [
+      "Issue 标题和描述暗示了默认值没有正确传播。",
+      "Issue 提交者通过设置 show_hidden_initial=False 修复了问题，暗示了正确的行为应涉及初始值的正确处理。",
+      "相关测试 test_callable_field_default 展示了 ModelForm 中可调用默认值在表单渲染和绑定后应正确工作（bound_form.has_changed() 为 False）。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "ArrayField",
+      "kind": "class",
+      "source_path": "django/contrib/postgres/fields/array.py",
+      "reason": "Issue 中涉及的字段类型，其可调用默认值的行为是问题的核心。"
+    },
+    {
+      "name": "ModelForm",
+      "kind": "class",
+      "source_path": "",
+      "reason": "Issue 中使用了自定义的 RelatedModelForm，它继承自 ModelForm，并重写了 clean 方法。"
+    },
+    {
+      "name": "TabularInline",
+      "kind": "class",
+      "source_path": "django/contrib/admin/options.py",
+      "reason": "Issue 中使用的内联类型。"
+    },
+    {
+      "name": "ModelAdmin",
+      "kind": "class",
+      "source_path": "django/contrib/admin/options.py",
+      "reason": "用于注册模型的管理类，并配置了 inlines。"
+    },
+    {
+      "name": "Field.clean",
+      "kind": "method",
+      "source_path": "django/forms/fields.py",
+      "reason": "表单字段清理和验证的核心方法，可能涉及初始值和提交值的处理。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/forms/fields.py",
+      "object": "处理表单字段初始值绑定和隐藏输入生成的逻辑",
+      "lines": "",
+      "reason": "Issue 提到隐藏输入包含初始值，并通过 show_hidden_initial=False 修复，表明问题可能与字段初始值渲染或数据绑定的逻辑有关。"
+    },
+    {
+      "path": "django/contrib/admin/options.py",
+      "object": "处理内联表单集验证和保存的逻辑，特别是在 changeform_view 或 _create_formsets 中",
+      "lines": "",
+      "reason": "Issue 发生在 Admin 内联上下文中，涉及表单集的验证和状态管理。"
+    },
+    {
+      "path": "django/contrib/postgres/fields/array.py",
+      "object": "ArrayField.formfield 方法或相关的值转换逻辑",
+      "lines": "",
+      "reason": "ArrayField 作为特定字段类型，其默认值（可调用对象）在表单上下文中的处理可能与其他字段不同。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_add_view_form_and_formsets_run_validation",
+      "test_file": "tests/admin_views/tests.py",
+      "why_relevant": "该测试直接验证了 Admin 添加视图中，当父表单验证失败时，内联表单集也应运行验证。它使用了 Admin 客户端、表单提交、以及 assertFormSetError 来检查内联错误，这与当前 Issue 的 Admin 内联验证场景高度相关。",
+      "reusable_parts": [
+        "使用 override_settings 和 TestCase 的测试类结构。",
+        "使用 self.client.post 提交数据到 Admin 添加视图。",
+        "构造包含内联数据的 post_data 字典（使用 TOTAL_FORMS, INITIAL_FORMS 等键）。",
+        "使用 assertFormSetError 来断言内联表单集的验证错误。",
+        "从 response.context 中获取 'inline_admin_formset'。"
+      ],
+      "possible_gap": "该测试验证的是内联验证错误被正确报告，而当前 Issue 是验证错误在第二次提交时被错误地绕过。需要修改测试，使其模拟两次连续提交，并检查第二次提交时验证错误是否仍然存在（或字段值是否丢失）。此外，需要引入 ArrayField 和可调用默认值。"
+    },
+    {
+      "test_name": "test_callable_field_default",
+      "test_file": "tests/model_forms/tests.py",
+      "why_relevant": "该测试专门针对 ModelForm 中带有可调用默认值的字段，检查其表单渲染和绑定后的行为（has_changed）。它涉及了初始隐藏输入字段的生成和验证，这与 Issue 中提到的隐藏输入和默认值传播问题直接相关。",
+      "reusable_parts": [
+        "在测试类内部动态定义 ModelForm 和模型。",
+        "检查 form.as_p() 输出的 HTML 中是否包含带有初始值的隐藏输入。",
+        "使用 bound_form.has_changed() 来验证表单数据是否与初始值相同。",
+        "构造包含 'initial-' 前缀字段的 empty_data 字典。"
+      ],
+      "possible_gap": "该测试是独立的 ModelForm 测试，不涉及 Admin 内联、表单集或连续提交。需要将其整合到 Admin 测试框架中，并模拟两次提交的流程。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "相关测试中，post_data 字典包含内联字段的一次性提交数据。",
+      "target_pattern": "修改测试以执行两次连续的 self.client.post 请求到同一个 Admin 添加视图 URL。第一次提交的数据应触发内联验证错误。第二次提交使用与第一次完全相同的数据（或从第一次响应的上下文中提取可能的重置数据）。",
+      "reason": "Issue 的核心是第二次提交时行为异常。连续提交是触发缺陷的必要条件。",
+      "confidence": "high"
+    },
+    {
+      "slot": "object_state",
+      "current_pattern": "测试中使用具有普通字段的模型和内联。",
+      "target_pattern": "将内联模型的一个字段改为 ArrayField(base_field=CharField(max_length=42), default=list)。并确保内联表单的 clean 方法始终抛出 ValidationError。",
+      "reason": "Issue 明确要求 ArrayField 和可调用默认值，以及总是失败的验证。",
+      "confidence": "high"
+    },
+    {
+      "slot": "config",
+      "current_pattern": "测试中可能未显式设置表单字段的 show_hidden_initial 属性。",
+      "target_pattern": "在测试中，可以尝试在表单的 __init__ 方法中为 ArrayField 对应的表单字段设置 show_hidden_initial=False，并观察行为是否改变，以此作为对比观测点。",
+      "reason": "Issue 提到此设置可以修复问题，因此将其作为变异或观测点有助于定位问题。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "state",
+      "expression_hint": "第二次提交后，检查 response.context['inline_admin_formset'].forms[0].errors 或 response.context['inline_admin_formset'].non_form_errors()，观察验证错误是否消失。",
+      "reason": "Issue 的核心症状是第二次提交时验证错误被绕过。直接观察表单集的错误状态是最直接的证据。"
+    },
+    {
+      "kind": "file_output",
+      "expression_hint": "检查第二次提交后响应的 HTML 内容（response.content.decode()）中，对应 ArrayField 的输入元素（如 <input> 或 <textarea>）的 value 属性是否为空，以及是否存在对应的 'initial-' 隐藏输入字段及其值。",
+      "reason": "Issue 描述 'plop become unfilled' 并且提到了隐藏输入。观察渲染输出可以确认字段值是否丢失。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "在两次提交之间，可以尝试从第一次响应的上下文或表单中提取 bound field 的初始值（field.initial 或 field.value()），并与第二次提交前构造的数据进行比较。",
+      "reason": "这有助于确定初始值是否在验证失败后被错误地重置或丢失。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "第二次提交后，内联表单集应仍然包含验证错误（或至少不是空错误）。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言完整的错误消息字符串完全相等。",
+      "reason": "我们主要关心错误是否存在，而不是精确的措辞。使用 assertFormSetError 或检查 errors 字典非空是稳定且公开的方式。"
+    },
+    {
+      "assertion_goal": "第二次提交后，响应中渲染的 ArrayField 输入元素应包含用户最初输入的值（或适当的初始值），而不是空值。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的 HTML 字符串。",
+      "reason": "Issue 报告值变为空。检查渲染的 HTML 中 value 属性包含非空字符串片段是稳定的公开行为检查。"
+    },
+    {
+      "assertion_goal": "如果设置了 show_hidden_initial=False，上述错误行为应被纠正（即验证错误持续，值被保留）。",
+      "preferred_assertion_style": "before_after_relation",
+      "avoid": "断言内部私有属性。",
+      "reason": "这可以作为对比实验，验证 Issue 提交者的修复方法是否有效，并帮助定位问题根源。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要使用 Django TestCase 和 Client 来模拟 Admin 请求。可能需要 @override_settings(ROOT_URLCONF='...') 来配置正确的 URLconf。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "需要定义测试专用的模型（Thing, RelatedModel）及其 Admin 配置，可能需要在测试中使用 django.contrib.auth 的 User 模型或创建临时应用。",
+      "source": "issue",
+      "confidence": "high"
+    },
+    {
+      "hint": "需要启用 PostgreSQL 相关特性以支持 ArrayField，或者使用 Django 的测试框架来模拟或跳过数据库后端要求。",
+      "source": "retrieved_source",
+      "confidence": "medium"
+    },
+    {
+      "hint": "测试可能需要处理数据库事务和清理，确保每个测试用例有独立的状态。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "show_hidden_initial 参数的确切默认值及其在 ArrayField 表单字段中的行为。",
+    "在 Admin 内联表单集验证失败后，框架内部是如何处理每个内联表单的初始值和提交值状态的。",
+    "问题是否特定于 ArrayField，还是也影响其他带有可调用默认值的字段类型。",
+    "两次提交之间，浏览器端是否发生了某些自动的数据清理或重置（但 Issue 描述暗示是服务器端问题）。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "ModelForm fields with callable defaults don't correctly propagate default values\nDescription\n\nWhen creating an object via the admin, if an inline contains an ArrayField in error, the validation will be bypassed (and the inline dismissed) if we submit the form a second time (without modification).\ngo to /admin/my_app/thing/add/\ntype anything in plop\nsubmit -> it shows an error on the inline\nsubmit again -> no errors, plop become unfilled\n# models.py\nclass Thing(models.Model):\n\tpass\nclass RelatedModel(models.Model):\n\tthing = models.ForeignKey(Thing, on_delete=models.CASCADE)\n\tplop = ArrayField(\n\t\tmodels.CharField(max_length=42),\n\t\tdefault=list,\n\t)\n# admin.py\nclass RelatedModelForm(forms.ModelForm):\n\tdef clean(self):\n\t\traise ValidationError(\"whatever\")\nclass RelatedModelInline(admin.TabularInline):\n\tform = RelatedModelForm\n\tmodel = RelatedModel\n\textra = 1\n@admin.register(Thing)\nclass ThingAdmin(admin.ModelAdmin):\n\tinlines = [\n\t\tRelatedModelInline\n\t]\nIt seems related to the hidden input containing the initial value:\n<input type=\"hidden\" name=\"initial-relatedmodel_set-0-plop\" value=\"test\" id=\"initial-relatedmodel_set-0-id_relatedmodel_set-0-plop\">\nI can fix the issue locally by forcing show_hidden_initial=False on the field (in the form init)",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 Django Admin 中，当通过内联（inline）创建对象时，如果内联表单包含一个带有可调用默认值（如 default=list）的 ArrayField，并且该内联表单的 clean 方法总是抛出 ValidationError，那么会出现以下问题：第一次提交表单会显示验证错误，但第二次提交（不修改任何输入）时，验证会被绕过，内联被忽略，并且 ArrayField 的值变为空。Issue 提交者怀疑这与包含初始值的隐藏输入字段有关，并提到通过强制设置字段的 show_hidden_initial=False 可以修复此问题。",
+      "facts_from_issue": [
+        "在 Django Admin 中通过内联创建对象时触发。",
+        "内联模型包含一个 ArrayField，其 default 参数为可调用对象 list。",
+        "内联表单的 clean 方法总是抛出 ValidationError。",
+        "第一次提交表单会显示验证错误。",
+        "第二次提交（不修改任何输入）时，验证被绕过，内联被忽略，ArrayField 的值变为空。",
+        "Issue 提交者观察到隐藏输入字段包含初始值。",
+        "通过强制设置字段的 show_hidden_initial=False 可以修复此问题。"
+      ],
+      "facts_from_retrieved_context": [
+        "ArrayField 是 django.contrib.postgres.fields.array 中的一个类。",
+        "CharField 是 django.forms.fields 中的一个类。",
+        "Field 类的 clean 方法会调用 to_python、validate 和 run_validators。",
+        "TabularInline 是 django.contrib.admin.options 中的一个类。",
+        "ModelAdmin 是 django.contrib.admin.options 中的一个类，包含管理内联的功能。",
+        "相关测试展示了 ModelForm 中可调用字段默认值的渲染和验证行为。",
+        "相关测试展示了 Admin 内联的保存、修改和验证流程。"
+      ],
+      "inferences": [
+        "问题可能与表单字段的初始值处理和验证逻辑在连续提交时的交互有关。",
+        "show_hidden_initial 参数可能影响隐藏输入字段的生成和后续表单数据的绑定。",
+        "当内联表单验证失败后，ArrayField 的初始值可能没有正确保留或传递到后续的提交中。"
+      ],
+      "do_not_assume": [
+        "具体的修复代码位置。",
+        "show_hidden_initial 参数在所有表单字段中的默认行为。",
+        "ArrayField 与其他字段类型在处理可调用默认值时的差异。",
+        "Admin 内联表单集（formsets）处理验证错误的完整流程。"
+      ]
+    },
+    "issue_summary": "在 Django Admin 中，包含带有可调用默认值的 ArrayField 的内联表单，在第一次提交验证失败后，第二次提交会错误地绕过验证并丢失字段值。",
+    "trigger_condition": {
+      "text": "1. 在 Django Admin 中访问一个模型的添加页面（/admin/my_app/thing/add/）。2. 该模型有一个内联（TabularInline），内联模型包含一个 ArrayField，其 default 参数设置为可调用对象（如 list）。3. 为该内联的 ArrayField 输入任意值。4. 内联表单的 clean 方法被重写以始终抛出 ValidationError。5. 提交表单（第一次），会看到验证错误。6. 不修改任何输入，再次提交表单（第二次）。",
+      "evidence": [
+        "Issue 描述中的操作步骤：'go to /admin/my_app/thing/add/ type anything in plop submit -> it shows an error on the inline submit again -> no errors, plop become unfilled'",
+        "Issue 中提供的模型和表单代码，展示了 ArrayField(default=list) 和总是抛出错误的 clean 方法。",
+        "相关测试 test_add_view_form_and_formsets_run_validation 展示了 Admin 中表单和表单集验证的测试模式。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "第二次提交表单时，内联表单的验证被绕过（没有显示错误），内联被忽略（可能未保存），并且 ArrayField 的输入值变为空（unfilled）。",
+      "symptom_type": "state_not_updated",
+      "evidence": [
+        "Issue 描述：'submit again -> no errors, plop become unfilled'",
+        "Issue 描述：'the validation will be bypassed (and the inline dismissed)'"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "修复后，在连续提交包含验证错误的内联表单时，验证错误应持续显示，并且 ArrayField 的输入值应在后续提交中正确保留（或根据表单逻辑重置），而不是被静默忽略并清空。",
+      "evidence": [
+        "Issue 标题和描述暗示了默认值没有正确传播。",
+        "Issue 提交者通过设置 show_hidden_initial=False 修复了问题，暗示了正确的行为应涉及初始值的正确处理。",
+        "相关测试 test_callable_field_default 展示了 ModelForm 中可调用默认值在表单渲染和绑定后应正确工作（bound_form.has_changed() 为 False）。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "ArrayField",
+        "kind": "class",
+        "source_path": "django/contrib/postgres/fields/array.py",
+        "reason": "Issue 中涉及的字段类型，其可调用默认值的行为是问题的核心。"
+      },
+      {
+        "name": "ModelForm",
+        "kind": "class",
+        "source_path": "",
+        "reason": "Issue 中使用了自定义的 RelatedModelForm，它继承自 ModelForm，并重写了 clean 方法。"
+      },
+      {
+        "name": "TabularInline",
+        "kind": "class",
+        "source_path": "django/contrib/admin/options.py",
+        "reason": "Issue 中使用的内联类型。"
+      },
+      {
+        "name": "ModelAdmin",
+        "kind": "class",
+        "source_path": "django/contrib/admin/options.py",
+        "reason": "用于注册模型的管理类，并配置了 inlines。"
+      },
+      {
+        "name": "Field.clean",
+        "kind": "method",
+        "source_path": "django/forms/fields.py",
+        "reason": "表单字段清理和验证的核心方法，可能涉及初始值和提交值的处理。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/forms/fields.py",
+        "object": "处理表单字段初始值绑定和隐藏输入生成的逻辑",
+        "lines": "",
+        "reason": "Issue 提到隐藏输入包含初始值，并通过 show_hidden_initial=False 修复，表明问题可能与字段初始值渲染或数据绑定的逻辑有关。"
+      },
+      {
+        "path": "django/contrib/admin/options.py",
+        "object": "处理内联表单集验证和保存的逻辑，特别是在 changeform_view 或 _create_formsets 中",
+        "lines": "",
+        "reason": "Issue 发生在 Admin 内联上下文中，涉及表单集的验证和状态管理。"
+      },
+      {
+        "path": "django/contrib/postgres/fields/array.py",
+        "object": "ArrayField.formfield 方法或相关的值转换逻辑",
+        "lines": "",
+        "reason": "ArrayField 作为特定字段类型，其默认值（可调用对象）在表单上下文中的处理可能与其他字段不同。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_add_view_form_and_formsets_run_validation",
+        "test_file": "tests/admin_views/tests.py",
+        "why_relevant": "该测试直接验证了 Admin 添加视图中，当父表单验证失败时，内联表单集也应运行验证。它使用了 Admin 客户端、表单提交、以及 assertFormSetError 来检查内联错误，这与当前 Issue 的 Admin 内联验证场景高度相关。",
+        "reusable_parts": [
+          "使用 override_settings 和 TestCase 的测试类结构。",
+          "使用 self.client.post 提交数据到 Admin 添加视图。",
+          "构造包含内联数据的 post_data 字典（使用 TOTAL_FORMS, INITIAL_FORMS 等键）。",
+          "使用 assertFormSetError 来断言内联表单集的验证错误。",
+          "从 response.context 中获取 'inline_admin_formset'。"
+        ],
+        "possible_gap": "该测试验证的是内联验证错误被正确报告，而当前 Issue 是验证错误在第二次提交时被错误地绕过。需要修改测试，使其模拟两次连续提交，并检查第二次提交时验证错误是否仍然存在（或字段值是否丢失）。此外，需要引入 ArrayField 和可调用默认值。"
+      },
+      {
+        "test_name": "test_callable_field_default",
+        "test_file": "tests/model_forms/tests.py",
+        "why_relevant": "该测试专门针对 ModelForm 中带有可调用默认值的字段，检查其表单渲染和绑定后的行为（has_changed）。它涉及了初始隐藏输入字段的生成和验证，这与 Issue 中提到的隐藏输入和默认值传播问题直接相关。",
+        "reusable_parts": [
+          "在测试类内部动态定义 ModelForm 和模型。",
+          "检查 form.as_p() 输出的 HTML 中是否包含带有初始值的隐藏输入。",
+          "使用 bound_form.has_changed() 来验证表单数据是否与初始值相同。",
+          "构造包含 'initial-' 前缀字段的 empty_data 字典。"
+        ],
+        "possible_gap": "该测试是独立的 ModelForm 测试，不涉及 Admin 内联、表单集或连续提交。需要将其整合到 Admin 测试框架中，并模拟两次提交的流程。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "相关测试中，post_data 字典包含内联字段的一次性提交数据。",
+        "target_pattern": "修改测试以执行两次连续的 self.client.post 请求到同一个 Admin 添加视图 URL。第一次提交的数据应触发内联验证错误。第二次提交使用与第一次完全相同的数据（或从第一次响应的上下文中提取可能的重置数据）。",
+        "reason": "Issue 的核心是第二次提交时行为异常。连续提交是触发缺陷的必要条件。",
+        "confidence": "high"
+      },
+      {
+        "slot": "object_state",
+        "current_pattern": "测试中使用具有普通字段的模型和内联。",
+        "target_pattern": "将内联模型的一个字段改为 ArrayField(base_field=CharField(max_length=42), default=list)。并确保内联表单的 clean 方法始终抛出 ValidationError。",
+        "reason": "Issue 明确要求 ArrayField 和可调用默认值，以及总是失败的验证。",
+        "confidence": "high"
+      },
+      {
+        "slot": "config",
+        "current_pattern": "测试中可能未显式设置表单字段的 show_hidden_initial 属性。",
+        "target_pattern": "在测试中，可以尝试在表单的 __init__ 方法中为 ArrayField 对应的表单字段设置 show_hidden_initial=False，并观察行为是否改变，以此作为对比观测点。",
+        "reason": "Issue 提到此设置可以修复问题，因此将其作为变异或观测点有助于定位问题。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "state",
+        "expression_hint": "第二次提交后，检查 response.context['inline_admin_formset'].forms[0].errors 或 response.context['inline_admin_formset'].non_form_errors()，观察验证错误是否消失。",
+        "reason": "Issue 的核心症状是第二次提交时验证错误被绕过。直接观察表单集的错误状态是最直接的证据。"
+      },
+      {
+        "kind": "file_output",
+        "expression_hint": "检查第二次提交后响应的 HTML 内容（response.content.decode()）中，对应 ArrayField 的输入元素（如 <input> 或 <textarea>）的 value 属性是否为空，以及是否存在对应的 'initial-' 隐藏输入字段及其值。",
+        "reason": "Issue 描述 'plop become unfilled' 并且提到了隐藏输入。观察渲染输出可以确认字段值是否丢失。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "在两次提交之间，可以尝试从第一次响应的上下文或表单中提取 bound field 的初始值（field.initial 或 field.value()），并与第二次提交前构造的数据进行比较。",
+        "reason": "这有助于确定初始值是否在验证失败后被错误地重置或丢失。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "第二次提交后，内联表单集应仍然包含验证错误（或至少不是空错误）。",
+        "preferred_assertion_style": "not_contains_fragment",
+        "avoid": "断言完整的错误消息字符串完全相等。",
+        "reason": "我们主要关心错误是否存在，而不是精确的措辞。使用 assertFormSetError 或检查 errors 字典非空是稳定且公开的方式。"
+      },
+      {
+        "assertion_goal": "第二次提交后，响应中渲染的 ArrayField 输入元素应包含用户最初输入的值（或适当的初始值），而不是空值。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的 HTML 字符串。",
+        "reason": "Issue 报告值变为空。检查渲染的 HTML 中 value 属性包含非空字符串片段是稳定的公开行为检查。"
+      },
+      {
+        "assertion_goal": "如果设置了 show_hidden_initial=False，上述错误行为应被纠正（即验证错误持续，值被保留）。",
+        "preferred_assertion_style": "before_after_relation",
+        "avoid": "断言内部私有属性。",
+        "reason": "这可以作为对比实验，验证 Issue 提交者的修复方法是否有效，并帮助定位问题根源。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要使用 Django TestCase 和 Client 来模拟 Admin 请求。可能需要 @override_settings(ROOT_URLCONF='...') 来配置正确的 URLconf。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "需要定义测试专用的模型（Thing, RelatedModel）及其 Admin 配置，可能需要在测试中使用 django.contrib.auth 的 User 模型或创建临时应用。",
+        "source": "issue",
+        "confidence": "high"
+      },
+      {
+        "hint": "需要启用 PostgreSQL 相关特性以支持 ArrayField，或者使用 Django 的测试框架来模拟或跳过数据库后端要求。",
+        "source": "retrieved_source",
+        "confidence": "medium"
+      },
+      {
+        "hint": "测试可能需要处理数据库事务和清理，确保每个测试用例有独立的状态。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "show_hidden_initial 参数的确切默认值及其在 ArrayField 表单字段中的行为。",
+      "在 Admin 内联表单集验证失败后，框架内部是如何处理每个内联表单的初始值和提交值状态的。",
+      "问题是否特定于 ArrayField，还是也影响其他带有可调用默认值的字段类型。",
+      "两次提交之间，浏览器端是否发生了某些自动的数据清理或重置（但 Issue 描述暗示是服务器端问题）。"
+    ]
+  }
+}

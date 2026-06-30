@@ -1,0 +1,8 @@
+{
+  "instance_id": "matplotlib__matplotlib-26020",
+  "started_at": "2026-06-29 16:54:23",
+  "status": "ERROR",
+  "finished_at": "2026-06-29 16:59:01",
+  "error": "failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)",
+  "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)\n"
+}

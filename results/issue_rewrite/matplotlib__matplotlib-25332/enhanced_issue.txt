@@ -1,0 +1,135 @@
+instance_id: matplotlib__matplotlib-25332
+
+issue_summary: 调用 `figure.align_labels()` 后，figure 对象无法被 pickle 序列化，抛出关于 `weakref.ReferenceType` 的类型错误。
+
+trigger_condition:
+{
+  "text": "创建一个包含至少两个子图的 matplotlib figure 对象，调用其 `align_labels()` 方法，然后尝试使用 `pickle.dumps(figure)` 序列化该对象。",
+  "evidence": [
+    "Issue 中的复现代码展示了完整的触发步骤。",
+    "Issue 明确指出移除 `fig.align_labels()` 调用后 pickling 正常工作。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "调用 `pickle.dumps(figure)` 时抛出 `TypeError: cannot pickle 'weakref.ReferenceType' object` 异常。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 的 Actual outcome 部分提供了确切的错误信息和异常类型。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "在调用 `figure.align_labels()` 方法后，figure 对象应能被 `pickle.dumps()` 成功序列化，不抛出任何异常。",
+  "evidence": [
+    "Issue 的 Expected outcome 部分明确为 \"Pickling successful\"。",
+    "相关测试 `test_complete`、`test_no_pyplot` 等表明 figure 对象在正常情况下应支持 pickle 序列化。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "matplotlib.pyplot.figure",
+    "kind": "function",
+    "source_path": "lib/matplotlib/pyplot.py",
+    "reason": "用于创建 figure 对象，是复现步骤的起点。"
+  },
+  {
+    "name": "FigureBase.add_subplot",
+    "kind": "method",
+    "source_path": "lib/matplotlib/figure.py",
+    "reason": "用于向 figure 添加子图，是构建测试场景的必要步骤。"
+  },
+  {
+    "name": "FigureBase.align_labels",
+    "kind": "method",
+    "source_path": "lib/matplotlib/figure.py",
+    "reason": "触发缺陷的关键方法调用。"
+  },
+  {
+    "name": "pickle.dumps",
+    "kind": "function",
+    "source_path": "",
+    "reason": "用于验证序列化是否成功的标准库函数，是缺陷的观测点。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "call_chain",
+    "current_pattern": "在相关测试中，figure 构造和绘图后直接进行 pickle 序列化（或进行图像比较）。",
+    "target_pattern": "在 figure 构造、添加子图、设置标签和绘图之后，但在 pickle 序列化之前，插入 `fig.align_labels()` 调用。",
+    "reason": "Issue 表明 `align_labels()` 的调用是触发序列化失败的必要条件。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试中的 figure 可能只有一个子图，或子图标签设置简单。",
+    "target_pattern": "创建包含至少两个子图的 figure，并为每个子图设置 ylabel（或 xlabel），以使得 `align_labels()` 有实际对齐工作可做。",
+    "reason": "`align_labels()` 的设计目的是对齐多个子图的标签，拥有多个带标签的子图是触发其内部逻辑的典型场景。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 `pickle.dumps(fig)` 时是否抛出 `TypeError`，以及异常信息是否包含 `'weakref.ReferenceType'`。",
+    "reason": "这是 Issue 中直接报告的错误现象，是判断缺陷是否触发的直接依据。"
+  },
+  {
+    "kind": "serialization",
+    "expression_hint": "`pickle.dumps(fig)` 的返回值（字节串）是否成功生成，以及 `pickle.loads()` 是否能成功重建 figure 对象。",
+    "reason": "修复后的期望行为是序列化和反序列化过程成功完成，不抛出异常。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "在调用 `fig.align_labels()` 后，`pickle.dumps(fig)` 应成功执行并返回字节串，不抛出异常。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言序列化后字节串的完整内容或反序列化后对象的完全相等，因为内部渲染状态可能略有变化。",
+    "reason": "Issue 的核心是序列化过程不应失败。使用 `pytest.raises` 验证无异常是最直接且稳定的断言。修复后应无异常，故断言 `raises` 的上下文管理器应正常通过（即不进入）。"
+  },
+  {
+    "assertion_goal": "序列化后的字节串能够通过 `pickle.loads` 成功加载，得到一个有效的 matplotlib.figure.Figure 对象。",
+    "preferred_assertion_style": "isinstance",
+    "avoid": "断言加载后 figure 的所有内部属性与原始 figure 完全一致。",
+    "reason": "成功加载表明序列化格式有效，且基本对象结构得以保留。检查加载结果是否为 Figure 类型是一个稳定的公开行为检查。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试可能需要导入 `matplotlib.pyplot`、`pickle`、`io.BytesIO`。可以使用 `mpl.style.context('default')` 确保可重复的样式。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可以使用 `check_figures_equal` 装饰器或类似的模式来比较序列化-反序列化前后的图形，但主要断言应关注序列化过程本身。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  },
+  {
+    "hint": "测试应在一个干净的图形上下文中运行，避免之前测试留下的图形管理器干扰。确保在测试结束时或使用 `plt.close('all')` 清理。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "`weakref.ReferenceType` 对象具体是在 `align_labels()` 调用链中的哪个环节被创建并附加到 figure 上的。",
+  "除了 `align_labels()`，其他类似的方法（如 `align_xlabels`、`align_ylabels` 单独调用）是否也会导致同样的序列化问题。",
+  "缺陷是否与特定的 matplotlib 后端有关。"
+]

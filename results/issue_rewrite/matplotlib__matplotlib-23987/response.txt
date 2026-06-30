@@ -1,0 +1,169 @@
+```json
+{
+    "original_issue": {
+        "text": "[Bug]: Constrained layout UserWarning even when False\n### Bug summary\n\nWhen using layout settings such as `plt.subplots_adjust` or `bbox_inches='tight`, a UserWarning is produced due to incompatibility with constrained_layout, even if constrained_layout = False. This was not the case in previous versions.\n\n### Code for reproduction\n\n```python\nimport matplotlib.pyplot as plt\nimport numpy as np\na = np.linspace(0,2*np.pi,100)\nb = np.sin(a)\nc = np.cos(a)\nfig,ax = plt.subplots(1,2,figsize=(8,2),constrained_layout=False)\nax[0].plot(a,b)\nax[1].plot(a,c)\nplt.subplots_adjust(wspace=0)\n```\n\n\n### Actual outcome\n\nThe plot works fine but the warning is generated\n\n`/var/folders/ss/pfgdfm2x7_s4cyw2v0b_t7q80000gn/T/ipykernel_76923/4170965423.py:7: UserWarning: This figure was using a layout engine that is incompatible with subplots_adjust and/or tight_layout; not calling subplots_adjust.\n  plt.subplots_adjust(wspace=0)`\n\n### Expected outcome\n\nno warning\n\n### Additional information\n\nWarning disappears when constrained_layout=False is removed\n\n### Operating system\n\nOS/X\n\n### Matplotlib Version\n\n3.6.0\n\n### Matplotlib Backend\n\n_No response_\n\n### Python version\n\n_No response_\n\n### Jupyter version\n\n_No response_\n\n### Installation\n\nconda",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用 `plt.subplots` 创建图形并显式设置 `constrained_layout=False` 后，调用 `plt.subplots_adjust` 会触发一个 UserWarning，提示布局引擎不兼容。该警告在之前的版本中不会出现。期望的行为是：当 `constrained_layout=False` 时，调用 `subplots_adjust` 不应产生任何警告。",
+        "facts_from_issue": [
+            "使用 `plt.subplots(..., constrained_layout=False)` 创建图形。",
+            "随后调用 `plt.subplots_adjust(wspace=0)`。",
+            "触发 UserWarning: \"This figure was using a layout engine that is incompatible with subplots_adjust and/or tight_layout; not calling subplots_adjust.\"",
+            "图形绘制正常，但产生了警告。",
+            "期望的结果是没有警告。",
+            "移除 `constrained_layout=False` 参数后，警告消失。",
+            "Matplotlib 版本为 3.6.0。"
+        ],
+        "facts_from_retrieved_context": [
+            "`FigureBase.subplots_adjust` 方法包含检查布局引擎兼容性的逻辑，如果不兼容会发出警告并提前返回。",
+            "测试 `test_invalid_layouts` 展示了当图形使用 `layout=\"constrained\"` 时调用 `subplots_adjust` 会触发警告。"
+        ],
+        "inferences": [
+            "`constrained_layout=False` 参数可能没有正确地将图形的布局引擎设置为与 `subplots_adjust` 兼容的状态。",
+            "`subplots_adjust` 方法中的兼容性检查逻辑可能错误地判断了 `constrained_layout=False` 时的布局引擎状态。"
+        ],
+        "do_not_assume": [
+            "`bbox_inches='tight'` 的确切触发条件，因为 Issue 中的示例代码未使用它。",
+            "`plt.subplots_adjust` 的所有参数组合都会触发此警告。",
+            "其他布局设置（如 `tight_layout`）是否也存在相同问题。",
+            "警告消失的具体内部机制。"
+        ]
+    },
+    "issue_summary": "当使用 `constrained_layout=False` 创建图形后调用 `subplots_adjust`，会错误地触发关于布局引擎不兼容的 UserWarning。",
+    "trigger_condition": {
+        "text": "使用 `plt.subplots` 创建图形，并传入参数 `constrained_layout=False`，然后调用 `plt.subplots_adjust` 方法（例如 `plt.subplots_adjust(wspace=0)`）。",
+        "evidence": [
+            "Issue 中的复现代码展示了此调用序列。",
+            "源码片段 1 显示了 `subplots` 方法签名包含 `constrained_layout` 参数。",
+            "源码片段 2 显示了 `subplots_adjust` 方法包含触发警告的逻辑。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 `plt.subplots_adjust` 时产生一个 UserWarning，警告内容为 \"This figure was using a layout engine that is incompatible with subplots_adjust and/or tight_layout; not calling subplots_adjust.\"。",
+        "symptom_type": "warning",
+        "evidence": [
+            "Issue 的 \"Actual outcome\" 部分提供了完整的警告信息。",
+            "测试 `test_invalid_layouts` 也使用了 `pytest.warns(UserWarning)` 来捕获类似的警告。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当图形通过 `plt.subplots(..., constrained_layout=False)` 创建后，调用 `plt.subplots_adjust` 应正常执行，且不产生任何 UserWarning。",
+        "evidence": [
+            "Issue 的 \"Expected outcome\" 明确指出 \"no warning\"。",
+            "Issue 的 \"Additional information\" 提到移除 `constrained_layout=False` 后警告消失，暗示该参数应控制警告行为。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "plt.subplots",
+            "kind": "function",
+            "source_path": "",
+            "reason": "用于创建图形和子图，并接受 `constrained_layout` 参数。"
+        },
+        {
+            "name": "plt.subplots_adjust",
+            "kind": "function",
+            "source_path": "",
+            "reason": "触发警告的方法，是缺陷的直接调用点。"
+        },
+        {
+            "name": "FigureBase.subplots_adjust",
+            "kind": "method",
+            "source_path": "lib/matplotlib/figure.py",
+            "reason": "包含警告触发逻辑的底层方法。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "lib/matplotlib/figure.py",
+            "object": "FigureBase.subplots_adjust",
+            "lines": "1283-1323",
+            "reason": "该方法包含检查布局引擎兼容性并发出警告的逻辑。当 `constrained_layout=False` 时，布局引擎的状态可能被错误地判定为不兼容。"
+        },
+        {
+            "path": "lib/matplotlib/figure.py",
+            "object": "FigureBase.subplots",
+            "lines": "762-897",
+            "reason": "负责创建图形并处理 `constrained_layout` 参数，可能未正确设置后续 `subplots_adjust` 所依赖的布局引擎状态。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_invalid_layouts",
+            "test_file": "lib/matplotlib/tests/test_figure.py",
+            "why_relevant": "该测试直接验证了在特定布局设置下调用 `subplots_adjust` 会触发 UserWarning，并使用了 `pytest.warns` 来捕获警告。",
+            "reusable_parts": [
+                "使用 `plt.subplots` 创建图形和轴对象。",
+                "调用 `fig.subplots_adjust` 方法。",
+                "使用 `pytest.warns(UserWarning)` 上下文管理器来捕获警告。",
+                "断言布局引擎的类型。"
+            ],
+            "possible_gap": "该测试使用 `layout=\"constrained\"` 来触发警告，而 Issue 的场景是 `constrained_layout=False`。需要将布局设置从 `layout=\"constrained\"` 变异为 `constrained_layout=False`。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "argument",
+            "current_pattern": "fig, ax = plt.subplots(layout=\"constrained\")",
+            "target_pattern": "fig, ax = plt.subplots(constrained_layout=False)",
+            "reason": "Issue 表明 `constrained_layout=False` 是触发错误警告的关键参数，而相似测试使用的是 `layout=\"constrained\"`。",
+            "confidence": "high"
+        },
+        {
+            "slot": "config",
+            "current_pattern": "图形配置为使用约束布局引擎 (`layout=\"constrained\"`)。",
+            "target_pattern": "图形配置为明确不使用约束布局 (`constrained_layout=False`)。",
+            "reason": "布局引擎的配置状态是 `subplots_adjust` 方法中警告触发逻辑的判断依据。",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "warning",
+            "expression_hint": "使用 `warnings.catch_warnings(record=True)` 或 `pytest.warns` 捕获调用 `subplots_adjust` 后产生的警告，检查警告消息是否包含 \"incompatible with subplots_adjust\"。",
+            "reason": "错误的核心症状是产生了不该有的 UserWarning，直接观测警告是最准确的。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "观察 `subplots_adjust` 的返回值（应为 `None`）或方法是否正常执行完毕（无异常）。",
+            "reason": "Issue 提到图形绘制正常，但警告是多余的。观测方法是否正常返回有助于确认功能本身未受影响。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "调用 `subplots_adjust` 后，不应产生任何 UserWarning。",
+            "preferred_assertion_style": "warns",
+            "avoid": "断言完整的警告消息字符串完全相等，因为消息可能因版本或上下文有微小变化。",
+            "reason": "Issue 的核心是警告的有无，而非警告内容的精确匹配。使用 `pytest.warns` 可以灵活地断言警告数量或类型。"
+        },
+        {
+            "assertion_goal": "图形对象在调用 `subplots_adjust` 后，其布局参数（如 `subplotpars`）应被成功调整。",
+            "preferred_assertion_style": "before_after_relation",
+            "avoid": "断言私有属性 `_layout_engine` 的具体状态或内部缓存值。",
+            "reason": "`subplots_adjust` 的公开行为是调整子图布局参数。可以比较调用前后 `fig.subplotpars` 的公开属性（如 `wspace`）是否发生了变化，以验证方法确实执行了调整操作。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "测试需要导入 `matplotlib.pyplot` 和 `numpy`。可以使用 `pytest` 的 `warnings` 捕获功能。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试应在无头模式下运行或确保有合适的后端（如 'Agg'），以避免弹出图形窗口。",
+            "source": "inference",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "`constrained_layout=False` 参数在 `plt.subplots` 内部是如何影响 `Figure` 对象的 `_layout_engine` 属性的。",
+        "`subplots_adjust` 方法中 `adjust_compatible` 属性的具体判断逻辑。",
+        "除了 `wspace` 参数，`subplots_adjust` 的其他参数是否也会触发此警告。",
+        "此问题是否也影响 `tight_layout` 方法。"
+    ]
+}
+```

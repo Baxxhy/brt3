@@ -1,0 +1,267 @@
+{
+  "instance_id": "sympy__sympy-18199",
+  "issue_summary": "`nthroot_mod` 函数在参数 `a` 是模数 `p` 的倍数时，遗漏了方程 `x**n = a mod p` 的根 `x = 0`。",
+  "trigger_condition": {
+    "text": "调用 `nthroot_mod(a, n, p, all_roots)`，其中 `a` 是正整数，`n` 是正整数，`p` 是素数，且满足 `a % p == 0`。例如：`nthroot_mod(289, 5, 17)` 或 `nthroot_mod(0, n, p)`。",
+    "evidence": [
+      "Issue 原文：\"when a % p == 0\"。",
+      "Issue 原文：\"`nthroot_mod(17*17, 5 , 17)`\"。",
+      "源码显示 `nthroot_mod` 接受 `a, n, p, all_roots` 参数。",
+      "测试代码中 `nthroot_mod` 被调用并验证 `pow(r, q, p) == a`。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "函数 `nthroot_mod` 返回的根列表（或单个根）中不包含 `x = 0 mod p`，尽管它是方程 `x**n = a mod p` 在 `a % p == 0` 时的有效解。",
+    "symptom_type": "wrong_return",
+    "evidence": [
+      "Issue 原文：\"misses one root of x = 0 mod p\"。",
+      "Issue 原文：\"But it does not return it.\"",
+      "测试代码中通过 `pow(r, q, p) == a` 验证返回的根，但未检查是否包含零根。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "当 `a % p == 0` 时，`nthroot_mod` 返回的根集合（或单个根）应包含 `0`。具体地，对于 `all_roots=True`，返回的列表应包含 `0`；对于 `all_roots=False`，如果 `0` 是符合条件的根（例如最小根），则应返回 `0`。",
+    "evidence": [
+      "Issue 原文：\"x = 0 mod p is also a root of this equation.\"",
+      "数学上，若 `a % p == 0`，则 `0**n % p == 0`，因此 `x=0` 是解。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "nthroot_mod",
+      "kind": "function",
+      "source_path": "sympy/ntheory/residue_ntheory.py",
+      "reason": "这是 Issue 直接报告存在缺陷的函数，用于求解模方程 `x**n = a mod p`。"
+    },
+    {
+      "name": "pow",
+      "kind": "function",
+      "source_path": "",
+      "reason": "用于验证返回的根 `r` 是否满足 `pow(r, n, p) == a`，这是测试中的标准断言方式。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sympy/ntheory/residue_ntheory.py",
+      "object": "nthroot_mod",
+      "lines": "746-807",
+      "reason": "Issue 明确指出 `nthroot_mod` 函数未检查 `a % p == 0` 的条件。检索的源码片段正是该函数，其中没有显式处理 `a % p == 0` 的逻辑。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_residue",
+      "test_file": "sympy/ntheory/tests/test_residue.py",
+      "why_relevant": "该测试文件包含对 `nthroot_mod` 函数的多个测试用例，验证了函数在各种参数下的行为，并使用了 `pow(r, q, p) == a` 的标准断言模式。",
+      "reusable_parts": [
+        "从 `sympy.ntheory.residue_ntheory` 导入 `nthroot_mod`。",
+        "使用 `pow(r, n, p) == a` 验证根的正确性。",
+        "使用 `for` 循环和 `primerange` 进行参数化测试的模式。",
+        "测试同时覆盖 `all_roots=True` 和 `all_roots=False` 的情况。"
+      ],
+      "possible_gap": "现有测试用例没有专门测试 `a % p == 0` 的情况（例如 `a` 是 `p` 的倍数）。需要变异测试输入，使 `a` 满足 `a % p == 0`。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "现有测试用例中的 `(a, q, p)` 三元组，如 `(1801, 11, 2663)`，通常满足 `a % p != 0`。",
+      "target_pattern": "将 `a` 改为 `p` 的倍数，例如 `(p * k, n, p)` 或 `(0, n, p)`。具体例子：`(17*17, 5, 17)` 即 `(289, 5, 17)`。",
+      "reason": "根据 Issue，只有当 `a % p == 0` 时才会触发遗漏零根的缺陷。将 `a` 变异为 `p` 的倍数可以导向缺陷路径。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "return_value",
+      "expression_hint": "`nthroot_mod(a, n, p, all_roots=True)` 的返回值（列表）或 `nthroot_mod(a, n, p, all_roots=False)` 的返回值（单个值）。",
+      "reason": "直接观察函数返回的根是否包含 `0`，这是判断缺陷是否触发的核心。"
+    },
+    {
+      "kind": "type",
+      "expression_hint": "`type(result)`，其中 `result` 是 `nthroot_mod` 的返回值。",
+      "reason": "确认返回值类型是否符合预期（列表或整数），避免因类型错误导致误判。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "当 `a % p == 0` 时，`nthroot_mod` 返回的根集合应包含 `0`。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言返回的完整列表与某个固定列表完全相等，因为非零根的数量和值可能因算法而异。避免断言私有字段或内部缓存。",
+      "reason": "核心问题是缺失零根。检查返回的列表（或值）是否包含 `0` 是稳定且与 Issue 对齐的断言。对于 `all_roots=False`，如果 `0` 是唯一根或最小根，则应断言返回值等于 `0`。"
+    },
+    {
+      "assertion_goal": "所有返回的根 `r`（包括 `0`）都应满足 `pow(r, n, p) == a`。",
+      "preferred_assertion_style": "equals",
+      "avoid": "无。",
+      "reason": "这是现有测试中验证根正确性的标准方法，是稳定的公开行为断言。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要从 `sympy.ntheory.residue_ntheory` 导入 `nthroot_mod`。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "参数 `p` 必须是素数，因为 `nthroot_mod` 对合数 `p` 会抛出 `NotImplementedError`。",
+      "source": "retrieved_source",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "当 `all_roots=False` 时，如果存在多个根（包括 `0`），函数应返回哪个根（例如最小根）？当前 Issue 未明确说明，但 `0` 可能是最小根。",
+    "除了 `a % p == 0` 的情况，`nthroot_mod` 的内部算法 `_nthroot_mod1` 是否在其他边界条件下也有问题？",
+    "对于 `a = 0` 且 `p` 任意的情况，`nthroot_mod(0, n, p)` 的行为是否与 `a = k*p` 一致？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "nthroot_mod function misses one root of x = 0 mod p.\nWhen in the equation x**n = a mod p , when a % p == 0. Then x = 0 mod p is also a root of this equation. But right now `nthroot_mod` does not check for this condition. `nthroot_mod(17*17, 5 , 17)` has a root `0 mod 17`. But it does not return it.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "函数 `nthroot_mod` 在求解模方程 `x**n = a mod p` 时，当 `a % p == 0` 时，会遗漏根 `x = 0 mod p`。例如，调用 `nthroot_mod(17*17, 5, 17)` 时，`0 mod 17` 是一个合法的根，但函数没有返回它。这发生在 `sympy/ntheory/residue_ntheory.py` 的 `nthroot_mod` 函数中，该函数未检查 `a % p == 0` 的特殊情况。",
+      "facts_from_issue": [
+        "`nthroot_mod` 函数在 `a % p == 0` 时遗漏了根 `x = 0 mod p`。",
+        "具体例子：`nthroot_mod(17*17, 5, 17)` 应该返回根 `0 mod 17`，但没有。",
+        "问题在于函数没有检查 `a % p == 0` 这个条件。"
+      ],
+      "facts_from_retrieved_context": [
+        "`nthroot_mod` 函数位于 `sympy/ntheory/residue_ntheory.py` 文件中。",
+        "函数签名：`def nthroot_mod(a, n, p, all_roots=False):`。",
+        "函数目标是找到 `x**n = a mod p` 的解。",
+        "相关测试文件 `sympy/ntheory/tests/test_residue.py` 包含对 `nthroot_mod` 的测试。"
+      ],
+      "inferences": [
+        "当 `a` 是 `p` 的倍数时，`a % p == 0`，此时 `x = 0` 总是方程 `x**n = 0 mod p` 的一个解。",
+        "当前的 `nthroot_mod` 实现可能没有显式处理 `a % p == 0` 的情况，导致遗漏零根。",
+        "修复后，`nthroot_mod` 在 `a % p == 0` 时应将 `0` 包含在返回的根列表中。"
+      ],
+      "do_not_assume": [
+        "`nthroot_mod` 内部算法 `_nthroot_mod1` 的具体实现细节。",
+        "除了 `a % p == 0` 之外，是否还有其他遗漏根的情况。",
+        "函数对于 `all_roots=False` 和 `all_roots=True` 两种模式的具体返回格式在零根情况下的差异。"
+      ]
+    },
+    "issue_summary": "`nthroot_mod` 函数在参数 `a` 是模数 `p` 的倍数时，遗漏了方程 `x**n = a mod p` 的根 `x = 0`。",
+    "trigger_condition": {
+      "text": "调用 `nthroot_mod(a, n, p, all_roots)`，其中 `a` 是正整数，`n` 是正整数，`p` 是素数，且满足 `a % p == 0`。例如：`nthroot_mod(289, 5, 17)` 或 `nthroot_mod(0, n, p)`。",
+      "evidence": [
+        "Issue 原文：\"when a % p == 0\"。",
+        "Issue 原文：\"`nthroot_mod(17*17, 5 , 17)`\"。",
+        "源码显示 `nthroot_mod` 接受 `a, n, p, all_roots` 参数。",
+        "测试代码中 `nthroot_mod` 被调用并验证 `pow(r, q, p) == a`。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "函数 `nthroot_mod` 返回的根列表（或单个根）中不包含 `x = 0 mod p`，尽管它是方程 `x**n = a mod p` 在 `a % p == 0` 时的有效解。",
+      "symptom_type": "wrong_return",
+      "evidence": [
+        "Issue 原文：\"misses one root of x = 0 mod p\"。",
+        "Issue 原文：\"But it does not return it.\"",
+        "测试代码中通过 `pow(r, q, p) == a` 验证返回的根，但未检查是否包含零根。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "当 `a % p == 0` 时，`nthroot_mod` 返回的根集合（或单个根）应包含 `0`。具体地，对于 `all_roots=True`，返回的列表应包含 `0`；对于 `all_roots=False`，如果 `0` 是符合条件的根（例如最小根），则应返回 `0`。",
+      "evidence": [
+        "Issue 原文：\"x = 0 mod p is also a root of this equation.\"",
+        "数学上，若 `a % p == 0`，则 `0**n % p == 0`，因此 `x=0` 是解。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "nthroot_mod",
+        "kind": "function",
+        "source_path": "sympy/ntheory/residue_ntheory.py",
+        "reason": "这是 Issue 直接报告存在缺陷的函数，用于求解模方程 `x**n = a mod p`。"
+      },
+      {
+        "name": "pow",
+        "kind": "function",
+        "source_path": "",
+        "reason": "用于验证返回的根 `r` 是否满足 `pow(r, n, p) == a`，这是测试中的标准断言方式。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sympy/ntheory/residue_ntheory.py",
+        "object": "nthroot_mod",
+        "lines": "746-807",
+        "reason": "Issue 明确指出 `nthroot_mod` 函数未检查 `a % p == 0` 的条件。检索的源码片段正是该函数，其中没有显式处理 `a % p == 0` 的逻辑。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_residue",
+        "test_file": "sympy/ntheory/tests/test_residue.py",
+        "why_relevant": "该测试文件包含对 `nthroot_mod` 函数的多个测试用例，验证了函数在各种参数下的行为，并使用了 `pow(r, q, p) == a` 的标准断言模式。",
+        "reusable_parts": [
+          "从 `sympy.ntheory.residue_ntheory` 导入 `nthroot_mod`。",
+          "使用 `pow(r, n, p) == a` 验证根的正确性。",
+          "使用 `for` 循环和 `primerange` 进行参数化测试的模式。",
+          "测试同时覆盖 `all_roots=True` 和 `all_roots=False` 的情况。"
+        ],
+        "possible_gap": "现有测试用例没有专门测试 `a % p == 0` 的情况（例如 `a` 是 `p` 的倍数）。需要变异测试输入，使 `a` 满足 `a % p == 0`。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "现有测试用例中的 `(a, q, p)` 三元组，如 `(1801, 11, 2663)`，通常满足 `a % p != 0`。",
+        "target_pattern": "将 `a` 改为 `p` 的倍数，例如 `(p * k, n, p)` 或 `(0, n, p)`。具体例子：`(17*17, 5, 17)` 即 `(289, 5, 17)`。",
+        "reason": "根据 Issue，只有当 `a % p == 0` 时才会触发遗漏零根的缺陷。将 `a` 变异为 `p` 的倍数可以导向缺陷路径。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "return_value",
+        "expression_hint": "`nthroot_mod(a, n, p, all_roots=True)` 的返回值（列表）或 `nthroot_mod(a, n, p, all_roots=False)` 的返回值（单个值）。",
+        "reason": "直接观察函数返回的根是否包含 `0`，这是判断缺陷是否触发的核心。"
+      },
+      {
+        "kind": "type",
+        "expression_hint": "`type(result)`，其中 `result` 是 `nthroot_mod` 的返回值。",
+        "reason": "确认返回值类型是否符合预期（列表或整数），避免因类型错误导致误判。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "当 `a % p == 0` 时，`nthroot_mod` 返回的根集合应包含 `0`。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言返回的完整列表与某个固定列表完全相等，因为非零根的数量和值可能因算法而异。避免断言私有字段或内部缓存。",
+        "reason": "核心问题是缺失零根。检查返回的列表（或值）是否包含 `0` 是稳定且与 Issue 对齐的断言。对于 `all_roots=False`，如果 `0` 是唯一根或最小根，则应断言返回值等于 `0`。"
+      },
+      {
+        "assertion_goal": "所有返回的根 `r`（包括 `0`）都应满足 `pow(r, n, p) == a`。",
+        "preferred_assertion_style": "equals",
+        "avoid": "无。",
+        "reason": "这是现有测试中验证根正确性的标准方法，是稳定的公开行为断言。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要从 `sympy.ntheory.residue_ntheory` 导入 `nthroot_mod`。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "参数 `p` 必须是素数，因为 `nthroot_mod` 对合数 `p` 会抛出 `NotImplementedError`。",
+        "source": "retrieved_source",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "当 `all_roots=False` 时，如果存在多个根（包括 `0`），函数应返回哪个根（例如最小根）？当前 Issue 未明确说明，但 `0` 可能是最小根。",
+      "除了 `a % p == 0` 的情况，`nthroot_mod` 的内部算法 `_nthroot_mod1` 是否在其他边界条件下也有问题？",
+      "对于 `a = 0` 且 `p` 任意的情况，`nthroot_mod(0, n, p)` 的行为是否与 `a = k*p` 一致？"
+    ]
+  }
+}

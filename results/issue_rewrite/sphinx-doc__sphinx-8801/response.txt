@@ -1,0 +1,196 @@
+```json
+{
+    "original_issue": {
+        "text": "autodoc: The annotation only member in superclass is treated as \"undocumented\"\n**Describe the bug**\nautodoc: The annotation only member in superclass is treated as \"undocumented\".\n\n**To Reproduce**\n\n```\n# example.py\nclass Foo:\n    \"\"\"docstring\"\"\"\n    attr1: int  #: docstring\n\n\nclass Bar(Foo):\n    \"\"\"docstring\"\"\"\n    attr2: str  #: docstring\n```\n```\n# index.rst\n.. autoclass:: example.Bar\n   :members:\n   :inherited-members:\n```\n\n`Bar.attr1` is not documented. It will be shown if I give `:undoc-members:` option to the autoclass directive call. It seems the attribute is treated as undocumented.\n\n**Expected behavior**\nIt should be shown.\n\n**Your project**\nNo\n\n**Screenshots**\nNo\n\n**Environment info**\n- OS: Mac\n- Python version: 3.9.1\n- Sphinx version: HEAD of 3.x\n- Sphinx extensions: sphinx.ext.autodoc\n- Extra tools: No\n\n**Additional context**\nNo",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "在使用 Sphinx autodoc 扩展时，当子类通过 `:members:` 和 `:inherited-members:` 选项生成文档时，父类中仅带有类型注解（annotation-only）的成员（即使有 `#:` 行内文档字符串）会被错误地视为“未记录”（undocumented），因此不会出现在生成的文档中。只有额外添加 `:undoc-members:` 选项时，该成员才会显示。期望的行为是，在仅使用 `:members:` 和 `:inherited-members:` 的情况下，父类中带有类型注解和行内文档字符串的成员也应被正确记录并显示。",
+        "facts_from_issue": [
+            "父类 `Foo` 有一个仅带类型注解 `attr1: int` 和 `#:` 行内文档字符串的成员。",
+            "子类 `Bar` 继承自 `Foo`。",
+            "在 `.rst` 文件中使用 `.. autoclass:: example.Bar` 指令，并设置 `:members:` 和 `:inherited-members:` 选项。",
+            "生成的文档中 `Bar.attr1` 没有被记录/显示。",
+            "添加 `:undoc-members:` 选项后，`Bar.attr1` 会显示。",
+            "Issue 报告者认为该属性被错误地视为“未记录”。",
+            "期望行为是 `Bar.attr1` 应该被显示。"
+        ],
+        "facts_from_retrieved_context": [
+            "Sphinx 的 autodoc 扩展有处理继承成员和未记录成员的测试。",
+            "测试 `test_inherited_instance_variable` 检查了继承的实例变量及其文档字符串的生成。",
+            "测试 `test_autodoc_typed_inherited_instance_variables` 检查了带类型注解的继承实例变量的文档生成，包括类型和值。",
+            "测试中使用了 `do_autodoc` 函数来生成文档字符串，并断言输出内容。",
+            "测试断言检查生成的文档字符串列表中是否包含特定的 `.. py:attribute::` 行。"
+        ],
+        "inferences": [
+            "缺陷可能与 Sphinx autodoc 在处理继承的、仅带类型注解的成员时，对其“文档状态”的判断逻辑有关。",
+            "`#:` 行内文档字符串可能没有被 autodoc 正确识别为有效的文档，导致成员被归类为“未记录”。",
+            "当同时启用 `:inherited-members:` 时，autodoc 需要从父类收集成员，并应用与子类成员相同的文档过滤规则。",
+            "检索到的测试表明，autodoc 通常能正确处理继承的实例变量和带类型注解的变量，但当前 Issue 描述的场景可能存在一个边界情况。"
+        ],
+        "do_not_assume": [
+            "缺陷的确切源码位置。检索到的 `sphinx/domains/rst.py` 文件内容为空，无法提供依据。",
+            "`#:` 行内文档字符串与 `\"\"\"\"\"\"` 文档字符串在 autodoc 内部处理上的具体区别。",
+            "除了 `:members:`、`:inherited-members:` 和 `:undoc-members:` 之外，其他 autodoc 选项是否会影响此行为。",
+            "这是否是 Python 3.9.1 或 Sphinx 3.x 特定版本的问题。"
+        ]
+    },
+    "issue_summary": "Sphinx autodoc 在处理继承自父类的、仅带类型注解和行内文档字符串的成员时，错误地将其标记为“未记录”，导致在未启用 `:undoc-members:` 选项时，该成员不会出现在生成的文档中。",
+    "trigger_condition": {
+        "text": "使用 Sphinx autodoc 为继承类生成文档，配置 `autoclass` 指令包含 `:members:` 和 `:inherited-members:` 选项，但不包含 `:undoc-members:` 选项。目标类继承自一个父类，该父类包含至少一个仅带有类型注解（例如 `attr: int`）并附有 `#:` 行内文档字符串的成员。",
+        "evidence": [
+            "Issue 中的 `example.py` 和 `index.rst` 示例代码。",
+            "Issue 描述：“`Bar.attr1` is not documented. It will be shown if I give `:undoc-members:` option...\"",
+            "相关测试 `test_inherited_instance_variable` 和 `test_autodoc_typed_inherited_instance_variables` 展示了类似的 autodoc 调用模式。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "生成的文档输出中缺少对继承自父类的、仅带类型注解的成员的记录（即没有对应的 `.. py:attribute::` 条目）。该成员仅在启用 `:undoc-members:` 选项后才会出现。",
+        "symptom_type": "wrong_return",
+        "evidence": [
+            "Issue 描述：“`Bar.attr1` is not documented.”",
+            "Issue 描述：“It will be shown if I give `:undoc-members:` option...”",
+            "相关测试的断言检查生成的文档字符串列表是否包含特定的属性条目。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "在仅使用 `:members:` 和 `:inherited-members:` 选项（不启用 `:undoc-members:`）的情况下，autodoc 应正确识别继承自父类的、带有类型注解和 `#:` 行内文档字符串的成员为“已记录”，并将其包含在生成的文档输出中。",
+        "evidence": [
+            "Issue 中的“Expected behavior: It should be shown.”",
+            "相关测试 `test_inherited_instance_variable` 和 `test_autodoc_typed_inherited_instance_variables` 展示了继承的、有文档的属性应该被包含在输出中的预期行为。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "do_autodoc",
+            "kind": "function",
+            "source_path": "",
+            "reason": "所有相关测试都使用此函数来执行 autodoc 并获取生成的文档字符串，它是触发 autodoc 逻辑的核心 API。"
+        },
+        {
+            "name": "sphinx.ext.autodoc",
+            "kind": "module",
+            "source_path": "",
+            "reason": "Issue 明确涉及 sphinx.ext.autodoc 扩展。缺陷行为发生在该模块的文档生成逻辑中。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "sphinx/ext/autodoc/__init__.py",
+            "object": "处理类成员文档生成和继承成员过滤的函数或方法",
+            "lines": "",
+            "reason": "这是 autodoc 扩展的主模块，很可能包含决定成员是否“已记录”以及是否应被 `:inherited-members:` 包含的逻辑。Issue 涉及对继承的、仅带注解的成员的文档状态判断。"
+        },
+        {
+            "path": "sphinx/ext/autodoc/__init__.py",
+            "object": "处理 `#:` 行内文档字符串的逻辑",
+            "lines": "",
+            "reason": "缺陷可能源于 `#:` 这种行内文档字符串格式没有被正确识别为有效文档，导致成员被误判为“未记录”。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_autodoc_typed_inherited_instance_variables",
+            "test_file": "tests/test_ext_autodoc.py",
+            "why_relevant": "该测试专门检查带类型注解的继承实例变量的文档生成。它使用了 `do_autodoc` 函数，配置了 `members`, `inherited-members`, 和 `undoc-members` 选项，并断言生成的输出中包含特定的 `.. py:attribute::` 行。这与当前 Issue 的场景高度相似，都涉及继承的、带类型注解的属性。",
+            "reusable_parts": [
+                "`@pytest.mark.sphinx` fixture 的使用和 `app` 参数。",
+                "使用 `do_autodoc` 函数来生成文档。",
+                "通过 `options` 字典配置 autodoc 指令选项的模式。",
+                "断言生成文档字符串列表内容的模式。",
+                "测试模块 `target.typed_vars` 可能提供了类似的带类型注解的类结构。"
+            ],
+            "possible_gap": "该测试启用了 `undoc-members: True`，因此它无法复现 Issue 中描述的缺陷（即在不启用 `undoc-members` 时属性缺失）。此外，测试中属性的文档来源可能不是 `#:` 行内文档字符串，而是其他形式（如赋值或字符串）。需要变异测试以禁用 `undoc-members` 并确保父类属性仅使用 `#:` 文档。"
+        },
+        {
+            "test_name": "test_inherited_instance_variable",
+            "test_file": "tests/test_ext_autodoc_autoclass.py",
+            "why_relevant": "该测试直接检查继承的实例变量及其文档字符串的生成。它使用了 `do_autodoc`，配置了 `members` 和 `inherited-members` 为 `True`，并断言输出中包含继承的属性 `Bar.attr1`。这直接对应了 Issue 中 `:members:` 和 `:inherited-members:` 的配置。",
+            "reusable_parts": [
+                "`@pytest.mark.sphinx` fixture 的使用。",
+                "`do_autodoc` 的调用方式。",
+                "`options` 的配置结构（`members` 和 `inherited-members` 设为 `True`）。",
+                "断言整个文档字符串列表的精确匹配模式。",
+                "测试模块 `target.instance_variable` 可能提供了继承类的结构。"
+            ],
+            "possible_gap": "测试中 `Bar.attr1` 的文档字符串是 `\"docstring foo\"`，但 Issue 中父类属性使用的是 `#:` 行内文档字符串。测试可能使用了不同的文档格式（如类级别的文档字符串或赋值后的注释），因此没有触发仅类型注解加 `#:` 文档这个特定边界条件的缺陷。需要变异测试，使父类属性变为仅类型注解加 `#:` 文档。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "config",
+            "current_pattern": "在相关测试的 `options` 字典中，`\"undoc-members\"` 被设置为 `True` 或 `None`（在某些测试中）。",
+            "target_pattern": "将 `options` 中的 `\"undoc-members\"` 键移除或显式设置为 `False`，以模拟 Issue 中未启用 `:undoc-members:` 选项的情况。",
+            "reason": "Issue 的核心是，在不启用 `undoc-members` 时，继承的、仅带注解的属性缺失。现有测试可能因为启用了该选项而通过了断言。",
+            "confidence": "high"
+        },
+        {
+            "slot": "object_state",
+            "current_pattern": "测试依赖的示例模块（如 `target.instance_variable` 或 `target.typed_vars`）中，父类的属性可能有明确的赋值（如 `attr1 = None`）或使用 `\"\"\"\"\"\"` 文档字符串。",
+            "target_pattern": "创建一个新的测试模块，其中父类的属性仅为类型注解加 `#:` 行内文档字符串（例如 `attr1: int #: docstring foo`），没有赋值语句，子类继承它。",
+            "reason": "Issue 明确指出父类成员是“annotation only”（仅注解）。这是触发缺陷的关键条件，可能现有测试的示例类不满足此条件。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "测试调用 `do_autodoc(app, 'class', 'target.module.ClassName', options)`。",
+            "target_pattern": "保持调用方式不变，但将目标模块和类名指向新创建的、符合 Issue 描述的示例模块和类（例如 `'example.Bar'`）。",
+            "reason": "需要将 autodoc 应用于包含特定类结构的模块，以复现缺陷。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "return_value",
+            "expression_hint": "`do_autodoc` 函数返回的文档字符串列表（`actual`）。观察列表中是否包含代表继承属性 `Bar.attr1` 的字符串片段，如 `'.. py:attribute:: Bar.attr1'`。",
+            "reason": "Issue 的症状直接体现在生成的文档字符串内容上。这是最直接的公开输出，用于判断属性是否被记录。"
+        },
+        {
+            "kind": "file_output",
+            "expression_hint": "如果测试生成实际的 HTML 或其他格式的输出文件，可以观察最终渲染文档中是否包含该属性的描述。",
+            "reason": "这是 autodoc 功能的最终用户可见结果。但通过 `do_autodoc` 的返回列表进行断言更直接、稳定。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "生成的文档字符串列表应包含代表继承属性 `Bar.attr1` 的条目（例如以 `'.. py:attribute:: Bar.attr1'` 开头的行）。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的、格式严格的文档字符串列表完全相等，因为文档字符串的精确格式（如空行数量、缩进）可能因 Sphinx 版本或配置而略有变化，且与核心缺陷无关。",
+            "reason": "Issue 的核心是特定属性条目是否出现，而不是输出的每个细节。使用片段包含断言更稳定，且直接对应“应该被显示”的期望行为。"
+        },
+        {
+            "assertion_goal": "生成的文档字符串列表不应仅因为添加了 `:undoc-members:` 选项才包含 `Bar.attr1` 条目；在不启用该选项时，条目也应存在。",
+            "preferred_assertion_style": "before_after_relation",
+            "avoid": "断言启用 `:undoc-members:` 后的输出与某个固定值相等。",
+            "reason": "这能直接验证缺陷条件：属性是否被错误地归类为“未记录”。可以通过比较启用和不启用 `undoc-members` 选项时的输出来实现。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要使用 `@pytest.mark.sphinx` 装饰器和 `app` fixture 来设置 Sphinx 测试应用。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "需要准备一个包含符合 Issue 描述的类结构（父类有仅类型注解加 `#:` 文档的属性，子类继承）的 Python 模块文件，并将其放置在测试的 `testroot` 目录（如 `ext-autodoc`）或通过其他方式使 Sphinx 应用能够导入。",
+            "source": "inference",
+            "confidence": "medium"
+        },
+        {
+            "hint": "使用 `do_autodoc` 辅助函数来执行 autodoc 并获取结果，该函数可能在测试工具模块中定义。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "缺陷在 Sphinx 源码中的确切位置和根本原因。",
+        "`#:` 行内文档字符串与其他形式文档字符串在 autodoc 内部处理上的具体差异。",
+        "除了 `#:`，其他行内文档格式（如 PEP 257 的 `\"\"\"\"\"\"` 放在行尾）是否受同样影响。",
+        "该缺陷是否也影响其他类型的成员（如方法）。",
+        "现有测试模块 `target.instance_variable` 和 `target.typed_vars` 中类的具体实现，是否已经包含了可能触发或绕过此缺陷的场景。"
+    ]
+}
+```

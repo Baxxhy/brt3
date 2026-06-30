@@ -1,0 +1,118 @@
+instance_id: sympy__sympy-12236
+
+issue_summary: 对包含符号参数 `a` 的表达式调用 `apart(t)` 返回了错误结果 `-a*t`，而先替换 `a=1` 再调用 `apart` 则得到正确结果。
+
+trigger_condition:
+{
+  "text": "构造表达式 `a * (-t + (-t + 1) * (2 * t - 1)) / (2 * t - 1)`，其中 `a` 和 `t` 是符号，然后对该表达式调用 `apart(t)` 方法。",
+  "evidence": [
+    "Issue 中给出了具体的表达式构造和 `apart(t)` 调用。",
+    "检索的源码显示 `apart` 是 `Expr` 类的方法。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "`bug.apart(t)` 返回了错误的结果 `-a*t`，该结果与先进行符号替换 `bug.subs(a, 1).apart(t)` 得到的正确结果 `-t + 1/2 - 1/(2*(2*t - 1))` 不一致，且 `-a*t` 看起来是丢失了多项的不完整简化。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue 中直接展示了 `Out[8]: -a*t` 和 `Out[7]: -t + 1/2 - 1/(2*(2*t - 1))` 的对比。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，对原始表达式 `bug` 调用 `apart(t)` 应该返回一个与 `bug.subs(a, 1).apart(t)` 在代数上等价的结果（即考虑符号 `a` 的通用性），或者至少不应丢失 `a` 与分母 `(2*t - 1)` 相关的项。结果应正确表达原表达式的部分分式分解。",
+  "evidence": [
+    "Issue 中展示了 `bug.subs(a, 1).apart(t)` 的正确结果，暗示了期望的代数形式。",
+    "检索的测试 `test_apart_symbolic` 展示了 `apart` 应能正确处理包含符号参数的表达式。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "symbols",
+    "kind": "function",
+    "source_path": "sympy/core/symbol.py",
+    "reason": "用于创建符号变量 `a` 和 `t`，这是构造触发表达式的前提。"
+  },
+  {
+    "name": "apart",
+    "kind": "method",
+    "source_path": "sympy/core/expr.py",
+    "reason": "Issue 中直接调用的方法，其行为是错误的根源。"
+  },
+  {
+    "name": "subs",
+    "kind": "method",
+    "source_path": "sympy/core/basic.py",
+    "reason": "Issue 中用于对比正确行为的操作，也是测试中可能用到的步骤。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "测试 `test_apart_symbolic` 中使用如 `f/g` 的复杂多项式分式。",
+    "target_pattern": "表达式 `a * (-t + (-t + 1) * (2 * t - 1)) / (2 * t - 1)`，其中 `a` 和 `t` 是符号，可能带有 `real=True` 等假设。",
+    "reason": "Issue 中的特定表达式触发了 `apart` 的错误简化路径，而现有测试的表达式可能走了不同的计算分支。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "测试中调用 `apart(expr, x)`，其中 `x` 是分解变量。",
+    "target_pattern": "调用 `apart(expr, t)`，其中 `t` 是表达式中的符号，也是分解变量。",
+    "reason": "Issue 中明确使用了 `apart(t)`，指定 `t` 为分解变量。这可能是触发条件的一部分。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "`result = expr.apart(t)` 的返回值，以及 `expr.subs(a, 1).apart(t)` 的返回值。",
+    "reason": "直接比较两个结果的代数形式是判断 bug 是否触发的核心。可以观察返回的表达式结构、包含的项数、是否包含分母 `(2*t - 1)` 等。"
+  },
+  {
+    "kind": "repr",
+    "expression_hint": "`repr(result)` 或 `str(result)` 的字符串表示。",
+    "reason": "字符串表示可以直观展示表达式是否被错误简化为 `-a*t`，或者是否包含了预期的项如 `1/(2*(2*t - 1))`。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`expr.apart(t)` 的结果应与 `expr.subs(a, 1).apart(t)` 在代数上等价（当 `a` 被视为符号时），或者至少应包含与分母 `(2*t - 1)` 相关的有理项。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、展开后的字符串相等，因为符号化简可能导致形式不同。避免断言私有属性。",
+    "reason": "Issue 的核心是 `apart(t)` 丢失了项。检查结果中是否包含类似 `1/(2*t - 1)` 的片段比完全相等更稳定，且能捕捉到丢失分母项的错误。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要从 `sympy` 导入 `symbols`, `apart`。可能需要在测试类中直接编写函数式测试。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "符号 `a` 和 `t` 可以带有 `real=True` 等假设，但需确认这些假设是否为触发条件所必需。",
+    "source": "issue",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "符号 `a` 和 `t` 的假设（`real=True`, `negative=False`）是否是触发 bug 的必要条件，还是仅用于演示。",
+  "`apart` 的 `full` 参数或其他可选参数是否会影响此 bug 的表现。",
+  "错误是否只发生在分母为线性因子 `(2*t - 1)` 的情况下，还是更广泛的一类表达式。"
+]

@@ -1,0 +1,106 @@
+instance_id: sympy__sympy-16503
+
+issue_summary: `Sum` 表达式与加法结合时，美化打印输出的垂直对齐不正确。
+
+trigger_condition:
+{
+  "text": "调用 `pprint(Sum(x, (x, 1, oo)) + 3)` 或 `pretty(Sum(x, (x, 1, oo)) + 3)`。",
+  "evidence": [
+    "原始 Issue 中给出的代码示例。",
+    "检索到的测试 `test_pretty_sum` 展示了类似 `Sum` 表达式的打印测试。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "美化打印输出的 Unicode 字符画中，求和符号下方的项 `x` 与同一行右侧的加法项 `+ 3` 在垂直方向上未对齐，导致视觉上不居中。",
+  "symptom_type": "wrong_order",
+  "evidence": [
+    "原始 Issue 中提供的输出截图显示了对齐问题。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，`pprint(Sum(x, (x, 1, oo)) + 3)` 的输出中，求和符号下方的项 `x` 与加法项 `+ 3` 应在垂直方向上正确对齐，使整体字符画视觉居中。",
+  "evidence": [
+    "原始 Issue 描述明确指出 \"The `x` and the `+ 3` should be aligned.\""
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "pprint",
+    "kind": "function",
+    "source_path": "sympy/printing/pretty/pretty.py",
+    "reason": "Issue 中直接调用的打印函数。"
+  },
+  {
+    "name": "pretty",
+    "kind": "function",
+    "source_path": "sympy/printing/pretty/pretty.py",
+    "reason": "`pprint` 是其别名，是实际执行美化打印的函数。"
+  },
+  {
+    "name": "Sum",
+    "kind": "class",
+    "source_path": "sympy/concrete/summations.py",
+    "reason": "Issue 中涉及的核心表达式对象。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "测试中的表达式如 `Sum(k**k, (k, 0, n))` 或 `Sum(x, (x, 0, oo))`。",
+    "target_pattern": "将表达式改为 `Sum(x, (x, 1, oo)) + 3` 或类似形式，即 `Sum(...) + constant`。",
+    "reason": "Issue 表明缺陷在 `Sum` 作为 `Add` 操作数时触发，而现有测试只测试了孤立的 `Sum`。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "str",
+    "expression_hint": "`upretty(expr)` 或 `pretty(expr)` 的返回值（字符串）。",
+    "reason": "错误症状直接体现在美化打印输出的字符串内容中，特别是行内字符的垂直位置。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "验证 `upretty(Sum(x, (x, 1, oo)) + 3)` 的输出字符串中，代表 `x` 的行与代表 `+ 3` 的行在垂直方向上是居中对齐的。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、精确的多行输出字符串相等，因为具体的 Unicode 符号和空格可能因修复而微调。避免检查私有布局属性。",
+    "reason": "Issue 的核心是视觉对齐，而非每个字符的绝对位置。检查输出字符串中关键行（包含 `x` 和 `+ 3` 的行）的相对垂直位置关系更稳定。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要导入 `Sum`, `oo`, `pprint`/`pretty`，以及符号（如 `x`）。可以使用 `sympy.abc` 导入符号。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试应放在 `sympy/printing/pretty/tests/test_pretty.py` 文件中，遵循现有的测试结构和命名约定。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "缺陷的确切对齐规则：是求和项 `x` 应该上移，还是加法项 `+ 3` 应该下移，或者两者都需要调整。",
+  "缺陷是否也存在于 ASCII 模式 (`pretty`) 的输出中，还是仅限 Unicode 模式 (`upretty`)。",
+  "缺陷是否影响其他二元操作（如减法、乘法）或更复杂的嵌套表达式布局。",
+  "导致布局计算错误的具体代码位置和逻辑。"
+]

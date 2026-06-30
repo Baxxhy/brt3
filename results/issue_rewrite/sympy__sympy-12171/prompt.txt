@@ -1,0 +1,571 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+matematica code printer does not handle floats and derivatives correctly
+In its current state the mathematica code printer does not handle Derivative(func(vars), deriver) 
+e.g. Derivative(f(t), t) yields Derivative(f(t), t) instead of D[f[t],t]
+
+Also floats with exponents are not handled correctly e.g. 1.0e-4 is not converted to 1.0*^-4
+
+This has an easy fix by adding the following lines to MCodePrinter:
+
+
+def _print_Derivative(self, expr):
+        return "D[%s]" % (self.stringify(expr.args, ", "))
+
+def _print_Float(self, expr):
+        res =str(expr)
+        return res.replace('e','*^') 
+
+
+
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sympy/printing/mathematica.py
+对象名称：MCodePrinter
+节点类型：class
+父节点：mathematica
+行号范围：37-110
+代码：
+class MCodePrinter(CodePrinter):
+    """A printer to convert python expressions to
+    strings of the Wolfram's Mathematica code
+    """
+    printmethod = "_mcode"
+    _default_settings = {
+        'order': None,
+        'full_prec': 'auto',
+        'precision': 15,
+        'user_functions': {},
+        'human': True,
+    }
+    _number_symbols = set()
+    _not_supported = set()
+    def __init__(self, settings={}):
+    doprint = StrPrinter.doprint
+    def _print_Pow(self, expr):
+    def _print_Mul(self, expr):
+    def _print_Pi(self, expr):
+    def _print_Infinity(self, expr):
+    def _print_NegativeInfinity(self, expr):
+    def _print_list(self, expr):
+    _print_tuple = _print_list
+    _print_Tuple = _print_list
+    def _print_Function(self, expr):
+    def _print_Integral(self, expr):
+    def _print_Sum(self, expr):
+
+
+【源码片段 2】
+文件路径：sympy/physics/vector/printing.py
+对象名称：_print_Derivative
+节点类型：class_function
+父节点：VectorStrPrinter
+行号范围：19-29
+代码：
+    def _print_Derivative(self, e):
+        from sympy.physics.vector.functions import dynamicsymbols
+        t = dynamicsymbols._t
+        if (bool(sum([i == t for i in e.variables])) &
+                isinstance(type(e.args[0]), UndefinedFunction)):
+            ol = str(e.args[0].func)
+            for i, v in enumerate(e.variables):
+                ol += dynamicsymbols._str
+            return ol
+        else:
+            return StrPrinter().doprint(e)
+
+
+【源码片段 3】
+文件路径：sympy/printing/str.py
+对象名称：_print_Float
+节点类型：class_function
+父节点：StrPrinter
+行号范围：553-570
+代码：
+    def _print_Float(self, expr):
+        prec = expr._prec
+        if prec < 5:
+            dps = 0
+        else:
+            dps = prec_to_dps(expr._prec)
+        if self._settings["full_prec"] is True:
+            strip = False
+        elif self._settings["full_prec"] is False:
+            strip = True
+        elif self._settings["full_prec"] == "auto":
+            strip = self._print_level > 1
+        rv = mlib.to_str(expr._mpf_, dps, strip_zeros=strip)
+        if rv.startswith('-.0'):
+            rv = '-0.' + rv[3:]
+        elif rv.startswith('.0'):
+            rv = '0.' + rv[2:]
+        return rv
+
+
+【源码片段 4】
+文件路径：sympy/core/function.py
+对象名称：Derivative
+节点类型：class
+父节点：function
+行号范围：866-1478
+代码：
+class Derivative(Expr):
+    """
+    Carries out differentiation of the given expression with respect to symbols.
+
+    expr must define ._eval_derivative(symbol) method that returns
+    the differentiation result. This function only needs to consider the
+    non-trivial case where expr contains symbol and it should call the diff()
+    method internally (not _eval_derivative); Derivative should be the only
+    one to call _eval_derivative.
+
+    Simplification of high-order derivatives:
+
+    Because there can be a significant amount of simplification that can be
+    done when multiple differentiations are performed, results will be
+    automatically simplified in a fairly conservative fashion unless the
+    keyword ``simplify`` is set to False.
+
+        >>> from sympy import sqrt, diff
+        >>> from sympy.abc import x
+        >>> e = sqrt((x + 1)**2 + x)
+        >>> diff(e, x, 5, simplify=False).count_ops()
+        136
+        >>> diff(e, x, 5).count_ops()
+        30
+
+    Ordering of variables:
+
+    If evaluate is set to True and the expression can not be evaluated, the
+    list of differentiation symbols will be sorted, that is, the expression is
+    assumed to have continuous derivatives up to the order asked. This sorting
+    assumes that derivatives wrt Symbols commute, derivatives wrt non-Symbols
+    commute, but Symbol and non-Symbol derivatives don't commute with each
+    other.
+
+    Derivative wrt non-Symbols:
+
+    This class also allows derivatives wrt non-Symbols that have _diff_wrt
+    set to True, such as Function and Derivative. When a derivative wrt a non-
+    Symbol is attempted, the non-Symbol is temporarily converted to a Symbol
+    while the differentiation is performed.
+
+    Note that this may seem strange, that Derivative allows things like
+    f(g(x)).diff(g(x)), or even f(cos(x)).diff(cos(x)).  The motivation for
+    allowing this syntax is to make it easier to work with variational calculus
+    (i.e., the Euler-Lagrange method).  The best way to understand this is that
+    the action of derivative with respect to a non-Symbol is defined by the
+    above description:  the object is substituted for a Symbol and the
+    derivative is taken with respect to that.  This action is only allowed for
+    objects for which this can be done unambiguously, for example Function and
+    Derivative objects.  Note that this leads to what may appear to be
+    mathematically inconsistent results.  For example::
+
+        >>> from sympy import cos, sin, sqrt
+        >>> from sympy.abc import x
+        >>> (2*cos(x)).diff(cos(x))
+        2
+        >>> (2*sqrt(1 - sin(x)**2)).diff(cos(x))
+        0
+
+    This appears wrong because in fact 2*cos(x) and 2*sqrt(1 - sin(x)**2) are
+    identically equal.  However this is the wrong way to think of this.  Think
+    of it instead as if we have something like this::
+
+        >>> from sympy.abc import c, s
+        >>> def F(u):
+        ...     return 2*u
+        ...
+        >>> def G(u):
+        ...     return 2*sqrt(1 - u**2)
+        ...
+        >>> F(cos(x))
+        2*cos(x)
+        >>> G(sin(x))
+        2*sqrt(-sin(x)**2 + 1)
+        >>> F(c).diff(c)
+        2
+        >>> F(c).diff(c)
+        2
+        >>> G(s).diff(c)
+        0
+        >>> G(sin(x)).diff(cos(x))
+        0
+
+    Here, the Symbols c and s act just like the functions cos(x) and sin(x),
+    respectively. Think of 2*cos(x) as f(c).subs(c, cos(x)) (or f(c) *at*
+    c = cos(x)) and 2*sqrt(1 - sin(x)**2) as g(s).subs(s, sin(x)) (or g(s) *at*
+    s = sin(x)), where f(u) == 2*u and g(u) == 2*sqrt(1 - u**2).  Here, we
+    define the function first and evaluate it at the function, but we can
+    actually unambiguously do this in reverse in SymPy, because
+    expr.subs(Function, Symbol) is well-defined:  just structurally replace the
+    function everywhere it appears in the expression.
+
+    This is the same notational convenience used in the Euler-Lagrange method
+    when one says F(t, f(t), f'(t)).diff(f(t)).  What is actually meant is
+    that the expression in question is represented by some F(t, u, v) at u =
+    f(t) and v = f'(t), and F(t, f(t), f'(t)).diff(f(t)) simply means F(t, u,
+    v).diff(u) at u = f(t).
+
+    We do not allow derivatives to be taken with respect to expressions where this
+    is not so well defined.  For example, we do not allow expr.diff(x*y)
+    because there are multiple ways of structurally defining where x*y appears
+    in an expression, some of which may surprise the reader (for example, a
+    very strict definition would have that (x*y*z).diff(x*y) == 0).
+
+        >>> from sympy.abc import x, y, z
+        >>> (x*y*z).diff(x*y)
+        Traceback (most recent call last):
+        ...
+        ValueError: Can't differentiate wrt the variable: x*y, 1
+
+    Note that this definition also fits in nicely with the definition of the
+    chain rule.  Note how the chain rule in SymPy is defined using unevaluated
+    Subs objects::
+
+        >>> from sympy import symbols, Function
+        >>> f, g = symbols('f g', cls=Function)
+        >>> f(2*g(x)).diff(x)
+        2*Derivative(g(x), x)*Subs(Derivative(f(_xi_1), _xi_1),
+                                              (_xi_1,), (2*g(x),))
+        >>> f(g(x)).diff(x)
+        Derivative(g(x), x)*Subs(Derivative(f(_xi_1), _xi_1),
+                                            (_xi_1,), (g(x),))
+
+    Finally, note that, to be consistent with variational calculus, and to
+    ensure that the definition of substituting a Function for a Symbol in an
+    expression is well-defined, derivatives of functions are assumed to not be
+    related to the function.  In other words, we have::
+
+        >>> from sympy import diff
+        >>> diff(f(x), x).diff(f(x))
+        0
+
+    The same is true for derivatives of different orders::
+
+        >>> diff(f(x), x, 2).diff(diff(f(x), x, 1))
+        0
+        >>> diff(f(x), x, 1).diff(diff(f(x), x, 2))
+        0
+
+    Note, any class can allow derivatives to be taken with respect to itself.
+    See the docstring of Expr._diff_wrt.
+
+    Examples
+    ========
+
+    Some basic examples:
+
+        >>> from sympy import Derivative, Symbol, Function
+        >>> f = Function('f')
+        >>> g = Function('g')
+        >>> x = Symbol('x')
+        >>> y = Symbol('y')
+
+        >>> Derivative(x**2, x, evaluate=True)
+        2*x
+        >>> Derivative(Derivative(f(x,y), x), y)
+        Derivative(f(x, y), x, y)
+        >>> Derivative(f(x), x, 3)
+        Derivative(f(x), x, x, x)
+        >>> Derivative(f(x, y), y, x, evaluate=True)
+        Derivative(f(x, y), x, y)
+
+    Now some derivatives wrt functions:
+
+        >>> Derivative(f(x)**2, f(x), evaluate=True)
+        2*f(x)
+        >>> Derivative(f(g(x)), x, evaluate=True)
+        Derivative(g(x), x)*Subs(Derivative(f(_xi_1), _xi_1),
+                                            (_xi_1,), (g(x),))
+
+    """
+    is_Derivative = True
+    @property
+    def _diff_wrt(self):
+    def __new__(cls, expr, *variables, **assumptions):
+
+    @classmethod
+    def _sort_variables(cls, vars):
+    def _eval_is_commutative(self):
+    def _eval_derivative(self, v):
+    def doit(self, **hints):
+    @_sympifyit('z0', NotImplementedError)
+    def doit_numerically(self, z0):
+    @property
+    def expr(self):
+    @property
+    def variables(self):
+    @property
+    def free_symbols(self):
+    def _eval_subs(self, old, new):
+    def _eval_lseries(self, x, logx):
+    def _eval_nseries(self, x, n, logx):
+    def _eval_as_leading_term(self, x):
+    def _sage_(self):
+    def as_finite_difference(self, points=1, x0=None, wrt=None):
+
+
+【源码片段 5】
+文件路径：sympy/assumptions/handlers/ntheory.py
+对象名称：Float
+节点类型：class_function
+父节点：AskPrimeHandler
+行号范围：72-73
+代码：
+    def Float(expr, assumptions):
+        return AskPrimeHandler._number(expr, assumptions)
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sympy/printing/tests/test_mathematica.py
+测试名称：test_Function
+测试代码：
+def test_Function():
+    assert mcode(f(x, y, z)) == "f[x, y, z]"
+    assert mcode(sin(x) ** cos(x)) == "Sin[x]^Cos[x]"
+
+【相关测试 2】
+测试文件：sympy/printing/tests/test_mathematica.py
+测试名称：test_Pow
+测试代码：
+def test_Pow():
+    assert mcode(x**3) == "x^3"
+    assert mcode(x**(y**3)) == "x^(y^3)"
+    assert mcode(1/(f(x)*3.5)**(x - y**x)/(x**2 + y)) == \
+        "(3.5*f[x])^(-x + y^x)/(x^2 + y)"
+    assert mcode(x**-1.0) == 'x^(-1.0)'
+    assert mcode(x**Rational(2, 3)) == 'x^(2/3)'
+
+【相关测试 3】
+测试文件：sympy/printing/tests/test_repr.py
+测试名称：test_Float
+测试代码：
+def test_Float():
+    sT(Float('1.23', prec=3), "Float('1.22998', prec=3)")
+    sT(Float('1.23456789', prec=9), "Float('1.23456788994', prec=9)")
+    sT(Float('1.234567890123456789', prec=19),
+       "Float('1.234567890123456789013', prec=19)")
+    sT(Float(
+        '0.60038617995049726', 15), "Float('0.60038617995049726', prec=15)")
+
+【相关测试 4】
+测试文件：sympy/core/tests/test_subs.py
+测试名称：test_derivative_subs
+测试代码：
+def test_derivative_subs():
+    y = Symbol('y')
+    f = Function('f')
+    assert Derivative(f(x), x).subs(f(x), y) != 0
+    assert Derivative(f(x), x).subs(f(x), y).subs(y, f(x)) == \
+        Derivative(f(x), x)
+    # issues 5085, 5037
+    assert cse(Derivative(f(x), x) + f(x))[1][0].has(Derivative)
+    assert cse(Derivative(f(x, y), x) +
+               Derivative(f(x, y), y))[1][0].has(Derivative)
+
+【相关测试 5】
+测试文件：sympy/core/tests/test_subs.py
+测试名称：test_derivative_subs2
+测试代码：
+def test_derivative_subs2():
+    x, y, z = symbols('x y z')
+    f_func, g_func = symbols('f g', cls=Function)
+    f, g = f_func(x, y, z), g_func(x, y, z)
+    assert Derivative(f, x, y).subs(Derivative(f, x, y), g) == g
+    assert Derivative(f, y, x).subs(Derivative(f, x, y), g) == g
+    assert Derivative(f, x, y).subs(Derivative(f, x), g) == Derivative(g, y)
+    assert Derivative(f, x, y).subs(Derivative(f, y), g) == Derivative(g, x)
+    assert (Derivative(f, x, y, z).subs(
+                Derivative(f, x, z), g) == Derivative(g, y))
+    assert (Derivative(f, x, y, z).subs(
+                Derivative(f, z, y), g) == Derivative(g, x))
+    assert (Derivative(f, x, y, z).subs(
+                Derivative(f, z, y, x), g) == g)
+
+    # Issue 9135
+    assert (Derivative(f, x, x, y).subs(
+                Derivative(f, y, y), g) == Derivative(f, x, x, y))
+    assert (Derivative(f, x, y, y, z).subs(
+                Derivative(f, x, y, y, y), g) == Derivative(f, x, y, y, z))
+
+    assert Derivative(f, x, y).subs(Derivative(f_func(x), x, y), g) == Derivative(f, x, y)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

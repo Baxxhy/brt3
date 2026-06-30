@@ -1,0 +1,141 @@
+instance_id: sympy__sympy-20639
+
+issue_summary: SymPy 中 `pretty(pi**(1/E))` 的渲染输出错误，显示了不正确的根指数 `-1`，而 `latex` 和 `str` 的输出是正确的。
+
+trigger_condition:
+{
+  "text": "调用 `pretty(pi**(1/E))` 或 `upretty(pi**(1/E))`。其中 `pi` 和 `E` 是 SymPy 的数学常数。",
+  "evidence": [
+    "原始 Issue 中展示了 `pi**(1/E)` 的 `pretty` 输出。",
+    "相关测试 `test_pretty_sqrt` 测试了 `pretty` 对幂运算（如 `2**Rational(1, 3)`）的渲染。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "`pretty(pi**(1/E))` 返回的字符串为 `-1___\n╲╱ π `，这似乎表示根指数为 `-1`。而根据数学，`pi**(1/E)` 应表示为 `E` 次根号下 `pi`（或等价形式）。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "原始 Issue 中 `Out[52]` 的输出。",
+    "Issue 指出 `latex` 和 `str` 的输出不同且被认为是正确的。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`pretty(pi**(1/E))` 应正确渲染表达式，其输出应在数学上等价于 `latex(pi**(1/E))` 和 `str(pi**(1/E))` 所表示的含义，并且根指数（如果使用根式表示）应为正数（与 `1/E` 对应），而不是 `-1`。",
+  "evidence": [
+    "原始 Issue 中 `latex` 输出 `\\pi^{e^{-1}}` 和 `str` 输出 `'pi**exp(-1)'` 被认为是正确的参考。",
+    "相关测试 `test_pretty_sqrt` 展示了分数指数幂的正确 `pretty` 渲染（例如 `2**Rational(1, 3)` 渲染为 `3 ___\\n╲╱ 2`）。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "pretty",
+    "kind": "function",
+    "source_path": "sympy.printing.pretty",
+    "reason": "这是报告有缺陷的函数，用于生成表达式的美观文本表示。"
+  },
+  {
+    "name": "upretty",
+    "kind": "function",
+    "source_path": "sympy.printing.pretty",
+    "reason": "`upretty` 是 `pretty` 的 Unicode 版本，可能共享相同的渲染逻辑，也需要测试。"
+  },
+  {
+    "name": "pi",
+    "kind": "global_var",
+    "source_path": "sympy.core.numbers",
+    "reason": "表达式中的底数，是 SymPy 常数。"
+  },
+  {
+    "name": "E",
+    "kind": "global_var",
+    "source_path": "sympy.core.numbers",
+    "reason": "表达式指数中的分母，是 SymPy 常数。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "`expr = 2**Rational(1, 3)` 或 `expr = sqrt(2 + pi)`",
+    "target_pattern": "`expr = pi**(1/E)`",
+    "reason": "将底数从 `2` 或 `2+pi` 改为常数 `pi`，将指数从有理数 `1/3` 改为 `1/E`（`E` 是数学常数），这直接匹配 Issue 中触发缺陷的表达式。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_pretty_sqrt` 中，对 `expr = 2**Rational(1, 1000)` 测试了 `pretty` 和 `upretty`。",
+    "target_pattern": "对 `expr = pi**(1/E)` 测试 `pretty` 和 `upretty`，不预设具体的输出字符串，而是观察输出。",
+    "reason": "Issue 表明当前输出是错误的，因此不能直接重用现有测试中的预期字符串。需要先运行以观察实际错误输出，然后与 `latex` 或 `str` 的输出进行语义比较。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "`pretty(pi**(1/E))` 的返回值（字符串）。",
+    "reason": "直接观察有缺陷的输出，检查根指数部分是否包含 `-1` 或其他错误符号。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "`upretty(pi**(1/E))` 的返回值（Unicode 字符串）。",
+    "reason": "`upretty` 可能共享相同缺陷，需要同时观察。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "`latex(pi**(1/E))` 和 `str(pi**(1/E))` 的返回值。",
+    "reason": "根据 Issue，这些是正确行为的参考，可用于与 `pretty` 输出进行语义比较。"
+  },
+  {
+    "kind": "repr",
+    "expression_hint": "`repr(pi**(1/E))` 或表达式本身的结构。",
+    "reason": "确保表达式对象本身被正确创建，问题仅限于渲染阶段。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`pretty(pi**(1/E))` 的输出不应包含表示根指数为 `-1` 的片段（如 `-1___`）。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的输出字符串等于某个特定值，因为正确的格式可能有多样性（例如，可能渲染为 `pi**(exp(-1))` 或根式）。",
+    "reason": "Issue 明确显示错误是出现了 `-1` 作为根指数。避免完整字符串断言可以容纳不同的正确渲染风格（如幂形式或根式），只要根指数正确即可。"
+  },
+  {
+    "assertion_goal": "`pretty(pi**(1/E))` 的输出应在数学含义上与 `latex(pi**(1/E))` 或 `str(pi**(1/E))` 保持一致。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "直接比较 `pretty` 和 `latex` 的字符串是否相等，因为它们是不同的格式。",
+    "reason": "Issue 指出 `latex` 和 `str` 是正确的。可以通过评估表达式或检查简化形式来验证 `pretty` 输出所代表的表达式是否与 `latex`/`str` 输出的表达式相同。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要导入 `sympy` 模块中的 `pi`, `E`, `pretty`, `upretty`，可能还需要 `latex` 和 `str` 函数用于比较。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可以放在 `sympy/printing/pretty/tests/test_pretty.py` 文件中，遵循现有的测试结构和命名约定（如 `test_pretty_` 前缀）。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "`pretty` 函数对于 `pi**(1/E)` 预期的正确输出具体是什么格式（是显示为 `pi**(exp(-1))` 还是 `E` 次根号下 `pi` 或其他形式）。",
+  "缺陷是否也影响其他类似的表达式，如 `e**(1/pi)` 或 `2**(1/E)`。",
+  "错误根指数 `-1` 产生的具体原因（是符号计算错误、格式化错误还是特定于 `pi` 和 `E` 常数的处理）。"
+]

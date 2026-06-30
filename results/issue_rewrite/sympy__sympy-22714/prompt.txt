@@ -1,0 +1,818 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+simpify gives `Imaginary coordinates are not permitted.` with evaluate(False)
+## Issue
+`with evaluate(False)` crashes unexpectedly with `Point2D`
+
+## Code
+```python
+import sympy as sp
+with sp.evaluate(False):
+  sp.S('Point2D(Integer(1),Integer(2))')
+```
+
+## Error
+```
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/home/avinash/.local/lib/python3.8/site-packages/sympy/core/sympify.py", line 472, in sympify
+    expr = parse_expr(a, local_dict=locals, transformations=transformations, evaluate=evaluate)
+  File "/home/avinash/.local/lib/python3.8/site-packages/sympy/parsing/sympy_parser.py", line 1026, in parse_expr
+    raise e from ValueError(f"Error from parse_expr with transformed code: {code!r}")
+  File "/home/avinash/.local/lib/python3.8/site-packages/sympy/parsing/sympy_parser.py", line 1017, in parse_expr
+    rv = eval_expr(code, local_dict, global_dict)
+  File "/home/avinash/.local/lib/python3.8/site-packages/sympy/parsing/sympy_parser.py", line 911, in eval_expr
+    expr = eval(
+  File "<string>", line 1, in <module>
+  File "/home/avinash/.local/lib/python3.8/site-packages/sympy/geometry/point.py", line 912, in __new__
+    args = Point(*args, **kwargs)
+  File "/home/avinash/.local/lib/python3.8/site-packages/sympy/geometry/point.py", line 153, in __new__
+    raise ValueError('Imaginary coordinates are not permitted.')
+ValueError: Imaginary coordinates are not permitted.
+```
+
+However, it works without `with evaluate(False)`. Both of following commands work
+```python
+sp.S('Point2D(Integer(1),Integer(2))')
+sp.S('Point2D(Integer(1),Integer(2))', evaluate=False)
+```
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sympy/core/parameters.py
+对象名称：evaluate
+节点类型：top-level function
+父节点：parameters
+行号范围：71-102
+代码：
+def evaluate(x):
+    """ Control automatic evaluation
+
+    Explanation
+    ===========
+
+    This context manager controls whether or not all SymPy functions evaluate
+    by default.
+
+    Note that much of SymPy expects evaluated expressions.  This functionality
+    is experimental and is unlikely to function as intended on large
+    expressions.
+
+    Examples
+    ========
+
+    >>> from sympy import evaluate
+    >>> from sympy.abc import x
+    >>> print(x + x)
+    2*x
+    >>> with evaluate(False):
+    ...     print(x + x)
+    x + x
+    """
+
+    old = global_parameters.evaluate
+
+    try:
+        global_parameters.evaluate = x
+        yield
+    finally:
+        global_parameters.evaluate = old
+
+
+【源码片段 2】
+文件路径：sympy/solvers/benchmarks/bench_solvers.py
+对象名称：S
+节点类型：global_var
+父节点：bench_solvers
+行号范围：8-8
+代码：
+S = [Symbol('A%i' % i) for i in range(N)]
+
+
+【源码片段 3】
+文件路径：sympy/geometry/point.py
+对象名称：Point2D
+节点类型：class
+父节点：point
+行号范围：860-1070
+代码：
+class Point2D(Point):
+    """A point in a 2-dimensional Euclidean space.
+
+    Parameters
+    ==========
+
+    coords : sequence of 2 coordinate values.
+
+    Attributes
+    ==========
+
+    x
+    y
+    length
+
+    Raises
+    ======
+
+    TypeError
+        When trying to add or subtract points with different dimensions.
+        When trying to create a point with more than two dimensions.
+        When `intersection` is called with object other than a Point.
+
+    See Also
+    ========
+
+    sympy.geometry.line.Segment : Connects two Points
+
+    Examples
+    ========
+
+    >>> from sympy.geometry import Point2D
+    >>> from sympy.abc import x
+    >>> Point2D(1, 2)
+    Point2D(1, 2)
+    >>> Point2D([1, 2])
+    Point2D(1, 2)
+    >>> Point2D(0, x)
+    Point2D(0, x)
+
+    Floats are automatically converted to Rational unless the
+    evaluate flag is False:
+
+    >>> Point2D(0.5, 0.25)
+    Point2D(1/2, 1/4)
+    >>> Point2D(0.5, 0.25, evaluate=False)
+    Point2D(0.5, 0.25)
+
+    """
+    _ambient_dimension = 2
+    def __new__(cls, *args, _nocheck=False, **kwargs):
+    def __contains__(self, item):
+    @property
+    def bounds(self):
+    def rotate(self, angle, pt=None):
+    def scale(self, x=1, y=1, pt=None):
+    def transform(self, matrix):
+    def translate(self, x=0, y=0):
+    @property
+    def coordinates(self):
+    @property
+    def x(self):
+    @property
+    def y(self):
+
+
+【源码片段 4】
+文件路径：sympy/geometry/point.py
+对象名称：Point
+节点类型：class
+父节点：point
+行号范围：42-857
+代码：
+class Point(GeometryEntity):
+    """A point in a n-dimensional Euclidean space.
+
+    Parameters
+    ==========
+
+    coords : sequence of n-coordinate values. In the special
+        case where n=2 or 3, a Point2D or Point3D will be created
+        as appropriate.
+    evaluate : if `True` (default), all floats are turn into
+        exact types.
+    dim : number of coordinates the point should have.  If coordinates
+        are unspecified, they are padded with zeros.
+    on_morph : indicates what should happen when the number of
+        coordinates of a point need to be changed by adding or
+        removing zeros.  Possible values are `'warn'`, `'error'`, or
+        `ignore` (default).  No warning or error is given when `*args`
+        is empty and `dim` is given. An error is always raised when
+        trying to remove nonzero coordinates.
+
+
+    Attributes
+    ==========
+
+    length
+    origin: A `Point` representing the origin of the
+        appropriately-dimensioned space.
+
+    Raises
+    ======
+
+    TypeError : When instantiating with anything but a Point or sequence
+    ValueError : when instantiating with a sequence with length < 2 or
+        when trying to reduce dimensions if keyword `on_morph='error'` is
+        set.
+
+    See Also
+    ========
+
+    sympy.geometry.line.Segment : Connects two Points
+
+    Examples
+    ========
+
+    >>> from sympy.geometry import Point
+    >>> from sympy.abc import x
+    >>> Point(1, 2, 3)
+    Point3D(1, 2, 3)
+    >>> Point([1, 2])
+    Point2D(1, 2)
+    >>> Point(0, x)
+    Point2D(0, x)
+    >>> Point(dim=4)
+    Point(0, 0, 0, 0)
+
+    Floats are automatically converted to Rational unless the
+    evaluate flag is False:
+
+    >>> Point(0.5, 0.25)
+    Point2D(1/2, 1/4)
+    >>> Point(0.5, 0.25, evaluate=False)
+    Point2D(0.5, 0.25)
+
+    """
+    is_Point = True
+    def __new__(cls, *args, **kwargs):
+    def __abs__(self):
+    def __add__(self, other):
+    def __contains__(self, item):
+    def __truediv__(self, divisor):
+    def __eq__(self, other):
+    def __getitem__(self, key):
+    def __hash__(self):
+    def __iter__(self):
+    def __len__(self):
+    def __mul__(self, factor):
+    def __rmul__(self, factor):
+    def __neg__(self):
+    def __sub__(self, other):
+    @classmethod
+    def _normalize_dimension(cls, *points, **kwargs):
+    @staticmethod
+    def affine_rank(*args):
+    @property
+    def ambient_dimension(self):
+    @classmethod
+    def are_coplanar(cls, *points):
+    def distance(self, other):
+    def dot(self, p):
+    def equals(self, other):
+    def _eval_evalf(self, prec=15, **options):
+    def intersection(self, other):
+    def is_collinear(self, *args):
+    def is_concyclic(self, *args):
+    @property
+    def is_nonzero(self):
+    def is_scalar_multiple(self, p):
+    @property
+    def is_zero(self):
+    @property
+    def length(self):
+    def midpoint(self, p):
+    @property
+    def origin(self):
+    @property
+    def orthogonal_direction(self):
+    @staticmethod
+    def project(a, b):
+    def taxicab_distance(self, p):
+    def canberra_distance(self, p):
+    @property
+    def unit(self):
+
+
+【源码片段 5】
+文件路径：sympy/core/sympify.py
+对象名称：sympify
+节点类型：file
+父节点：repo_root
+行号范围：-1--1
+代码：
+file_content
+
+【源码片段 6】
+文件路径：sympy/parsing/sympy_parser.py
+对象名称：parse_expr
+节点类型：top-level function
+父节点：sympy_parser
+行号范围：918-1100
+代码：
+def parse_expr(s, local_dict=None, transformations=standard_transformations,
+               global_dict=None, evaluate=True):
+    """Converts the string ``s`` to a SymPy expression, in ``local_dict``
+
+    Parameters
+    ==========
+
+    s : str
+        The string to parse.
+
+    local_dict : dict, optional
+        A dictionary of local variables to use when parsing.
+
+    global_dict : dict, optional
+        A dictionary of global variables. By default, this is initialized
+        with ``from sympy import *``; provide this parameter to override
+        this behavior (for instance, to parse ``"Q & S"``).
+
+    transformations : tuple or str, optional
+        A tuple of transformation functions used to modify the tokens of the
+        parsed expression before evaluation. The default transformations
+        convert numeric literals into their SymPy equivalents, convert
+        undefined variables into SymPy symbols, and allow the use of standard
+        mathematical factorial notation (e.g. ``x!``). Selection via
+        string is available (see below).
+
+    evaluate : bool, optional
+        When False, the order of the arguments will remain as they were in the
+        string and automatic simplification that would normally occur is
+        suppressed. (see examples)
+
+    Examples
+    ========
+
+    >>> from sympy.parsing.sympy_parser import parse_expr
+    >>> parse_expr("1/2")
+    1/2
+    >>> type(_)
+    <class 'sympy.core.numbers.Half'>
+    >>> from sympy.parsing.sympy_parser import standard_transformations,\\
+    ... implicit_multiplication_application
+    >>> transformations = (standard_transformations +
+    ...     (implicit_multiplication_application,))
+    >>> parse_expr("2x", transformations=transformations)
+    2*x
+
+    When evaluate=False, some automatic simplifications will not occur:
+
+    >>> parse_expr("2**3"), parse_expr("2**3", evaluate=False)
+    (8, 2**3)
+
+    In addition the order of the arguments will not be made canonical.
+    This feature allows one to tell exactly how the expression was entered:
+
+    >>> a = parse_expr('1 + x', evaluate=False)
+    >>> b = parse_expr('x + 1', evaluate=0)
+    >>> a == b
+    False
+    >>> a.args
+    (1, x)
+    >>> b.args
+    (x, 1)
+
+    Note, however, that when these expressions are printed they will
+    appear the same:
+
+    >>> assert str(a) == str(b)
+
+    As a convenience, transformations can be seen by printing ``transformations``:
+
+    >>> from sympy.parsing.sympy_parser import transformations
+
+    >>> print(transformations)
+    0: lambda_notation
+    1: auto_symbol
+    2: repeated_decimals
+    3: auto_number
+    4: factorial_notation
+    5: implicit_multiplication_application
+    6: convert_xor
+    7: implicit_application
+    8: implicit_multiplication
+    9: convert_equals_signs
+    10: function_exponentiation
+    11: rationalize
+
+    The ``T`` object provides a way to select these transformations:
+
+    >>> from sympy.parsing.sympy_parser import T
+
+    If you print it, you will see the same list as shown above.
+
+    >>> str(T) == str(transformations)
+    True
+
+    Standard slicing will return a tuple of transformations:
+
+    >>> T[:5] == standard_transformations
+    True
+
+    So ``T`` can be used to specify the parsing transformations:
+
+    >>> parse_expr("2x", transformations=T[:5])
+    Traceback (most recent call last):
+    ...
+    SyntaxError: invalid syntax
+    >>> parse_expr("2x", transformations=T[:6])
+    2*x
+    >>> parse_expr('.3', transformations=T[3, 11])
+    3/10
+    >>> parse_expr('.3x', transformations=T[:])
+    3*x/10
+
+    As a further convenience, strings 'implicit' and 'all' can be used
+    to select 0-5 and all the transformations, respectively.
+
+    >>> parse_expr('.3x', transformations='all')
+    3*x/10
+
+    See Also
+    ========
+
+    stringify_expr, eval_expr, standard_transformations,
+    implicit_multiplication_application
+
+    """
+
+    if local_dict is None:
+        local_dict = {}
+    elif not isinstance(local_dict, dict):
+        raise TypeError('expecting local_dict to be a dict')
+
+    if global_dict is None:
+        global_dict = {}
+        exec('from sympy import *', global_dict)
+    elif not isinstance(global_dict, dict):
+        raise TypeError('expecting global_dict to be a dict')
+
+    transformations = transformations or ()
+    if type(transformations) is str:
+        if transformations == 'all':
+            transformations = T[:]
+        elif transformations == 'implicit':
+            transformations = T[:6]
+        else:
+            raise ValueError('unknown transformation group name')
+    if transformations:
+        if not iterable(transformations):
+            raise TypeError(
+                '`transformations` should be a list of functions.')
+        for _ in transformations:
+            if not callable(_):
+                raise TypeError(filldedent('''
+                    expected a function in `transformations`,
+                    not %s''' % func_name(_)))
+            if arity(_) != 3:
+                raise TypeError(filldedent('''
+                    a transformation should be function that
+                    takes 3 arguments'''))
+
+    builtins_dict = vars(builtins)
+    for name, obj in builtins_dict.items():
+        if isinstance(obj, types.BuiltinFunctionType):
+            global_dict[name] = obj
+    global_dict['max'] = Max
+    global_dict['min'] = Min
+
+    code = stringify_expr(s, local_dict, global_dict, transformations)
+
+    if not evaluate:
+        code = compile(evaluateFalse(code), '<string>', 'eval')
+
+    try:
+        rv = eval_expr(code, local_dict, global_dict)
+        # restore neutral definitions for names
+        for i in local_dict.pop(None, ()):
+            local_dict[i] = None
+        return rv
+    except Exception as e:
+        # restore neutral definitions for names
+        for i in local_dict.pop(None, ()):
+            local_dict[i] = None
+        raise e from ValueError(f"Error from parse_expr with transformed code: {code!r}")
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sympy/geometry/tests/test_point.py
+测试名称：test_Point2D
+测试代码：
+def test_Point2D():
+
+    # Test Distance
+    p1 = Point2D(1, 5)
+    p2 = Point2D(4, 2.5)
+    p3 = (6, 3)
+    assert p1.distance(p2) == sqrt(61)/2
+    assert p2.distance(p3) == sqrt(17)/2
+
+    # Test coordinates
+    assert p1.x == 1
+    assert p1.y == 5
+    assert p2.x == 4
+    assert p2.y == 2.5
+    assert p1.coordinates == (1, 5)
+    assert p2.coordinates == (4, 2.5)
+
+    # test bounds
+    assert p1.bounds == (1, 5, 1, 5)
+
+【相关测试 2】
+测试文件：sympy/core/tests/test_sympify.py
+测试名称：test_evaluate_false
+测试代码：
+def test_evaluate_false():
+    cases = {
+        '2 + 3': Add(2, 3, evaluate=False),
+        '2**2 / 3': Mul(Pow(2, 2, evaluate=False), Pow(3, -1, evaluate=False), evaluate=False),
+        '2 + 3 * 5': Add(2, Mul(3, 5, evaluate=False), evaluate=False),
+        '2 - 3 * 5': Add(2, Mul(-1, Mul(3, 5,evaluate=False), evaluate=False), evaluate=False),
+        '1 / 3': Mul(1, Pow(3, -1, evaluate=False), evaluate=False),
+        'True | False': Or(True, False, evaluate=False),
+        '1 + 2 + 3 + 5*3 + integrate(x)': Add(1, 2, 3, Mul(5, 3, evaluate=False), x**2/2, evaluate=False),
+        '2 * 4 * 6 + 8': Add(Mul(2, 4, 6, evaluate=False), 8, evaluate=False),
+        '2 - 8 / 4': Add(2, Mul(-1, Mul(8, Pow(4, -1, evaluate=False), evaluate=False), evaluate=False), evaluate=False),
+        '2 - 2**2': Add(2, Mul(-1, Pow(2, 2, evaluate=False), evaluate=False), evaluate=False),
+    }
+    for case, result in cases.items():
+        assert sympify(case, evaluate=False) == result
+
+【相关测试 3】
+测试文件：sympy/parsing/tests/test_sympy_parser.py
+测试名称：test_function_evaluate_false
+测试代码：
+def test_function_evaluate_false():
+    inputs = [
+        'Abs(0)', 'im(0)', 're(0)', 'sign(0)', 'arg(0)', 'conjugate(0)',
+        'acos(0)', 'acot(0)', 'acsc(0)', 'asec(0)', 'asin(0)', 'atan(0)',
+        'acosh(0)', 'acoth(0)', 'acsch(0)', 'asech(0)', 'asinh(0)', 'atanh(0)',
+        'cos(0)', 'cot(0)', 'csc(0)', 'sec(0)', 'sin(0)', 'tan(0)',
+        'cosh(0)', 'coth(0)', 'csch(0)', 'sech(0)', 'sinh(0)', 'tanh(0)',
+        'exp(0)', 'log(0)', 'sqrt(0)',
+    ]
+    for case in inputs:
+        expr = parse_expr(case, evaluate=False)
+        assert case == str(expr) != str(expr.doit())
+    assert str(parse_expr('ln(0)', evaluate=False)) == 'log(0)'
+    assert str(parse_expr('cbrt(0)', evaluate=False)) == '0**(1/3)'
+
+【相关测试 4】
+测试文件：sympy/geometry/tests/test_point.py
+测试名称：test_arguments
+测试代码：
+def test_arguments():
+    """Functions accepting `Point` objects in `geometry`
+    should also accept tuples and lists and
+    automatically convert them to points."""
+
+    singles2d = ((1,2), [1,2], Point(1,2))
+    singles2d2 = ((1,3), [1,3], Point(1,3))
+    doubles2d = cartes(singles2d, singles2d2)
+    p2d = Point2D(1,2)
+    singles3d = ((1,2,3), [1,2,3], Point(1,2,3))
+    doubles3d = subsets(singles3d, 2)
+    p3d = Point3D(1,2,3)
+    singles4d = ((1,2,3,4), [1,2,3,4], Point(1,2,3,4))
+    doubles4d = subsets(singles4d, 2)
+    p4d = Point(1,2,3,4)
+
+    # test 2D
+    test_single = ['distance', 'is_scalar_multiple', 'taxicab_distance', 'midpoint', 'intersection', 'dot', 'equals', '__add__', '__sub__']
+    test_double = ['is_concyclic', 'is_collinear']
+    for p in singles2d:
+        Point2D(p)
+    for func in test_single:
+        for p in singles2d:
+            getattr(p2d, func)(p)
+    for func in test_double:
+        for p in doubles2d:
+            getattr(p2d, func)(*p)
+
+    # test 3D
+    test_double = ['is_collinear']
+    for p in singles3d:
+        Point3D(p)
+    for func in test_single:
+        for p in singles3d:
+            getattr(p3d, func)(p)
+    for func in test_double:
+        for p in doubles3d:
+            getattr(p3d, func)(*p)
+
+    # test 4D
+    test_double = ['is_collinear']
+    for p in singles4d:
+        Point(p)
+    for func in test_single:
+        for p in singles4d:
+            getattr(p4d, func)(p)
+    for func in test_double:
+        for p in doubles4d:
+            getattr(p4d, func)(*p)
+
+    # test evaluate=False for ops
+    x = Symbol('x')
+    a = Point(0, 1)
+    assert a + (0.1, x) == Point(0.1, 1 + x, evaluate=False)
+    a = Point(0, 1)
+    assert a/10.0 == Point(0, 0.1, evaluate=False)
+    a = Point(0, 1)
+    assert a*10.0 == Point(0.0, 10.0, evaluate=False)
+
+    # test evaluate=False when changing dimensions
+    u = Point(.1, .2, evaluate=False)
+    u4 = Point(u, dim=4, on_morph='ignore')
+    assert u4.args == (.1, .2, 0, 0)
+    assert all(i.is_Float for i in u4.args[:2])
+    # and even when *not* changing dimensions
+    assert all(i.is_Float for i in Point(u).args)
+
+    # never raise error if creating an origin
+    assert Point(dim=3, on_morph='error')
+
+    # raise error with unmatched dimension
+    raises(ValueError, lambda: Point(1, 1, dim=3, on_morph='error'))
+    # test unknown on_morph
+    raises(ValueError, lambda: Point(1, 1, dim=3, on_morph='unknown'))
+    # test invalid expressions
+    raises(TypeError, lambda: Point(Basic(), Basic()))
+
+【相关测试 5】
+测试文件：sympy/core/tests/test_evalf.py
+测试名称：test_evaluate_false
+测试代码：
+def test_evaluate_false():
+    for no in [0, False]:
+        assert Add(3, 2, evaluate=no).is_Add
+        assert Mul(3, 2, evaluate=no).is_Mul
+        assert Pow(3, 2, evaluate=no).is_Pow
+    assert Pow(y, 2, evaluate=True) - Pow(y, 2, evaluate=True) == 0
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

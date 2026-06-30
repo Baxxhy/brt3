@@ -1,0 +1,353 @@
+{
+  "instance_id": "django__django-11039",
+  "issue_summary": "sqlmigrate 命令在数据库不支持事务性DDL时，错误地在输出中添加了 BEGIN/COMMIT 事务包装语句。",
+  "trigger_condition": {
+    "text": "运行 sqlmigrate 命令，且满足以下条件：1. 迁移是原子性的（migration.atomic 为 True）。2. 当前数据库连接的特征 connection.features.can_rollback_ddl 为 False。",
+    "evidence": [
+      "Issue 描述：当前 sqlmigrate 逻辑只考虑了 migration.atomic。",
+      "Issue 描述：迁移执行器仅在迁移是原子的且模式编辑器可以回滚DDL时才添加外部 BEGIN/COMMIT。",
+      "Issue 描述：问题可以通过修改 sqlmigrate 中 self.output_transaction 的赋值，使其同时考虑 connection.features.can_rollback_ddl 来解决。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "sqlmigrate 命令的输出中包含了 BEGIN 和 COMMIT（或数据库等效的事务开始/结束）语句，但数据库实际上不支持事务性DDL。",
+    "symptom_type": "wrong_sql",
+    "evidence": [
+      "Issue 标题：sqlmigrate wraps it's outpout in BEGIN/COMMIT even if the database doesn't support transactional DDL。",
+      "相关测试 test_sqlmigrate_for_non_atomic_migration 检查事务包装语句是否不出现在输出中。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "当数据库不支持事务性DDL（connection.features.can_rollback_ddl 为 False）时，sqlmigrate 命令的输出不应包含事务开始和结束的SQL语句（如 BEGIN 和 COMMIT）。",
+    "evidence": [
+      "Issue 描述：迁移执行器仅在迁移是原子的且模式编辑器可以回滚DDL时才添加外部 BEGIN/COMMIT。",
+      "相关测试 test_sqlmigrate_for_non_atomic_migration 的文档字符串：\"Transaction wrappers aren't shown for non-atomic migrations.\"（对于非原子迁移，不显示事务包装）。逻辑上，对于不支持回滚DDL的数据库，即使迁移是原子的，也不应显示事务包装。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "call_command",
+      "kind": "function",
+      "source_path": "",
+      "reason": "用于在测试中调用 sqlmigrate 命令。"
+    },
+    {
+      "name": "sqlmigrate",
+      "kind": "command",
+      "source_path": "django/core/management/commands/sqlmigrate.py",
+      "reason": "Issue 直接针对此管理命令。"
+    },
+    {
+      "name": "connection.features.can_rollback_ddl",
+      "kind": "attribute",
+      "source_path": "",
+      "reason": "Issue 指出缺陷在于未考虑此特征。"
+    },
+    {
+      "name": "connection.ops.start_transaction_sql",
+      "kind": "method",
+      "source_path": "",
+      "reason": "相关测试使用它来获取事务开始SQL语句以进行断言。"
+    },
+    {
+      "name": "connection.ops.end_transaction_sql",
+      "kind": "method",
+      "source_path": "",
+      "reason": "相关测试使用它来获取事务结束SQL语句以进行断言。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/core/management/commands/sqlmigrate.py",
+      "object": "sqlmigrate 命令类（可能是 Command）中设置 self.output_transaction 的逻辑",
+      "lines": "",
+      "reason": "Issue 明确指出需要修改 sqlmigrate 中 self.output_transaction 的赋值逻辑。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_sqlmigrate_for_non_atomic_migration",
+      "test_file": "tests/migrations/test_commands.py",
+      "why_relevant": "它直接测试 sqlmigrate 命令输出中事务包装语句的存在与否，使用了 call_command、StringIO 捕获输出、以及基于 connection.ops 的断言。这是测试 sqlmigrate 输出事务逻辑的现有模式。",
+      "reusable_parts": [
+        "MigrateTests 测试类",
+        "使用 io.StringIO() 和 call_command 捕获输出",
+        "将输出拆分为查询列表的逻辑",
+        "使用 connection.ops.start_transaction_sql() 和 end_transaction_sql() 进行断言",
+        "assertNotIn 来检查事务语句是否不存在"
+      ],
+      "possible_gap": "该测试通过 @override_settings(MIGRATION_MODULES=...) 使迁移变为非原子（atomic=False）来触发“无事务包装”的路径。但它没有模拟 connection.features.can_rollback_ddl = False 的情况。要复现当前 Issue，需要保持迁移为原子性，但将 can_rollback_ddl 设为 False。"
+    },
+    {
+      "test_name": "test_unsupported_transactional_ddl_disallowed",
+      "test_file": "tests/schema/tests.py",
+      "why_relevant": "它演示了如何根据数据库特征（can_rollback_ddl）来条件化测试行为（使用 @skipIfDBFeature），并涉及 atomic() 上下文管理器和 schema_editor。",
+      "reusable_parts": [
+        "使用 @skipIfDBFeature('can_rollback_ddl') 来跳过支持该特性的数据库",
+        "涉及 connection.features.can_rollback_ddl 的检查",
+        "使用 atomic() 上下文管理器"
+      ],
+      "possible_gap": "该测试是关于在事务中执行DDL时引发异常，而不是关于 sqlmigrate 的命令输出。它不调用 sqlmigrate 命令。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "mock",
+      "current_pattern": "test_sqlmigrate_for_non_atomic_migration 中通过覆盖 MIGRATION_MODULES 设置使迁移变为非原子（atomic=False）。",
+      "target_pattern": "保持 MIGRATION_MODULES 指向一个原子迁移（或使用默认），但通过 mocking 将 connection.features.can_rollback_ddl 设置为 False。",
+      "reason": "Issue 描述指出，需要基于现有非原子迁移测试，但改为模拟 can_rollback_ddl 为 False。这会将测试条件从“非原子迁移”变为“原子迁移但不支持回滚DDL”，从而触发缺陷路径。",
+      "confidence": "high"
+    },
+    {
+      "slot": "config",
+      "current_pattern": "相关测试使用 @override_settings 来改变 MIGRATION_MODULES。",
+      "target_pattern": "可能需要确保测试使用的数据库后端本身不支持 can_rollback_ddl，或者使用 mocking 来临时修改 connection.features.can_rollback_ddl。",
+      "reason": "触发缺陷需要 can_rollback_ddl 为 False 的配置或模拟状态。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "sql",
+      "expression_hint": "call_command('sqlmigrate', ...) 写入 StringIO 的完整输出字符串。",
+      "reason": "错误症状直接体现在输出的SQL文本中是否包含不适当的事务语句。"
+    },
+    {
+      "kind": "state",
+      "expression_hint": "connection.features.can_rollback_ddl 在测试运行时的值。",
+      "reason": "这是决定正确行为的关键条件。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "sqlmigrate 的输出中不包含事务开始语句（如 BEGIN）。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言完整的、特定于数据库的 start_transaction_sql 字符串完全相等或出现在特定行号。",
+      "reason": "事务开始语句可能因数据库后端而异（如 BEGIN, START TRANSACTION）。使用 connection.ops.start_transaction_sql() 获取片段进行不包含检查是稳定且与现有测试一致的方法。"
+    },
+    {
+      "assertion_goal": "sqlmigrate 的输出中不包含事务结束语句（如 COMMIT）。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言完整的、特定于数据库的 end_transaction_sql 字符串完全相等。",
+      "reason": "同上，使用 connection.ops.end_transaction_sql() 获取片段进行不包含检查。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要使用 MigrationTestBase 或类似的测试基类，因为它提供了迁移测试的基础设施。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要使用 unittest.mock.patch 来临时修改 connection.features.can_rollback_ddl 属性。",
+      "source": "inference",
+      "confidence": "medium"
+    },
+    {
+      "hint": "测试可能需要一个原子性迁移作为目标。可以使用现有的测试迁移模块（如 'migrations.test_migrations'），或确保 MIGRATION_MODULES 指向一个原子迁移。",
+      "source": "retrieved_test",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "connection.features.can_rollback_ddl 在哪些内置数据库后端中默认为 False。",
+    "sqlmigrate 命令内部 self.output_transaction 被赋值的具体位置和逻辑。",
+    "是否所有数据库后端都正确实现了 connection.ops.start_transaction_sql() 和 end_transaction_sql() 方法。",
+    "除了事务开始/结束语句，输出中是否还有其他与事务相关的、需要检查的SQL片段。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "sqlmigrate wraps it's outpout in BEGIN/COMMIT even if the database doesn't support transactional DDL\nDescription\n\t \n\t\t(last modified by Simon Charette)\n\t \nThe migration executor only adds the outer BEGIN/COMMIT ​if the migration is atomic and ​the schema editor can rollback DDL but the current sqlmigrate logic only takes migration.atomic into consideration.\nThe issue can be addressed by\nChanging sqlmigrate ​assignment of self.output_transaction to consider connection.features.can_rollback_ddl as well.\nAdding a test in tests/migrations/test_commands.py based on ​an existing test for non-atomic migrations that mocks connection.features.can_rollback_ddl to False instead of overdidding MIGRATION_MODULES to point to a non-atomic migration.\nI marked the ticket as easy picking because I included the above guidelines but feel free to uncheck it if you deem it inappropriate.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当数据库不支持事务性DDL（即 connection.features.can_rollback_ddl 为 False）时，sqlmigrate 命令的输出仍然会包含 BEGIN/COMMIT 事务包装语句。正确的行为应该是：只有当迁移是原子性的（migration.atomic 为 True）并且数据库支持事务性DDL（can_rollback_ddl 为 True）时，才在输出中添加事务包装。当前 sqlmigrate 的逻辑只考虑了 migration.atomic，忽略了 can_rollback_ddl。需要修改 sqlmigrate 命令中 self.output_transaction 的赋值逻辑，使其同时考虑这两个条件。",
+      "facts_from_issue": [
+        "sqlmigrate 命令的输出会在 BEGIN/COMMIT 中包装，即使数据库不支持事务性DDL。",
+        "迁移执行器仅在迁移是原子的且模式编辑器可以回滚DDL时才添加外部 BEGIN/COMMIT。",
+        "当前 sqlmigrate 逻辑只考虑了 migration.atomic。",
+        "问题可以通过修改 sqlmigrate 中 self.output_transaction 的赋值，使其同时考虑 connection.features.can_rollback_ddl 来解决。",
+        "建议在 tests/migrations/test_commands.py 中添加一个测试，基于现有的非原子迁移测试，将 connection.features.can_rollback_ddl 模拟为 False，而不是覆盖 MIGRATION_MODULES 指向非原子迁移。"
+      ],
+      "facts_from_retrieved_context": [
+        "存在一个测试 test_sqlmigrate_for_non_atomic_migration，它通过覆盖 MIGRATION_MODULES 来测试非原子迁移，并断言事务包装语句不出现在输出中。",
+        "存在一个测试 test_unsupported_transactional_ddl_disallowed，它检查在不支持回滚DDL的数据库上，在事务中执行DDL语句会引发 TransactionManagementError。",
+        "sqlmigrate 命令的实现在 django/core/management/commands/sqlmigrate.py 文件中。",
+        "connection.ops.start_transaction_sql() 和 connection.ops.end_transaction_sql() 用于获取事务开始和结束的SQL语句。"
+      ],
+      "inferences": [
+        "缺陷与 sqlmigrate 命令生成SQL输出时决定是否添加事务包装的逻辑有关。",
+        "connection.features.can_rollback_ddl 是一个布尔特征，指示数据库是否支持事务性DDL。",
+        "当 can_rollback_ddl 为 False 时，即使迁移是原子的，也不应该输出事务包装。",
+        "现有的测试 test_sqlmigrate_for_non_atomic_migration 只测试了非原子迁移（atomic=False）的情况，但没有测试原子迁移在 can_rollback_ddl=False 时的情况。"
+      ],
+      "do_not_assume": [
+        "sqlmigrate 命令内部 self.output_transaction 的具体实现代码行号。",
+        "connection.features.can_rollback_ddl 在所有数据库后端中的默认值。",
+        "修复后 sqlmigrate 输出的确切SQL字符串内容。",
+        "除了 sqlmigrate 命令外，其他管理命令是否也存在类似问题。"
+      ]
+    },
+    "issue_summary": "sqlmigrate 命令在数据库不支持事务性DDL时，错误地在输出中添加了 BEGIN/COMMIT 事务包装语句。",
+    "trigger_condition": {
+      "text": "运行 sqlmigrate 命令，且满足以下条件：1. 迁移是原子性的（migration.atomic 为 True）。2. 当前数据库连接的特征 connection.features.can_rollback_ddl 为 False。",
+      "evidence": [
+        "Issue 描述：当前 sqlmigrate 逻辑只考虑了 migration.atomic。",
+        "Issue 描述：迁移执行器仅在迁移是原子的且模式编辑器可以回滚DDL时才添加外部 BEGIN/COMMIT。",
+        "Issue 描述：问题可以通过修改 sqlmigrate 中 self.output_transaction 的赋值，使其同时考虑 connection.features.can_rollback_ddl 来解决。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "sqlmigrate 命令的输出中包含了 BEGIN 和 COMMIT（或数据库等效的事务开始/结束）语句，但数据库实际上不支持事务性DDL。",
+      "symptom_type": "wrong_sql",
+      "evidence": [
+        "Issue 标题：sqlmigrate wraps it's outpout in BEGIN/COMMIT even if the database doesn't support transactional DDL。",
+        "相关测试 test_sqlmigrate_for_non_atomic_migration 检查事务包装语句是否不出现在输出中。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "当数据库不支持事务性DDL（connection.features.can_rollback_ddl 为 False）时，sqlmigrate 命令的输出不应包含事务开始和结束的SQL语句（如 BEGIN 和 COMMIT）。",
+      "evidence": [
+        "Issue 描述：迁移执行器仅在迁移是原子的且模式编辑器可以回滚DDL时才添加外部 BEGIN/COMMIT。",
+        "相关测试 test_sqlmigrate_for_non_atomic_migration 的文档字符串：\"Transaction wrappers aren't shown for non-atomic migrations.\"（对于非原子迁移，不显示事务包装）。逻辑上，对于不支持回滚DDL的数据库，即使迁移是原子的，也不应显示事务包装。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "call_command",
+        "kind": "function",
+        "source_path": "",
+        "reason": "用于在测试中调用 sqlmigrate 命令。"
+      },
+      {
+        "name": "sqlmigrate",
+        "kind": "command",
+        "source_path": "django/core/management/commands/sqlmigrate.py",
+        "reason": "Issue 直接针对此管理命令。"
+      },
+      {
+        "name": "connection.features.can_rollback_ddl",
+        "kind": "attribute",
+        "source_path": "",
+        "reason": "Issue 指出缺陷在于未考虑此特征。"
+      },
+      {
+        "name": "connection.ops.start_transaction_sql",
+        "kind": "method",
+        "source_path": "",
+        "reason": "相关测试使用它来获取事务开始SQL语句以进行断言。"
+      },
+      {
+        "name": "connection.ops.end_transaction_sql",
+        "kind": "method",
+        "source_path": "",
+        "reason": "相关测试使用它来获取事务结束SQL语句以进行断言。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/core/management/commands/sqlmigrate.py",
+        "object": "sqlmigrate 命令类（可能是 Command）中设置 self.output_transaction 的逻辑",
+        "lines": "",
+        "reason": "Issue 明确指出需要修改 sqlmigrate 中 self.output_transaction 的赋值逻辑。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_sqlmigrate_for_non_atomic_migration",
+        "test_file": "tests/migrations/test_commands.py",
+        "why_relevant": "它直接测试 sqlmigrate 命令输出中事务包装语句的存在与否，使用了 call_command、StringIO 捕获输出、以及基于 connection.ops 的断言。这是测试 sqlmigrate 输出事务逻辑的现有模式。",
+        "reusable_parts": [
+          "MigrateTests 测试类",
+          "使用 io.StringIO() 和 call_command 捕获输出",
+          "将输出拆分为查询列表的逻辑",
+          "使用 connection.ops.start_transaction_sql() 和 end_transaction_sql() 进行断言",
+          "assertNotIn 来检查事务语句是否不存在"
+        ],
+        "possible_gap": "该测试通过 @override_settings(MIGRATION_MODULES=...) 使迁移变为非原子（atomic=False）来触发“无事务包装”的路径。但它没有模拟 connection.features.can_rollback_ddl = False 的情况。要复现当前 Issue，需要保持迁移为原子性，但将 can_rollback_ddl 设为 False。"
+      },
+      {
+        "test_name": "test_unsupported_transactional_ddl_disallowed",
+        "test_file": "tests/schema/tests.py",
+        "why_relevant": "它演示了如何根据数据库特征（can_rollback_ddl）来条件化测试行为（使用 @skipIfDBFeature），并涉及 atomic() 上下文管理器和 schema_editor。",
+        "reusable_parts": [
+          "使用 @skipIfDBFeature('can_rollback_ddl') 来跳过支持该特性的数据库",
+          "涉及 connection.features.can_rollback_ddl 的检查",
+          "使用 atomic() 上下文管理器"
+        ],
+        "possible_gap": "该测试是关于在事务中执行DDL时引发异常，而不是关于 sqlmigrate 的命令输出。它不调用 sqlmigrate 命令。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "mock",
+        "current_pattern": "test_sqlmigrate_for_non_atomic_migration 中通过覆盖 MIGRATION_MODULES 设置使迁移变为非原子（atomic=False）。",
+        "target_pattern": "保持 MIGRATION_MODULES 指向一个原子迁移（或使用默认），但通过 mocking 将 connection.features.can_rollback_ddl 设置为 False。",
+        "reason": "Issue 描述指出，需要基于现有非原子迁移测试，但改为模拟 can_rollback_ddl 为 False。这会将测试条件从“非原子迁移”变为“原子迁移但不支持回滚DDL”，从而触发缺陷路径。",
+        "confidence": "high"
+      },
+      {
+        "slot": "config",
+        "current_pattern": "相关测试使用 @override_settings 来改变 MIGRATION_MODULES。",
+        "target_pattern": "可能需要确保测试使用的数据库后端本身不支持 can_rollback_ddl，或者使用 mocking 来临时修改 connection.features.can_rollback_ddl。",
+        "reason": "触发缺陷需要 can_rollback_ddl 为 False 的配置或模拟状态。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "sql",
+        "expression_hint": "call_command('sqlmigrate', ...) 写入 StringIO 的完整输出字符串。",
+        "reason": "错误症状直接体现在输出的SQL文本中是否包含不适当的事务语句。"
+      },
+      {
+        "kind": "state",
+        "expression_hint": "connection.features.can_rollback_ddl 在测试运行时的值。",
+        "reason": "这是决定正确行为的关键条件。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "sqlmigrate 的输出中不包含事务开始语句（如 BEGIN）。",
+        "preferred_assertion_style": "not_contains_fragment",
+        "avoid": "断言完整的、特定于数据库的 start_transaction_sql 字符串完全相等或出现在特定行号。",
+        "reason": "事务开始语句可能因数据库后端而异（如 BEGIN, START TRANSACTION）。使用 connection.ops.start_transaction_sql() 获取片段进行不包含检查是稳定且与现有测试一致的方法。"
+      },
+      {
+        "assertion_goal": "sqlmigrate 的输出中不包含事务结束语句（如 COMMIT）。",
+        "preferred_assertion_style": "not_contains_fragment",
+        "avoid": "断言完整的、特定于数据库的 end_transaction_sql 字符串完全相等。",
+        "reason": "同上，使用 connection.ops.end_transaction_sql() 获取片段进行不包含检查。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要使用 MigrationTestBase 或类似的测试基类，因为它提供了迁移测试的基础设施。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要使用 unittest.mock.patch 来临时修改 connection.features.can_rollback_ddl 属性。",
+        "source": "inference",
+        "confidence": "medium"
+      },
+      {
+        "hint": "测试可能需要一个原子性迁移作为目标。可以使用现有的测试迁移模块（如 'migrations.test_migrations'），或确保 MIGRATION_MODULES 指向一个原子迁移。",
+        "source": "retrieved_test",
+        "confidence": "medium"
+      }
+    ],
+    "uncertainties": [
+      "connection.features.can_rollback_ddl 在哪些内置数据库后端中默认为 False。",
+      "sqlmigrate 命令内部 self.output_transaction 被赋值的具体位置和逻辑。",
+      "是否所有数据库后端都正确实现了 connection.ops.start_transaction_sql() 和 end_transaction_sql() 方法。",
+      "除了事务开始/结束语句，输出中是否还有其他与事务相关的、需要检查的SQL片段。"
+    ]
+  }
+}

@@ -1,0 +1,180 @@
+```json
+{
+    "original_issue": {
+        "text": "CalibratedClassifierCV doesn't work with `set_config(transform_output=\"pandas\")`\n### Describe the bug\n\nCalibratedClassifierCV with isotonic regression doesn't work when we previously set `set_config(transform_output=\"pandas\")`.\nThe IsotonicRegression seems to return a dataframe, which is a problem for `_CalibratedClassifier`  in `predict_proba` where it tries to put the dataframe in a numpy array row `proba[:, class_idx] = calibrator.predict(this_pred)`.\n\n### Steps/Code to Reproduce\n\n```python\nimport numpy as np\nfrom sklearn import set_config\nfrom sklearn.calibration import CalibratedClassifierCV\nfrom sklearn.linear_model import SGDClassifier\n\nset_config(transform_output=\"pandas\")\nmodel = CalibratedClassifierCV(SGDClassifier(), method='isotonic')\nmodel.fit(np.arange(90).reshape(30, -1), np.arange(30) % 2)\nmodel.predict(np.arange(90).reshape(30, -1))\n```\n\n### Expected Results\n\nIt should not crash.\n\n### Actual Results\n\n```\n../core/model_trainer.py:306: in train_model\n    cv_predictions = cross_val_predict(pipeline,\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/model_selection/_validation.py:968: in cross_val_predict\n    predictions = parallel(\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:1085: in __call__\n    if self.dispatch_one_batch(iterator):\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:901: in dispatch_one_batch\n    self._dispatch(tasks)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:819: in _dispatch\n    job = self._backend.apply_async(batch, callback=cb)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/_parallel_backends.py:208: in apply_async\n    result = ImmediateResult(func)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/_parallel_backends.py:597: in __init__\n    self.results = batch()\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:288: in __call__\n    return [func(*args, **kwargs)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:288: in <listcomp>\n    return [func(*args, **kwargs)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/utils/fixes.py:117: in __call__\n    return self.function(*args, **kwargs)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/model_selection/_validation.py:1052: in _fit_and_predict\n    predictions = func(X_test)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/pipeline.py:548: in predict_proba\n    return self.steps[-1][1].predict_proba(Xt, **predict_proba_params)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/calibration.py:477: in predict_proba\n    proba = calibrated_classifier.predict_proba(X)\n../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/calibration.py:764: in predict_proba\n    proba[:, class_idx] = calibrator.predict(this_pred)\nE   ValueError: could not broadcast input array from shape (20,1) into shape (20,)\n```\n\n### Versions\n\n```shell\nSystem:\n    python: 3.9.15 (main, Nov 24 2022, 14:31:59)  [GCC 11.2.0]\nexecutable: /home/philippe/.anaconda3/envs/strategy-training/bin/python\n   machine: Linux-5.15.0-57-generic-x86_64-with-glibc2.31\n\nPython dependencies:\n      sklearn: 1.2.0\n          pip: 22.2.2\n   setuptools: 62.3.2\n        numpy: 1.23.5\n        scipy: 1.9.3\n       Cython: None\n       pandas: 1.4.1\n   matplotlib: 3.6.3\n       joblib: 1.2.0\nthreadpoolctl: 3.1.0\n\nBuilt with OpenMP: True\n\nthreadpoolctl info:\n       user_api: openmp\n   internal_api: openmp\n         prefix: libgomp\n       filepath: /home/philippe/.anaconda3/envs/strategy-training/lib/python3.9/site-packages/scikit_learn.libs/libgomp-a34b3233.so.1.0.0\n        version: None\n    num_threads: 12\n\n       user_api: blas\n   internal_api: openblas\n         prefix: libopenblas\n       filepath: /home/philippe/.anaconda3/envs/strategy-training/lib/python3.9/site-packages/numpy.libs/libopenblas64_p-r0-742d56dc.3.20.so\n        version: 0.3.20\nthreading_layer: pthreads\n   architecture: Haswell\n    num_threads: 12\n\n       user_api: blas\n   internal_api: openblas\n         prefix: libopenblas\n       filepath: /home/philippe/.anaconda3/envs/strategy-training/lib/python3.9/site-packages/scipy.libs/libopenblasp-r0-41284840.3.18.so\n        version: 0.3.18\nthreading_layer: pthreads\n   architecture: Haswell\n    num_threads: 12\n```",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用 `set_config(transform_output=\"pandas\")` 全局配置后，使用 isotonic 回归方法的 CalibratedClassifierCV 在 predict_proba 时会崩溃。具体原因是 IsotonicRegression 在校准过程中返回了 pandas DataFrame，而 `_CalibratedClassifier` 的 `predict_proba` 方法试图将 DataFrame 赋值给 numpy 数组切片 `proba[:, class_idx] = calibrator.predict(this_pred)`，导致形状不匹配的 ValueError。期望行为是配置了 transform_output=\"pandas\" 后，CalibratedClassifierCV 仍能正常工作，不抛出异常。",
+        "facts_from_issue": [
+            "CalibratedClassifierCV 与 isotonic 回归方法一起使用时，如果之前设置了 `set_config(transform_output=\"pandas\")`，会失败。",
+            "错误发生在 `_CalibratedClassifier` 的 `predict_proba` 方法中，具体是 `proba[:, class_idx] = calibrator.predict(this_pred)` 这一行。",
+            "IsotonicRegression 似乎返回了一个 DataFrame，导致赋值时出现形状广播错误。",
+            "错误信息是 ValueError: could not broadcast input array from shape (20,1) into shape (20,)。",
+            "期望结果是它不应该崩溃。"
+        ],
+        "facts_from_retrieved_context": [
+            "CalibratedClassifierCV 是一个用于概率校准的类，支持 'sigmoid' 和 'isotonic' 方法。",
+            "`_CalibratedClassifier` 是一个内部类，用于链接受拟合的分类器和其校准器。",
+            "IsotonicRegression 是一个回归模型类，具有 predict 方法。",
+            "相关测试显示，其他组件（如 TSNE）在配置了 transform_output=\"pandas\" 后需要正常工作。"
+        ],
+        "inferences": [
+            "全局配置 `transform_output=\"pandas\"` 影响了 IsotonicRegression 的 predict 方法的输出类型，使其返回 DataFrame 而非预期的 ndarray。",
+            "`_CalibratedClassifier.predict_proba` 方法假设校准器的 predict 返回 ndarray，未处理 DataFrame 情况。",
+            "错误与数据形状的广播有关，因为 DataFrame 可能具有 (n_samples, 1) 的形状，而目标切片期望 (n_samples,)。"
+        ],
+        "do_not_assume": [
+            "其他校准方法（如 'sigmoid'）是否受相同问题影响。",
+            "是否所有使用 IsotonicRegression 的场景都会返回 DataFrame。",
+            "具体的修复方案（例如，是否应转换输出类型或修改赋值逻辑）。",
+            "除了 predict_proba 外，其他方法（如 predict）是否也受影响。"
+        ]
+    },
+    "issue_summary": "全局配置 transform_output=\"pandas\" 导致 CalibratedClassifierCV 在使用 isotonic 校准时，因 IsotonicRegression 返回 DataFrame 引发形状广播错误而崩溃。",
+    "trigger_condition": {
+        "text": "在调用 `sklearn.set_config(transform_output=\"pandas\")` 后，创建并使用 method='isotonic' 的 CalibratedClassifierCV 进行拟合和预测。",
+        "evidence": [
+            "Issue 中的重现步骤：先调用 set_config(transform_output=\"pandas\")，然后创建 CalibratedClassifierCV(..., method='isotonic')，接着调用 fit 和 predict。",
+            "Issue 描述明确指出 \"CalibratedClassifierCV with isotonic regression doesn't work when we previously set `set_config(transform_output=\"pandas\")\""
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "在 predict_proba 过程中抛出 ValueError: could not broadcast input array from shape (20,1) into shape (20,)。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中的 Actual Results 部分显示了完整的错误堆栈，最终错误为 ValueError。",
+            "错误堆栈指向 `sklearn/calibration.py` 第 764 行的 `proba[:, class_idx] = calibrator.predict(this_pred)`。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "在配置了 transform_output=\"pandas\" 后，CalibratedClassifierCV 使用 isotonic 方法时应能成功完成 predict_proba 计算，不抛出异常，并返回正确的概率数组。",
+        "evidence": [
+            "Issue 中的 Expected Results 部分明确写道 \"It should not crash.\"",
+            "相关测试 test_tsne_works_with_pandas_output 表明，在其他组件中，配置 transform_output=\"pandas\" 后应能正常工作。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "sklearn.set_config",
+            "kind": "function",
+            "source_path": "",
+            "reason": "用于设置全局配置 transform_output=\"pandas\"，这是触发问题的必要条件。"
+        },
+        {
+            "name": "sklearn.calibration.CalibratedClassifierCV",
+            "kind": "class",
+            "source_path": "sklearn/calibration.py",
+            "reason": "这是报告有缺陷的主要类，其 predict_proba 方法会崩溃。"
+        },
+        {
+            "name": "sklearn.calibration._CalibratedClassifier",
+            "kind": "class",
+            "source_path": "sklearn/calibration.py",
+            "reason": "Issue 指出错误发生在该内部类的 predict_proba 方法中。"
+        },
+        {
+            "name": "sklearn.isotonic.IsotonicRegression",
+            "kind": "class",
+            "source_path": "sklearn/isotonic.py",
+            "reason": "它是 isotonic 校准方法使用的校准器，其 predict 方法在配置下返回 DataFrame 导致问题。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "sklearn/calibration.py",
+            "object": "_CalibratedClassifier.predict_proba",
+            "lines": "764",
+            "reason": "错误堆栈指向此行，尝试将校准器的预测结果赋值给 numpy 数组切片，可能未处理 DataFrame 输入。"
+        },
+        {
+            "path": "sklearn/calibration.py",
+            "object": "CalibratedClassifierCV.predict_proba",
+            "lines": "455-481",
+            "reason": "这是公开的 predict_proba 方法，它内部调用 _CalibratedClassifier.predict_proba，可能涉及数据流处理。"
+        },
+        {
+            "path": "sklearn/isotonic.py",
+            "object": "IsotonicRegression.predict",
+            "lines": "",
+            "reason": "在 transform_output=\"pandas\" 配置下，其 predict 方法可能返回 DataFrame 而非 ndarray，导致下游类型不匹配。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_calibrated_classifier_cv_zeros_sample_weights_equivalence",
+            "test_file": "sklearn/tests/test_calibration.py",
+            "why_relevant": "它测试了 CalibratedClassifierCV 在不同配置（method, ensemble）下的行为，并调用了 predict_proba 进行断言。",
+            "reusable_parts": [
+                "从 sklearn.calibration 导入 CalibratedClassifierCV",
+                "使用 LogisticRegression 作为基估计器",
+                "调用 fit 和 predict_proba 的流程",
+                "使用 assert_allclose 比较预测结果"
+            ],
+            "possible_gap": "该测试没有设置全局配置 transform_output=\"pandas\"，也没有使用 SGDClassifier 或 isotonic 方法（虽然被参数化覆盖）。需要变异以添加配置和触发条件。"
+        },
+        {
+            "test_name": "test_tsne_works_with_pandas_output",
+            "test_file": "sklearn/manifold/tests/test_t_sne.py",
+            "why_relevant": "它专门测试了在 config_context(transform_output=\"pandas\") 下另一个组件（TSNE）的正常工作，展示了如何设置和测试此配置。",
+            "reusable_parts": [
+                "使用 config_context 或 set_config 设置 transform_output=\"pandas\"",
+                "在配置上下文中调用 fit_transform",
+                "验证操作不抛出异常"
+            ],
+            "possible_gap": "它测试的是 TSNE 而非 CalibratedClassifierCV，并且没有涉及校准或 isotonic 回归。需要将测试对象和 API 调用替换为目标组件。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "config",
+            "current_pattern": "相关测试中通常没有设置 transform_output 全局配置，或使用默认值。",
+            "target_pattern": "在测试开始时调用 `set_config(transform_output=\"pandas\")` 或使用 `with config_context(transform_output=\"pandas\"):`。",
+            "reason": "Issue 表明此配置是触发问题的关键，它改变了 IsotonicRegression.predict 的输出类型。",
+            "confidence": "high"
+        },
+        {
+            "slot": "argument",
+            "current_pattern": "相似测试中 CalibratedClassifierCV 的 method 参数可能通过参数化覆盖 'isotonic'，但基估计器常用 LogisticRegression。",
+            "target_pattern": "明确创建 `CalibratedClassifierCV(estimator=SGDClassifier(), method='isotonic', ...)`。",
+            "reason": "Issue 的重现代码使用了 SGDClassifier 和 method='isotonic'，这组合可能更易触发形状问题。",
+            "confidence": "medium"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "相似测试通常在 fit 后直接调用 predict_proba 进行断言。",
+            "target_pattern": "在 fit 后调用 predict（它内部可能调用 predict_proba），或直接调用 predict_proba。",
+            "reason": "Issue 的重现代码调用了 predict，错误堆栈显示崩溃发生在 predict_proba 内部。确保调用链执行到有缺陷的代码路径。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "在调用 model.predict() 或 model.predict_proba() 时捕获的异常及其消息。",
+            "reason": "Issue 的核心症状是 ValueError，观察是否出现此异常可直接判断缺陷是否被触发。"
+        },
+        {
+            "kind": "type",
+            "expression_hint": "校准器（如 IsotonicRegression 实例）的 predict 方法返回值的类型，例如 type(calibrator.predict(sample_input))。",
+            "reason": "Issue 推断 IsotonicRegression 返回 DataFrame，观察实际返回类型可验证配置的影响。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "model.predict_proba(X) 成功返回的概率数组的形状和数据类型。",
+            "reason": "修复后应返回正确的 ndarray，观察返回值可验证功能是否正常。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "在配置 transform_output=\"pandas\" 并使用 isotonic 方法时，CalibratedClassifierCV 的 predict_proba 调用应成功完成，不抛出 ValueError。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言完整的概率值数组（可能因随机性变化），或断言内部私有属性。",
+            "reason": "Issue 的期望是“不崩溃”，因此成功的无异常执行是主要目标。也可断言返回的数组具有正确的形状（n_samples, n_classes）。"
+        },
+        {
+            "assertion_goal": "predict_proba 返回的对象应为 numpy ndarray 类型。",
+            "preferred_assertion_style": "isinstance

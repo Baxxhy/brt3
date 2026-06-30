@@ -1,0 +1,124 @@
+instance_id: pydata__xarray-5131
+
+issue_summary: DatasetGroupBy 对象的 repr/str 输出第一行末尾包含一个多余的尾部空格，导致 doctest 与代码风格检查工具冲突。
+
+trigger_condition:
+{
+  "text": "创建一个 Dataset 对象，对其调用 groupby 方法，然后获取其字符串表示（例如通过 repr() 或 str()）。",
+  "evidence": [
+    "原始 Issue 中的示例：`ds.groupby(\"letters\")` 和 `str(ds.groupby(\"letters\"))`。",
+    "相关测试 test_groupby_repr 中通过 `repr(obj.groupby(dim))` 触发 repr 输出。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "DatasetGroupBy 对象的字符串表示（repr 或 str）的第一行在结束单引号后包含一个空格字符，然后才是换行符。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "原始 Issue 中展示的输出：\"DatasetGroupBy, grouped over 'letters' \\n2 groups with labels 'a', 'b'.\"",
+    "相关测试 test_groupby_repr 的预期字符串构造中包含尾部空格：\"expected += ', grouped over %r ' % dim\"。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "DatasetGroupBy 对象的字符串表示（repr 或 str）的第一行末尾不应包含多余的尾部空格字符，输出格式应保持整洁且符合常见约定。",
+  "evidence": [
+    "原始 Issue 中提问者询问是否可以移除该空格，暗示期望行为是移除它。",
+    "flake8 和 doctest 的冲突表明，没有尾部空格是更理想的状态。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Dataset.groupby",
+    "kind": "method",
+    "source_path": "xarray/core/dataset.py",
+    "reason": "这是创建 DatasetGroupBy 对象的入口点，与触发条件直接相关。"
+  },
+  {
+    "name": "DatasetGroupBy",
+    "kind": "class",
+    "source_path": "xarray/core/groupby.py",
+    "reason": "缺陷涉及该类的文本表示（__repr__ 或 __str__）。"
+  },
+  {
+    "name": "repr",
+    "kind": "function",
+    "source_path": "",
+    "reason": "Issue 中通过交互式打印和测试中通过 repr() 调用触发问题。"
+  },
+  {
+    "name": "str",
+    "kind": "function",
+    "source_path": "",
+    "reason": "Issue 中明确使用了 str() 来展示问题。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "相似测试 test_groupby_repr 中，预期字符串 `expected` 是通过拼接生成的，其中包含模式 \", grouped over %r \"（注意末尾空格）。",
+    "target_pattern": "将预期字符串的拼接模式修改为 \", grouped over %r\"（移除末尾空格），使其与修复后的期望行为对齐。",
+    "reason": "当前测试的预期包含了缺陷（空格），因此测试通过。修改预期以匹配期望的正确输出（无空格）将使测试失败，从而能够复现 Issue 描述的问题。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "str",
+    "expression_hint": "str(dataset.groupby(dim)) 或 repr(dataset.groupby(dim)) 的返回值。",
+    "reason": "Issue 的核心症状体现在对象的字符串表示中。直接观察 str() 或 repr() 的原始输出可以最直接地检查是否存在尾部空格。"
+  },
+  {
+    "kind": "repr",
+    "expression_hint": "在交互式环境中直接评估 dataset.groupby(dim) 的输出（隐式调用 repr）。",
+    "reason": "原始 Issue 首先在交互式会话中发现该问题，观察 repr 输出是触发条件之一。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "DatasetGroupBy 对象的字符串表示的第一行应以单引号结束，后面紧跟换行符，中间没有空格。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的、多行的 repr 字符串完全相等，因为这可能过于脆弱（例如标签列表的表示可能变化）。",
+    "reason": "Issue 的核心是多余的尾部空格。检查输出中不包含特定模式（如 \"' \\n\"）比检查完整字符串相等更稳定，且直接针对问题。"
+  },
+  {
+    "assertion_goal": "对 DatasetGroupBy 对象调用 str() 返回的字符串，其第一行末尾不应是空格字符。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言私有属性或内部生成字符串的中间状态。",
+    "reason": "可以检查字符串第一行最后一个非换行符字符是否是单引号，而不是空格。这是一种公开的、稳定的行为检查。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 xarray 和 numpy 来创建 Dataset 对象。可以使用 pytest 作为测试框架。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可以参考 test_groupby_repr 测试中使用的 repr_da fixture 或类似的 Dataset 构造方式。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "生成该尾部空格的具体代码位置和逻辑（在 groupby.py 文件中的哪一行）。",
+  "除了 DatasetGroupBy，DataArrayGroupBy 是否也有同样的问题。",
+  "移除空格是否会影响其他输出格式或依赖此格式的代码。"
+]

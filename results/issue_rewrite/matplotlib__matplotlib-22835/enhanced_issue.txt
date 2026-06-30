@@ -1,0 +1,152 @@
+instance_id: matplotlib__matplotlib-22835
+
+issue_summary: 使用 BoundaryNorm 作为 norm 参数创建 imshow 图像后，鼠标悬停交互会因 format_cursor_data 调用不可逆的 norm.inverse() 而崩溃。
+
+trigger_condition:
+{
+  "text": "创建一个使用 BoundaryNorm 实例作为 norm 参数的 imshow 图像，然后触发一个会调用该图像艺术家 format_cursor_data 方法的操作（如模拟鼠标悬停事件）。",
+  "evidence": [
+    "Issue 中提供了完整的复现代码：创建 fig/ax，用 BoundaryNorm 和随机数据调用 ax.imshow。",
+    "Issue 描述鼠标悬停（mouse over）触发崩溃。",
+    "源码显示 format_cursor_data 在 ScalarMappable 子类中会调用 self.norm.inverse。",
+    "源码显示 BoundaryNorm.inverse 直接抛出 ValueError。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "程序抛出 ValueError: BoundaryNorm is not invertible 异常并崩溃，交互停止。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中提供了完整的错误堆栈跟踪，显示 ValueError 从 BoundaryNorm.inverse 中抛出。",
+    "源码中 BoundaryNorm.inverse 方法体仅为 raise ValueError(\"BoundaryNorm is not invertible\")。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当鼠标悬停在使用了 BoundaryNorm 的 imshow 图像上时，format_cursor_data 方法应能正常执行，不抛出异常，并返回一个表示光标数据的字符串，从而允许交互继续进行。",
+  "evidence": [
+    "Issue 标题和描述暗示这是一个需要修复的崩溃（crashes）。",
+    "Issue 最后一句讨论了修复选项（special check, try-except, make approximately invertible），表明期望行为是避免崩溃。",
+    "相关测试 test_format_cursor_data 和 test_cursor_data 展示了 norm 可逆时 format_cursor_data 能正常返回字符串。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "matplotlib.artist.Artist.format_cursor_data",
+    "kind": "method",
+    "source_path": "lib/matplotlib/artist.py",
+    "reason": "崩溃直接发生在这个方法内部，它调用了 self.norm.inverse。"
+  },
+  {
+    "name": "matplotlib.colors.BoundaryNorm",
+    "kind": "class",
+    "source_path": "lib/matplotlib/colors.py",
+    "reason": "缺陷涉及此类实例作为 norm 参数，其 inverse 方法抛出异常。"
+  },
+  {
+    "name": "matplotlib.axes.Axes.imshow",
+    "kind": "method",
+    "source_path": "lib/matplotlib/axes/_axes.py",
+    "reason": "用于创建使用 BoundaryNorm 的图像艺术家，是触发缺陷的必要调用。"
+  },
+  {
+    "name": "matplotlib.figure.FigureBase.subplots",
+    "kind": "method",
+    "source_path": "lib/matplotlib/figure.py",
+    "reason": "Issue 复现步骤中用于创建图形和坐标轴。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "在 test_format_cursor_data 中，ax.imshow(data) 调用未指定 norm 参数，使用默认（可逆）归一化。",
+    "target_pattern": "将 ax.imshow 调用修改为指定 norm 参数，其值为一个 BoundaryNorm 实例，例如 norm=mpl.colors.BoundaryNorm(np.linspace(-4, 4, 5), 256)。",
+    "reason": "这是触发缺陷的核心条件：让 imshow 返回的 ScalarMappable 艺术家关联一个不可逆的 BoundaryNorm。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试中，norm 对象（默认）支持 inverse 操作。",
+    "target_pattern": "norm 对象是 BoundaryNorm 实例，其 inverse 方法被调用时会抛出 ValueError。",
+    "reason": "format_cursor_data 内部逻辑会调用 norm.inverse，当 norm 是 BoundaryNorm 时，此调用必然失败。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "测试中直接调用 im.format_cursor_data(...) 并断言返回值。",
+    "target_pattern": "保持调用 im.format_cursor_data(im.get_cursor_data(event))，但预期此调用在修复前会因内部 norm.inverse() 调用而引发异常。",
+    "reason": "缺陷的触发点就在 format_cursor_data 方法的执行过程中。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 im.format_cursor_data(...) 时是否抛出 ValueError，以及异常信息是否包含 \"BoundaryNorm is not invertible\"。",
+    "reason": "这是 Issue 中描述的直接错误症状。观测是否抛出此异常是判断缺陷是否触发的直接方式。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "如果调用未异常终止，format_cursor_data 返回的字符串。可以观察其是否是一个合法的、包含数字的括号格式字符串（如 \"[1.234]\"）。",
+    "reason": "修复后，方法应能返回一个表示数据的字符串，而不是崩溃。返回值的格式可以参考现有测试中的模式。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "调用 im.format_cursor_data(...) 不应引发 ValueError 异常。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言完整的异常消息字符串，因为修复实现可能微调消息。避免断言私有属性或内部状态。",
+    "reason": "缺陷的核心是崩溃（异常），修复后应消除此异常。使用 pytest.raises 或类似方式在修复前验证缺陷，修复后验证通过。"
+  },
+  {
+    "assertion_goal": "format_cursor_data 应成功返回一个字符串。",
+    "preferred_assertion_style": "isinstance",
+    "avoid": "断言返回字符串的精确内容，因为 BoundaryNorm 的近似逆映射结果可能不确定。避免断言与数据无关的固定字符串。",
+    "reason": "修复后，方法应完成其核心功能：返回光标数据的字符串表示。断言返回类型为 str 是一个稳定且与 Issue 目标（不崩溃）对齐的检查。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要导入 matplotlib.pyplot as plt, numpy as np, matplotlib as mpl (或 from matplotlib import colors)。",
+    "source": "issue",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试需要模拟后端环境以支持 Artist 和事件处理。可以使用 matplotlib.testing 相关的 setup 或确保在非交互式后端（如 'Agg'）下运行，因为测试焦点是方法调用而非实际 GUI 交互。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  },
+  {
+    "hint": "需要从 matplotlib.backend_bases 导入 MouseEvent 来模拟鼠标事件。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可以在标准的 pytest 环境中运行，无需特殊数据库或文件设置。",
+    "source": "inference",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "修复后的具体行为：format_cursor_data 在遇到 BoundaryNorm 时是返回一个基于近似逆映射的字符串，还是返回一个通用的占位符（如 \"[]\"），或是跳过逆映射计算直接格式化原始数据？",
+  "除了 BoundaryNorm，是否还有其他 Norm 子类的 inverse 方法可能抛出异常？",
+  "format_cursor_data 中计算 neighbors 的逻辑对于不可逆 norm 是否必需？是否可以安全地跳过？",
+  "在修复实现中，是否需要对 norm 是否有 inverse 属性或 inverse 是否可调用进行更通用的检查？"
+]

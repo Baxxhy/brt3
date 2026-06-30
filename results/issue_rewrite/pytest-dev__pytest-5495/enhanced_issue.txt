@@ -1,0 +1,120 @@
+instance_id: pytest-dev__pytest-5495
+
+issue_summary: pytest 的断言重写功能在比较字节字符串失败时，生成的错误信息中使用了字节的 ASCII 码值而非字符表示，导致信息难以理解。
+
+trigger_condition:
+{
+  "text": "在 pytest 环境下，执行一个包含字节字符串（bytes）比较且会失败的断言，例如 `assert b\"\" == b\"42\"` 或 `assert b\"abc\" == b\"xyz\"`。",
+  "evidence": [
+    "Issue 中提供了两个触发示例：`assert b\"\" == b\"42\"` 和 `assert b\"\" == b\"1\"`。",
+    "检索到的相关测试表明 pytest 的断言重写功能会处理断言失败消息。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "断言失败时，错误信息中包含令人困惑的表述，例如 'Right contains more items, first extra item: 52'，其中数字是字节的 ASCII 码值，而不是直观的字节字符表示。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue 中显示的 AssertionError 消息包含 'first extra item: 52' 和 'first extra item: 49'。",
+    "Issue 明确指出 52 是 '4' 的 ASCII 码，49 是 '1' 的 ASCII 码，并认为这种表示是 confusing 的。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，当字节字符串比较断言失败时，pytest 生成的错误信息应该清晰、直观，能够帮助用户快速理解字节内容的差异，例如直接显示字节字符或采用更适合字节数据类型的差异格式。",
+  "evidence": [
+    "Issue 标题和描述指出当前消息是 'confusing'，暗示期望更清晰的消息。",
+    "从 Issue 上下文推断，用户期望错误信息能直接反映字节内容，而不是其 ASCII 码值。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "pytest",
+    "kind": "module",
+    "source_path": "",
+    "reason": "Issue 发生在 pytest 的断言重写功能中，测试执行依赖于 pytest 框架。"
+  },
+  {
+    "name": "assert",
+    "kind": "keyword",
+    "source_path": "",
+    "reason": "缺陷触发于 Python 的 assert 语句，该语句在 pytest 下会被重写。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "在相似测试中，比较操作数是整数（如 `assert 1 < 0`）或普通字符串作为失败消息（如 `assert False, b'ohai!'`）。",
+    "target_pattern": "将比较操作数变异为字节字符串，例如 `assert b\"\" == b\"42\"` 或 `assert b\"abc\" == b\"xyz\"`。",
+    "reason": "Issue 明确指出缺陷在字节字符串比较时触发，因此需要将测试输入改为字节字符串以重现错误症状。",
+    "confidence": "high"
+  },
+  {
+    "slot": "operator",
+    "current_pattern": "相似测试中可能使用了各种比较运算符（如 `==`, `<`, `>`）。",
+    "target_pattern": "使用相等比较运算符 `==` 来比较两个不相等的字节字符串。",
+    "reason": "Issue 中的示例都使用了 `==` 运算符来比较字节字符串，这是触发特定错误信息格式的条件。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "断言失败时捕获的 `AssertionError` 对象的 `args[0]` 或整个异常对象的 `str()` 表示。",
+    "reason": "错误症状直接体现在 AssertionError 的消息字符串中，观察完整的异常消息可以判断是否出现了 'first extra item: <ordinal>' 这种令人困惑的格式。"
+  },
+  {
+    "kind": "file_output",
+    "expression_hint": "运行 pytest 后标准输出（stdout）中与断言失败相关的行，特别是包含 'Full diff:' 和 'first extra item:' 的行。",
+    "reason": "Issue 中展示的错误信息来自 pytest 的输出。观察 `result.stdout` 可以获取与用户所见一致的、经过断言重写和格式化后的完整错误信息。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "断言失败消息中不应包含将字节值显示为 ASCII 码的令人困惑的短语，如 'first extra item: 52'。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的、具体的异常消息字符串完全相等，因为修复后的确切措辞可能变化。避免断言内部数据结构或私有属性。",
+    "reason": "Issue 的核心是错误信息的可读性问题。使用 `not_contains_fragment` 可以稳定地验证令人困惑的数字表示是否被移除或替换，而不依赖于修复后消息的精确完整文本。"
+  },
+  {
+    "assertion_goal": "断言失败消息应该以某种更清晰的方式表示字节字符串的差异（例如，直接显示字节字符或使用十六进制）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "猜测并断言修复后的完整输出字符串。避免断言非公开的格式化内部状态。",
+    "reason": "修复的目标是提高清晰度。可以检查输出中是否包含了更合理的表示（如字节字面量 `b'4'` 或十六进制 `0x34`），但只检查稳定片段，因为具体实现可能不同。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "使用 `pytest` 的 `testdir` fixture 来创建和运行临时测试文件，这是检索到的相关测试中使用的模式。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要导入或访问 `_pytest.assertion` 相关模块的内部辅助函数（如类似 `getmsg` 的函数）来直接捕获断言重写后的消息，用于更精确的单元测试。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "缺陷是否只影响空字节串与非空字节串的比较，还是影响所有不相等的字节串比较。",
+  "断言重写模块中处理字节差异的确切函数名和代码位置。",
+  "修复后错误信息的确切格式和内容应该是什么。",
+  "是否还有其他类型的比较（如 `in`, `is`）或数据结构（如 `bytearray`）也受此影响。"
+]

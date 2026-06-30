@@ -1,0 +1,144 @@
+instance_id: sympy__sympy-20049
+
+issue_summary: Point.vel(frame) 方法在点的速度未显式设置时抛出 ValueError，而用户期望它能像 ReferenceFrame.ang_vel_in 那样，根据已定义的位置关系（包含时间变量的向量）自动计算速度。
+
+trigger_condition:
+{
+  "text": "1. 创建两个参考帧（例如 A 和 B），其中 B 相对于 A 有旋转（可选，用于类比）。2. 创建两个 Point 对象（例如 P 和 Q）。3. 使用 set_pos 定义 Q 相对于 P 的位置向量，该向量包含 dynamicsymbol（时间函数）。4. 在没有调用 Q.set_vel(A, ...) 显式设置速度的情况下，调用 Q.vel(A)。",
+  "evidence": [
+    "Issue 中的代码步骤：创建 A, B, q, P, Q, 调用 set_pos, 然后调用 Q.vel(A)。",
+    "Issue 明确指出未定义速度（'has not been defined'）。",
+    "相关测试 test_point_funcs 展示了 set_pos 和 vel 的调用模式。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "调用 Q.vel(A) 时抛出 ValueError: 'Velocity of point Q has not been defined in ReferenceFrame A'。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中完整的错误回溯显示 ValueError 来自 point.py 的 vel 方法。",
+    "源码片段 4（vel 方法）显示当 frame 不在 self._vel_dict 时会抛出此 ValueError。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当 Point 对象在给定参考系中的速度未显式定义，但该点相对于另一个点的位置向量（包含时间变量）已通过 set_pos 定义时，调用 vel(frame) 应成功返回该位置向量对时间在给定参考系中的导数（一个 Vector 对象）。",
+  "evidence": [
+    "Issue 中用户明确给出了期望结果：Q.vel(A) 应返回 r.dt(A) 的结果，即 q'*A.x + 2*q'*A.y。",
+    "用户类比了 ReferenceFrame.ang_vel_in 的成功自动计算行为。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Point",
+    "kind": "class",
+    "source_path": "sympy/physics/vector/point.py",
+    "reason": "缺陷涉及 Point 类的 vel 方法行为。"
+  },
+  {
+    "name": "Point.vel",
+    "kind": "method",
+    "source_path": "sympy/physics/vector/point.py",
+    "reason": "这是直接触发缺陷的方法，其行为需要改变。"
+  },
+  {
+    "name": "Point.set_pos",
+    "kind": "method",
+    "source_path": "sympy/physics/vector/point.py",
+    "reason": "用于设置位置关系，是计算速度所需信息的来源。"
+  },
+  {
+    "name": "ReferenceFrame",
+    "kind": "class",
+    "source_path": "sympy/physics/vector/frame.py",
+    "reason": "vel 方法的参数是 ReferenceFrame，且 Issue 中涉及参考帧的创建和角速度计算。"
+  },
+  {
+    "name": "dynamicsymbols",
+    "kind": "function",
+    "source_path": "sympy/physics/vector/functions.py",
+    "reason": "用于创建时间变量，是构成位置向量的关键部分。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "call_chain",
+    "current_pattern": "在相关测试中，通常在调用 point.vel(frame) 之前，会先调用 point.set_vel(frame, value) 显式设置速度。",
+    "target_pattern": "省略 point.set_vel(frame, value) 调用，仅通过 point.set_pos(other_point, vector_with_dynamicsymbols) 定义位置，然后直接调用 point.vel(frame)。",
+    "reason": "Issue 的核心是 vel() 在速度未显式设置时应自动计算。省略 set_vel 调用是触发缺陷路径的关键变异。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "测试中点的速度状态通过 set_vel 初始化，使得 _vel_dict 包含对应帧。",
+    "target_pattern": "点的速度状态未初始化（_vel_dict 中缺少对应帧），但位置状态通过 set_pos 初始化（_pos_dict 包含其他点及向量）。",
+    "reason": "vel() 方法检查 _vel_dict，当前缺失则抛出异常。期望行为是当 _vel_dict 缺失但 _pos_dict 包含相关信息时，能计算速度。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 point.vel(frame) 时是否抛出 ValueError 及其消息。",
+    "reason": "当前缺陷的直接表现就是抛出 ValueError。修复后，该调用应不再抛出此异常。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "point.vel(frame) 的返回值类型和表达式。应观察其是否为 Vector，以及其表达式是否与位置向量的时间导数匹配。",
+    "reason": "修复后，方法应返回一个 Vector，其表达式应等于位置向量对时间的导数。这是期望行为的核心。"
+  },
+  {
+    "kind": "type",
+    "expression_hint": "type(point.vel(frame)) 的结果。",
+    "reason": "确保返回值是 Vector 类型，而不是 None 或其他类型。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "point.vel(frame) 调用成功，不抛出 ValueError。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言完整的异常消息字符串，因为消息可能微调。",
+    "reason": "修复后，调用应正常执行。使用 pytest.raises 或类似方式验证没有异常。"
+  },
+  {
+    "assertion_goal": "point.vel(frame) 返回的 Vector 等于位置向量对时间在相同参考系中的导数。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言返回值的完整字符串表示（repr），因为表达式简化可能变化。应断言 Vector 对象的相等性。",
+    "reason": "这是 Issue 中明确给出的期望结果。使用 == 运算符比较 Vector 对象是稳定且语义正确的。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要导入 sympy.physics.mechanics 或 sympy.physics.vector 中的相关类（ReferenceFrame, Point, dynamicsymbols）。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 pytest 作为测试运行器，因为它能很好地处理异常断言（pytest.raises）。",
+    "source": "inference",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "自动计算速度的具体算法：是只考虑直接通过 set_pos 定义的相对位置，还是能处理更复杂的点链？",
+  "如果位置向量不依赖于时间（即不包含 dynamicsymbols），vel() 应该返回什么？零向量还是仍然抛出异常？",
+  "修复后的 vel() 方法是否会优先使用显式设置的 _vel_dict，仅在缺失时尝试计算？",
+  "是否所有通过 set_pos 定义的位置都能用于计算速度，还是需要特定条件（例如，参考帧必须一致）？"
+]

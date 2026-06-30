@@ -1,0 +1,842 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+Missing parameter validation in Neighbors estimator for float n_neighbors
+```python
+from sklearn.neighbors import NearestNeighbors
+from sklearn.datasets import make_blobs
+X, y = make_blobs()
+neighbors = NearestNeighbors(n_neighbors=3.)
+neighbors.fit(X)
+neighbors.kneighbors(X)
+```
+```
+~/checkout/scikit-learn/sklearn/neighbors/binary_tree.pxi in sklearn.neighbors.kd_tree.NeighborsHeap.__init__()
+
+TypeError: 'float' object cannot be interpreted as an integer
+```
+This should be caught earlier and a more helpful error message should be raised (or we could be lenient and cast to integer, but I think a better error might be better).
+
+We need to make sure that 
+```python
+neighbors.kneighbors(X, n_neighbors=3.)
+```
+also works.
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sklearn/neighbors/unsupervised.py
+对象名称：NearestNeighbors
+节点类型：class
+父节点：unsupervised
+行号范围：9-123
+代码：
+class NearestNeighbors(NeighborsBase, KNeighborsMixin,
+                       RadiusNeighborsMixin, UnsupervisedMixin):
+                       RadiusNeighborsMixin, UnsupervisedMixin):
+    """Unsupervised learner for implementing neighbor searches.
+
+    Read more in the :ref:`User Guide <unsupervised_neighbors>`.
+
+    Parameters
+    ----------
+    n_neighbors : int, optional (default = 5)
+        Number of neighbors to use by default for :meth:`kneighbors` queries.
+
+    radius : float, optional (default = 1.0)
+        Range of parameter space to use by default for :meth:`radius_neighbors`
+        queries.
+
+    algorithm : {'auto', 'ball_tree', 'kd_tree', 'brute'}, optional
+        Algorithm used to compute the nearest neighbors:
+
+        - 'ball_tree' will use :class:`BallTree`
+        - 'kd_tree' will use :class:`KDTree`
+        - 'brute' will use a brute-force search.
+        - 'auto' will attempt to decide the most appropriate algorithm
+          based on the values passed to :meth:`fit` method.
+
+        Note: fitting on sparse input will override the setting of
+        this parameter, using brute force.
+
+    leaf_size : int, optional (default = 30)
+        Leaf size passed to BallTree or KDTree.  This can affect the
+        speed of the construction and query, as well as the memory
+        required to store the tree.  The optimal value depends on the
+        nature of the problem.
+
+    metric : string or callable, default 'minkowski'
+        metric to use for distance computation. Any metric from scikit-learn
+        or scipy.spatial.distance can be used.
+
+        If metric is a callable function, it is called on each
+        pair of instances (rows) and the resulting value recorded. The callable
+        should take two arrays as input and return one value indicating the
+        distance between them. This works for Scipy's metrics, but is less
+        efficient than passing the metric name as a string.
+
+        Distance matrices are not supported.
+
+        Valid values for metric are:
+
+        - from scikit-learn: ['cityblock', 'cosine', 'euclidean', 'l1', 'l2',
+          'manhattan']
+
+        - from scipy.spatial.distance: ['braycurtis', 'canberra', 'chebyshev',
+          'correlation', 'dice', 'hamming', 'jaccard', 'kulsinski',
+          'mahalanobis', 'minkowski', 'rogerstanimoto', 'russellrao',
+          'seuclidean', 'sokalmichener', 'sokalsneath', 'sqeuclidean',
+          'yule']
+
+        See the documentation for scipy.spatial.distance for details on these
+        metrics.
+
+    p : integer, optional (default = 2)
+        Parameter for the Minkowski metric from
+        sklearn.metrics.pairwise.pairwise_distances. When p = 1, this is
+        equivalent to using manhattan_distance (l1), and euclidean_distance
+        (l2) for p = 2. For arbitrary p, minkowski_distance (l_p) is used.
+
+    metric_params : dict, optional (default = None)
+        Additional keyword arguments for the metric function.
+
+    n_jobs : int, optional (default = 1)
+        The number of parallel jobs to run for neighbors search.
+        If ``-1``, then the number of jobs is set to the number of CPU cores.
+
+    Examples
+    --------
+      >>> import numpy as np
+      >>> from sklearn.neighbors import NearestNeighbors
+      >>> samples = [[0, 0, 2], [1, 0, 0], [0, 0, 1]]
+
+      >>> neigh = NearestNeighbors(2, 0.4)
+      >>> neigh.fit(samples)  #doctest: +ELLIPSIS
+      NearestNeighbors(...)
+
+      >>> neigh.kneighbors([[0, 0, 1.3]], 2, return_distance=False)
+      ... #doctest: +ELLIPSIS
+      array([[2, 0]]...)
+
+      >>> nbrs = neigh.radius_neighbors([[0, 0, 1.3]], 0.4, return_distance=False)
+      >>> np.asarray(nbrs[0][0])
+      array(2)
+
+    See also
+    --------
+    KNeighborsClassifier
+    RadiusNeighborsClassifier
+    KNeighborsRegressor
+    RadiusNeighborsRegressor
+    BallTree
+
+    Notes
+    -----
+    See :ref:`Nearest Neighbors <neighbors>` in the online documentation
+    for a discussion of the choice of ``algorithm`` and ``leaf_size``.
+
+    https://en.wikipedia.org/wiki/K-nearest_neighbor_algorithm
+    def __init__(self, n_neighbors=5, radius=1.0,
+                 algorithm='auto', leaf_size=30, metric='minkowski',
+                 p=2, metric_params=None, n_jobs=1, **kwargs):
+
+
+【源码片段 2】
+文件路径：sklearn/neighbors/base.py
+对象名称：fit
+节点类型：class_function
+父节点：SupervisedFloatMixin
+行号范围：737-753
+代码：
+    def fit(self, X, y):
+        """Fit the model using X as training data and y as target values
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix, BallTree, KDTree}
+            Training data. If array or matrix, shape [n_samples, n_features],
+            or [n_samples, n_samples] if metric='precomputed'.
+
+        y : {array-like, sparse matrix}
+            Target values, array of float values, shape = [n_samples]
+             or [n_samples, n_outputs]
+        """
+        if not isinstance(X, (KDTree, BallTree)):
+            X, y = check_X_y(X, y, "csr", multi_output=True)
+        self._y = y
+        return self._fit(X)
+
+
+【源码片段 3】
+文件路径：sklearn/neighbors/base.py
+对象名称：kneighbors
+节点类型：class_function
+父节点：KNeighborsMixin
+行号范围：273-421
+代码：
+    def kneighbors(self, X=None, n_neighbors=None, return_distance=True):
+        """Finds the K-neighbors of a point.
+
+        Returns indices of and distances to the neighbors of each point.
+
+        Parameters
+        ----------
+        X : array-like, shape (n_query, n_features), \
+                or (n_query, n_indexed) if metric == 'precomputed'
+            The query point or points.
+            If not provided, neighbors of each indexed point are returned.
+            In this case, the query point is not considered its own neighbor.
+
+        n_neighbors : int
+            Number of neighbors to get (default is the value
+            passed to the constructor).
+
+        return_distance : boolean, optional. Defaults to True.
+            If False, distances will not be returned
+
+        Returns
+        -------
+        dist : array
+            Array representing the lengths to points, only present if
+            return_distance=True
+
+        ind : array
+            Indices of the nearest points in the population matrix.
+
+        Examples
+        --------
+        In the following example, we construct a NeighborsClassifier
+        class from an array representing our data set and ask who's
+        the closest point to [1,1,1]
+
+        >>> samples = [[0., 0., 0.], [0., .5, 0.], [1., 1., .5]]
+        >>> from sklearn.neighbors import NearestNeighbors
+        >>> neigh = NearestNeighbors(n_neighbors=1)
+        >>> neigh.fit(samples) # doctest: +ELLIPSIS
+        NearestNeighbors(algorithm='auto', leaf_size=30, ...)
+        >>> print(neigh.kneighbors([[1., 1., 1.]])) # doctest: +ELLIPSIS
+        (array([[0.5]]), array([[2]]))
+
+        As you can see, it returns [[0.5]], and [[2]], which means that the
+        element is at distance 0.5 and is the third element of samples
+        (indexes start at 0). You can also query for multiple points:
+
+        >>> X = [[0., 1., 0.], [1., 0., 1.]]
+        >>> neigh.kneighbors(X, return_distance=False) # doctest: +ELLIPSIS
+        array([[1],
+               [2]]...)
+
+        """
+        check_is_fitted(self, "_fit_method")
+
+        if n_neighbors is None:
+            n_neighbors = self.n_neighbors
+
+        if X is not None:
+            query_is_train = False
+            X = check_array(X, accept_sparse='csr')
+        else:
+            query_is_train = True
+            X = self._fit_X
+            # Include an extra neighbor to account for the sample itself being
+            # returned, which is removed later
+            n_neighbors += 1
+
+        train_size = self._fit_X.shape[0]
+        if n_neighbors > train_size:
+            raise ValueError(
+                "Expected n_neighbors <= n_samples, "
+                " but n_samples = %d, n_neighbors = %d" %
+                (train_size, n_neighbors)
+            )
+        n_samples, _ = X.shape
+        sample_range = np.arange(n_samples)[:, None]
+
+        n_jobs = _get_n_jobs(self.n_jobs)
+        if self._fit_method == 'brute':
+            # for efficiency, use squared euclidean distances
+            if self.effective_metric_ == 'euclidean':
+                dist = pairwise_distances(X, self._fit_X, 'euclidean',
+                                          n_jobs=n_jobs, squared=True)
+            else:
+                dist = pairwise_distances(
+                    X, self._fit_X, self.effective_metric_, n_jobs=n_jobs,
+                    **self.effective_metric_params_)
+
+            neigh_ind = np.argpartition(dist, n_neighbors - 1, axis=1)
+            neigh_ind = neigh_ind[:, :n_neighbors]
+            # argpartition doesn't guarantee sorted order, so we sort again
+            neigh_ind = neigh_ind[
+                sample_range, np.argsort(dist[sample_range, neigh_ind])]
+
+            if return_distance:
+                if self.effective_metric_ == 'euclidean':
+                    result = np.sqrt(dist[sample_range, neigh_ind]), neigh_ind
+                else:
+                    result = dist[sample_range, neigh_ind], neigh_ind
+            else:
+                result = neigh_ind
+
+        elif self._fit_method in ['ball_tree', 'kd_tree']:
+            if issparse(X):
+                raise ValueError(
+                    "%s does not work with sparse matrices. Densify the data, "
+                    "or set algorithm='brute'" % self._fit_method)
+            result = Parallel(n_jobs, backend='threading')(
+                delayed(self._tree.query, check_pickle=False)(
+                    X[s], n_neighbors, return_distance)
+                for s in gen_even_slices(X.shape[0], n_jobs)
+            )
+            if return_distance:
+                dist, neigh_ind = tuple(zip(*result))
+                result = np.vstack(dist), np.vstack(neigh_ind)
+            else:
+                result = np.vstack(result)
+        else:
+            raise ValueError("internal: _fit_method not recognized")
+
+        if not query_is_train:
+            return result
+        else:
+            # If the query data is the same as the indexed data, we would like
+            # to ignore the first nearest neighbor of every sample, i.e
+            # the sample itself.
+            if return_distance:
+                dist, neigh_ind = result
+            else:
+                neigh_ind = result
+
+            sample_mask = neigh_ind != sample_range
+
+            # Corner case: When the number of duplicates are more
+            # than the number of neighbors, the first NN will not
+            # be the sample, but a duplicate.
+            # In that case mask the first duplicate.
+            dup_gr_nbrs = np.all(sample_mask, axis=1)
+            sample_mask[:, 0][dup_gr_nbrs] = False
+
+            neigh_ind = np.reshape(
+                neigh_ind[sample_mask], (n_samples, n_neighbors - 1))
+
+            if return_distance:
+                dist = np.reshape(
+                    dist[sample_mask], (n_samples, n_neighbors - 1))
+                return dist, neigh_ind
+            return neigh_ind
+
+
+【源码片段 4】
+文件路径：sklearn/datasets/samples_generator.py
+对象名称：make_blobs
+节点类型：top-level function
+父节点：samples_generator
+行号范围：699-838
+代码：
+def make_blobs(n_samples=100, n_features=2, centers=None, cluster_std=1.0,
+               center_box=(-10.0, 10.0), shuffle=True, random_state=None):
+    """Generate isotropic Gaussian blobs for clustering.
+
+    Read more in the :ref:`User Guide <sample_generators>`.
+
+    Parameters
+    ----------
+    n_samples : int or array-like, optional (default=100)
+        If int, it is the the total number of points equally divided among
+        clusters.
+        If array-like, each element of the sequence indicates
+        the number of samples per cluster.
+
+    n_features : int, optional (default=2)
+        The number of features for each sample.
+
+    centers : int or array of shape [n_centers, n_features], optional
+        (default=None)
+        The number of centers to generate, or the fixed center locations.
+        If n_samples is an int and centers is None, 3 centers are generated.
+        If n_samples is array-like, centers must be
+        either None or an array of length equal to the length of n_samples.
+
+    cluster_std : float or sequence of floats, optional (default=1.0)
+        The standard deviation of the clusters.
+
+    center_box : pair of floats (min, max), optional (default=(-10.0, 10.0))
+        The bounding box for each cluster center when centers are
+        generated at random.
+
+    shuffle : boolean, optional (default=True)
+        Shuffle the samples.
+
+    random_state : int, RandomState instance or None (default)
+        Determines random number generation for dataset creation. Pass an int
+        for reproducible output across multiple function calls.
+        See :term:`Glossary <random_state>`.
+
+    Returns
+    -------
+    X : array of shape [n_samples, n_features]
+        The generated samples.
+
+    y : array of shape [n_samples]
+        The integer labels for cluster membership of each sample.
+
+    Examples
+    --------
+    >>> from sklearn.datasets.samples_generator import make_blobs
+    >>> X, y = make_blobs(n_samples=10, centers=3, n_features=2,
+    ...                   random_state=0)
+    >>> print(X.shape)
+    (10, 2)
+    >>> y
+    array([0, 0, 1, 0, 2, 2, 2, 1, 1, 0])
+    >>> X, y = make_blobs(n_samples=[3, 3, 4], centers=None, n_features=2,
+    ...                   random_state=0)
+    >>> print(X.shape)
+    (10, 2)
+    >>> y
+    array([0, 1, 2, 0, 2, 2, 2, 1, 1, 0])
+
+    See also
+    --------
+    make_classification: a more intricate variant
+    """
+    generator = check_random_state(random_state)
+
+    if isinstance(n_samples, numbers.Integral):
+        # Set n_centers by looking at centers arg
+        if centers is None:
+            centers = 3
+
+        if isinstance(centers, numbers.Integral):
+            n_centers = centers
+            centers = generator.uniform(center_box[0], center_box[1],
+                                        size=(n_centers, n_features))
+
+        else:
+            centers = check_array(centers)
+            n_features = centers.shape[1]
+            n_centers = centers.shape[0]
+
+    else:
+        # Set n_centers by looking at [n_samples] arg
+        n_centers = len(n_samples)
+        if centers is None:
+            centers = generator.uniform(center_box[0], center_box[1],
+                                        size=(n_centers, n_features))
+        try:
+            assert len(centers) == n_centers
+        except TypeError:
+            raise ValueError("Parameter `centers` must be array-like. "
+                             "Got {!r} instead".format(centers))
+        except AssertionError:
+            raise ValueError("Length of `n_samples` not consistent"
+                             " with number of centers. Got n_samples = {} "
+                             "and centers = {}".format(n_samples, centers))
+        else:
+            centers = check_array(centers)
+            n_features = centers.shape[1]
+
+    # stds: if cluster_std is given as list, it must be consistent
+    # with the n_centers
+    if (hasattr(cluster_std, "__len__") and len(cluster_std) != n_centers):
+        raise ValueError("Length of `clusters_std` not consistent with "
+                         "number of centers. Got centers = {} "
+                         "and cluster_std = {}".format(centers, cluster_std))
+
+    if isinstance(cluster_std, numbers.Real):
+        cluster_std = np.ones(len(centers)) * cluster_std
+
+    X = []
+    y = []
+
+    if isinstance(n_samples, Iterable):
+        n_samples_per_center = n_samples
+    else:
+        n_samples_per_center = [int(n_samples // n_centers)] * n_centers
+
+        for i in range(n_samples % n_centers):
+            n_samples_per_center[i] += 1
+
+    for i, (n, std) in enumerate(zip(n_samples_per_center, cluster_std)):
+        X.append(generator.normal(loc=centers[i], scale=std,
+                                  size=(n, n_features)))
+        y += [i] * n
+
+    X = np.concatenate(X)
+    y = np.array(y)
+
+    if shuffle:
+        total_n_samples = np.sum(n_samples)
+        indices = np.arange(total_n_samples)
+        generator.shuffle(indices)
+        X = X[indices]
+        y = y[indices]
+
+    return X, y
+
+
+【源码片段 5】
+文件路径：sklearn/neighbors/unsupervised.py
+对象名称：__init__
+节点类型：class_function
+父节点：NearestNeighbors
+行号范围：115-123
+代码：
+    def __init__(self, n_neighbors=5, radius=1.0,
+                 algorithm='auto', leaf_size=30, metric='minkowski',
+                 p=2, metric_params=None, n_jobs=1, **kwargs):
+        super(NearestNeighbors, self).__init__(
+              n_neighbors=n_neighbors,
+              radius=radius,
+              algorithm=algorithm,
+              leaf_size=leaf_size, metric=metric, p=p,
+              metric_params=metric_params, n_jobs=n_jobs, **kwargs)
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sklearn/neighbors/tests/test_neighbors.py
+测试名称：test_neighbors_badargs
+测试代码：
+def test_neighbors_badargs():
+    # Test bad argument values: these should all raise ValueErrors
+    assert_raises(ValueError,
+                  neighbors.NearestNeighbors,
+                  algorithm='blah')
+
+    X = rng.random_sample((10, 2))
+    Xsparse = csr_matrix(X)
+    y = np.ones(10)
+
+    for cls in (neighbors.KNeighborsClassifier,
+                neighbors.RadiusNeighborsClassifier,
+                neighbors.KNeighborsRegressor,
+                neighbors.RadiusNeighborsRegressor):
+        assert_raises(ValueError,
+                      cls,
+                      weights='blah')
+        assert_raises(ValueError,
+                      cls, p=-1)
+        assert_raises(ValueError,
+                      cls, algorithm='blah')
+        nbrs = cls(algorithm='ball_tree', metric='haversine')
+        assert_raises(ValueError,
+                      nbrs.predict,
+                      X)
+        assert_raises(ValueError,
+                      ignore_warnings(nbrs.fit),
+                      Xsparse, y)
+        nbrs = cls()
+        assert_raises(ValueError,
+                      nbrs.fit,
+                      np.ones((0, 2)), np.ones(0))
+        assert_raises(ValueError,
+                      nbrs.fit,
+                      X[:, :, None], y)
+        nbrs.fit(X, y)
+        assert_raises(ValueError,
+                      nbrs.predict,
+                      [[]])
+        if (isinstance(cls, neighbors.KNeighborsClassifier) or
+                isinstance(cls, neighbors.KNeighborsRegressor)):
+            nbrs = cls(n_neighbors=-1)
+            assert_raises(ValueError, nbrs.fit, X, y)
+
+    nbrs = neighbors.NearestNeighbors().fit(X)
+
+    assert_raises(ValueError, nbrs.kneighbors_graph, X, mode='blah')
+    assert_raises(ValueError, nbrs.radius_neighbors_graph, X, mode='blah')
+
+【相关测试 2】
+测试文件：sklearn/neighbors/tests/test_neighbors.py
+测试名称：test_unsupervised_inputs
+测试代码：
+def test_unsupervised_inputs():
+    # test the types of valid input into NearestNeighbors
+    X = rng.random_sample((10, 3))
+
+    nbrs_fid = neighbors.NearestNeighbors(n_neighbors=1)
+    nbrs_fid.fit(X)
+
+    dist1, ind1 = nbrs_fid.kneighbors(X)
+
+    nbrs = neighbors.NearestNeighbors(n_neighbors=1)
+
+    for input in (nbrs_fid, neighbors.BallTree(X), neighbors.KDTree(X)):
+        nbrs.fit(input)
+        dist2, ind2 = nbrs.kneighbors(X)
+
+        assert_array_almost_equal(dist1, dist2)
+        assert_array_almost_equal(ind1, ind2)
+
+【相关测试 3】
+测试文件：sklearn/neighbors/tests/test_neighbors.py
+测试名称：test_k_and_radius_neighbors_X_None
+测试代码：
+def test_k_and_radius_neighbors_X_None():
+    # Test kneighbors et.al when query is None
+    for algorithm in ALGORITHMS:
+
+        nn = neighbors.NearestNeighbors(n_neighbors=1, algorithm=algorithm)
+
+        X = [[0], [1]]
+        nn.fit(X)
+
+        dist, ind = nn.kneighbors()
+        assert_array_equal(dist, [[1], [1]])
+        assert_array_equal(ind, [[1], [0]])
+        dist, ind = nn.radius_neighbors(None, radius=1.5)
+        check_object_arrays(dist, [[1], [1]])
+        check_object_arrays(ind, [[1], [0]])
+
+        # Test the graph variants.
+        rng = nn.radius_neighbors_graph(None, radius=1.5)
+        kng = nn.kneighbors_graph(None)
+        for graph in [rng, kng]:
+            assert_array_equal(rng.A, [[0, 1], [1, 0]])
+            assert_array_equal(rng.data, [1, 1])
+            assert_array_equal(rng.indices, [1, 0])
+
+        X = [[0, 1], [0, 1], [1, 1]]
+        nn = neighbors.NearestNeighbors(n_neighbors=2, algorithm=algorithm)
+        nn.fit(X)
+        assert_array_equal(
+            nn.kneighbors_graph().A,
+            np.array([[0., 1., 1.], [1., 0., 1.], [1., 1., 0]]))
+
+【相关测试 4】
+测试文件：sklearn/neighbors/tests/test_neighbors.py
+测试名称：test_non_euclidean_kneighbors
+测试代码：
+def test_non_euclidean_kneighbors():
+    rng = np.random.RandomState(0)
+    X = rng.rand(5, 5)
+
+    # Find a reasonable radius.
+    dist_array = pairwise_distances(X).flatten()
+    np.sort(dist_array)
+    radius = dist_array[15]
+
+    # Test kneighbors_graph
+    for metric in ['manhattan', 'chebyshev']:
+        nbrs_graph = neighbors.kneighbors_graph(
+            X, 3, metric=metric, mode='connectivity',
+            include_self=True).toarray()
+        nbrs1 = neighbors.NearestNeighbors(3, metric=metric).fit(X)
+        assert_array_equal(nbrs_graph, nbrs1.kneighbors_graph(X).toarray())
+
+    # Test radiusneighbors_graph
+    for metric in ['manhattan', 'chebyshev']:
+        nbrs_graph = neighbors.radius_neighbors_graph(
+            X, radius, metric=metric, mode='connectivity',
+            include_self=True).toarray()
+        nbrs1 = neighbors.NearestNeighbors(metric=metric, radius=radius).fit(X)
+        assert_array_equal(nbrs_graph, nbrs1.radius_neighbors_graph(X).A)
+
+    # Raise error when wrong parameters are supplied,
+    X_nbrs = neighbors.NearestNeighbors(3, metric='manhattan')
+    X_nbrs.fit(X)
+    assert_raises(ValueError, neighbors.kneighbors_graph, X_nbrs, 3,
+                  metric='euclidean')
+    X_nbrs = neighbors.NearestNeighbors(radius=radius, metric='manhattan')
+    X_nbrs.fit(X)
+    assert_raises(ValueError, neighbors.radius_neighbors_graph, X_nbrs,
+                  radius, metric='euclidean')
+
+【相关测试 5】
+测试文件：sklearn/neighbors/tests/test_neighbors.py
+测试名称：test_callable_metric
+测试代码：
+def test_callable_metric():
+
+    def custom_metric(x1, x2):
+        return np.sqrt(np.sum(x1 ** 2 + x2 ** 2))
+
+    X = np.random.RandomState(42).rand(20, 2)
+    nbrs1 = neighbors.NearestNeighbors(3, algorithm='auto',
+                                       metric=custom_metric)
+    nbrs2 = neighbors.NearestNeighbors(3, algorithm='brute',
+                                       metric=custom_metric)
+
+    nbrs1.fit(X)
+    nbrs2.fit(X)
+
+    dist1, ind1 = nbrs1.kneighbors(X)
+    dist2, ind2 = nbrs2.kneighbors(X)
+
+    assert_array_almost_equal(dist1, dist2)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

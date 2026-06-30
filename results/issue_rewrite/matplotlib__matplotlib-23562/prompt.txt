@@ -1,0 +1,772 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+'Poly3DCollection' object has no attribute '_facecolors2d'
+The following minimal example demonstrates the issue:
+
+```
+import numpy as np
+import matplotlib.tri as mtri
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+y,x = np.ogrid[1:10:100j, 1:10:100j]
+z2 = np.cos(x)**3 - np.sin(y)**2
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+r = ax.plot_surface(x,y,z2, cmap='hot')
+r.get_facecolors()
+```
+
+It fails on the last line with the following traceback:
+
+```
+AttributeError                            Traceback (most recent call last)
+<ipython-input-13-de0f41d662cd> in <module>()
+----> 1 r.get_facecolors()
+
+/home/oliver/.virtualenvs/mpl/local/lib/python2.7/site-packages/mpl_toolkits/mplot3d/art3d.pyc in get_facecolors(self)
+    634
+    635     def get_facecolors(self):
+--> 636         return self._facecolors2d
+    637     get_facecolor = get_facecolors
+    638
+
+AttributeError: 'Poly3DCollection' object has no attribute '_facecolors2d'
+```
+
+Tested with mpl versions 1.3.1 and 1.4.2.
+
+Sent here by Benjamin, from the mpl users mailing list (mail with the same title). Sorry for dumping this without more assistance, I'm not yet at a python level where I can help in debugging, I think (well, it seems daunting).
+
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：lib/mpl_toolkits/mplot3d/art3d.py
+对象名称：Poly3DCollection
+节点类型：class
+父节点：art3d
+行号范围：663-873
+代码：
+class Poly3DCollection(PolyCollection):
+    """
+    A collection of 3D polygons.
+
+    .. note::
+        **Filling of 3D polygons**
+
+        There is no simple definition of the enclosed surface of a 3D polygon
+        unless the polygon is planar.
+
+        In practice, Matplotlib fills the 2D projection of the polygon. This
+        gives a correct filling appearance only for planar polygons. For all
+        other polygons, you'll find orientations in which the edges of the
+        polygon intersect in the projection. This will lead to an incorrect
+        visualization of the 3D area.
+
+        If you need filled areas, it is recommended to create them via
+        `~mpl_toolkits.mplot3d.axes3d.Axes3D.plot_trisurf`, which creates a
+        triangulation and thus generates consistent surfaces.
+    """
+    def __init__(self, verts, *args, zsort='average', **kwargs):
+    _zsort_functions = {
+        'average': np.average,
+        'min': np.min,
+        'max': np.max,
+    }
+    def set_zsort(self, zsort):
+    def get_vector(self, segments3d):
+    def set_verts(self, verts, closed=True):
+    def set_verts_and_codes(self, verts, codes):
+    def set_3d_properties(self):
+    def set_sort_zpos(self, val):
+    def do_3d_projection(self):
+    def set_facecolor(self, colors):
+    def set_edgecolor(self, colors):
+    def set_alpha(self, alpha):
+    def get_facecolor(self):
+    def get_edgecolor(self):
+
+
+【源码片段 2】
+文件路径：lib/mpl_toolkits/mplot3d/axes3d.py
+对象名称：Axes3D
+节点类型：class
+父节点：axes3d
+行号范围：44-3233
+代码：
+class Axes3D(Axes):
+    """
+    3D Axes object.
+    """
+    name = '3d'
+    _axis_names = ("x", "y", "z")
+    Axes._shared_axes["z"] = cbook.Grouper()
+    dist = _api.deprecate_privatize_attribute("3.6")
+    def __init__(
+            self, fig, rect=None, *args,
+            elev=30, azim=-60, roll=0, sharez=None, proj_type='persp',
+            box_aspect=None, computed_zorder=True, focal_length=None,
+            **kwargs):
+    def set_axis_off(self):
+    def set_axis_on(self):
+    def convert_zunits(self, z):
+    def set_top_view(self):
+    def _init_axis(self):
+    def get_zaxis(self):
+    get_zgridlines = _axis_method_wrapper("zaxis", "get_gridlines")
+    get_zticklines = _axis_method_wrapper("zaxis", "get_ticklines")
+    w_xaxis = _api.deprecated("3.1", alternative="xaxis", removal="3.8")(
+        property(lambda self: self.xaxis))
+    w_yaxis = _api.deprecated("3.1", alternative="yaxis", removal="3.8")(
+        property(lambda self: self.yaxis))
+    w_zaxis = _api.deprecated("3.1", alternative="zaxis", removal="3.8")(
+        property(lambda self: self.zaxis))
+    def unit_cube(self, vals=None):
+    def tunit_cube(self, vals=None, M=None):
+    def tunit_edges(self, vals=None, M=None):
+    def set_aspect(self, aspect, adjustable=None, anchor=None, share=False):
+    def set_box_aspect(self, aspect, *, zoom=1):
+    def apply_aspect(self, position=None):
+    @martist.allow_rasterization
+    def draw(self, renderer):
+    def get_axis_position(self):
+    def update_datalim(self, xys, **kwargs):
+    get_autoscalez_on = _axis_method_wrapper("zaxis", "_get_autoscale_on")
+    set_autoscalez_on = _axis_method_wrapper("zaxis", "_set_autoscale_on")
+    def set_zmargin(self, m):
+    def margins(self, *margins, x=None, y=None, z=None, tight=True):
+    def autoscale(self, enable=True, axis='both', tight=None):
+    def auto_scale_xyz(self, X, Y, Z=None, had_data=None):
+    def autoscale_view(self, tight=None, scalex=True, scaley=True,
+                       scalez=True):
+    def get_w_lims(self):
+    @_api.make_keyword_only("3.6", "emit")
+    def set_zlim(self, bottom=None, top=None, emit=True, auto=False,
+                 *, zmin=None, zmax=None):
+    set_xlim3d = maxes.Axes.set_xlim
+    set_ylim3d = maxes.Axes.set_ylim
+    set_zlim3d = set_zlim
+    def get_xlim(self):
+    def get_ylim(self):
+    def get_zlim(self):
+    get_zscale = _axis_method_wrapper("zaxis", "get_scale")
+    set_xscale = _axis_method_wrapper("xaxis", "_set_axes_scale")
+    set_yscale = _axis_method_wrapper("yaxis", "_set_axes_scale")
+    set_zscale = _axis_method_wrapper("zaxis", "_set_axes_scale")
+    get_zticks = _axis_method_wrapper("zaxis", "get_ticklocs")
+    set_zticks = _axis_method_wrapper("zaxis", "set_ticks")
+    get_zmajorticklabels = _axis_method_wrapper("zaxis", "get_majorticklabels")
+    get_zminorticklabels = _axis_method_wrapper("zaxis", "get_minorticklabels")
+    get_zticklabels = _axis_method_wrapper("zaxis", "get_ticklabels")
+    set_zticklabels = _axis_method_wrapper(
+        "zaxis", "_set_ticklabels",
+        doc_sub={"Axis.set_ticks": "Axes3D.set_zticks"})
+    zaxis_date = _axis_method_wrapper("zaxis", "axis_date")
+    def clabel(self, *args, **kwargs):
+    def view_init(self, elev=None, azim=None, roll=None, vertical_axis="z"):
+    def set_proj_type(self, proj_type, focal_length=None):
+    def _roll_to_vertical(self, arr):
+    def get_proj(self):
+    def mouse_init(self, rotate_btn=1, zoom_btn=3):
+    def disable_mouse_rotation(self):
+    def can_zoom(self):
+    def can_pan(self):
+    def sharez(self, other):
+    def clear(self):
+    def _button_press(self, event):
+    def _button_release(self, event):
+    def _get_view(self):
+    def _set_view(self, view):
+    def format_zdata(self, z):
+    def format_coord(self, xd, yd):
+    def _on_move(self, event):
+    def set_zlabel(self, zlabel, fontdict=None, labelpad=None, **kwargs):
+    def get_zlabel(self):
+    def get_frame_on(self):
+    def set_frame_on(self, b):
+    @_api.rename_parameter("3.5", "b", "visible")
+    def grid(self, visible=True, **kwargs):
+    def tick_params(self, axis='both', **kwargs):
+    def invert_zaxis(self):
+    def zaxis_inverted(self):
+    def get_zbound(self):
+    def set_zbound(self, lower=None, upper=None):
+    def text(self, x, y, z, s, zdir=None, **kwargs):
+    text3D = text
+    text2D = Axes.text
+    def plot(self, xs, ys, *args, zdir='z', **kwargs):
+    plot3D = plot
+    def plot_surface(self, X, Y, Z, *, norm=None, vmin=None,
+                     vmax=None, lightsource=None, **kwargs):
+    def _generate_normals(self, polygons):
+    def _shade_colors(self, color, normals, lightsource=None):
+    def plot_wireframe(self, X, Y, Z, **kwargs):
+    def plot_trisurf(self, *args, color=None, norm=None, vmin=None, vmax=None,
+                     lightsource=None, **kwargs):
+    def _3d_extend_contour(self, cset, stride=5):
+    def add_contour_set(
+            self, cset, extend3d=False, stride=5, zdir='z', offset=None):
+    def add_contourf_set(self, cset, zdir='z', offset=None):
+    def _add_contourf_set(self, cset, zdir='z', offset=None):
+    @_preprocess_data()
+    def contour(self, X, Y, Z, *args,
+                extend3d=False, stride=5, zdir='z', offset=None, **kwargs):
+    contour3D = contour
+    @_preprocess_data()
+    def tricontour(self, *args,
+                   extend3d=False, stride=5, zdir='z', offset=None, **kwargs):
+    def _auto_scale_contourf(self, X, Y, Z, zdir, levels, had_data):
+    @_preprocess_data()
+    def contourf(self, X, Y, Z, *args, zdir='z', offset=None, **kwargs):
+    contourf3D = contourf
+    @_preprocess_data()
+    def tricontourf(self, *args, zdir='z', offset=None, **kwargs):
+    def add_collection3d(self, col, zs=0, zdir='z'):
+    @_preprocess_data(replace_names=["xs", "ys", "zs", "s",
+                                     "edgecolors", "c", "facecolor",
+                                     "facecolors", "color"])
+    def scatter(self, xs, ys, zs=0, zdir='z', s=20, c=None, depthshade=True,
+                *args, **kwargs):
+    scatter3D = scatter
+    @_preprocess_data()
+    def bar(self, left, height, zs=0, zdir='z', *args, **kwargs):
+    @_preprocess_data()
+    def bar3d(self, x, y, z, dx, dy, dz, color=None,
+              zsort='average', shade=True, lightsource=None, *args, **kwargs):
+    def set_title(self, label, fontdict=None, loc='center', **kwargs):
+    @_preprocess_data()
+    def quiver(self, *args,
+               length=1, arrow_length_ratio=.3, pivot='tail', normalize=False,
+               **kwargs):
+    quiver3D = quiver
+    def voxels(self, *args, facecolors=None, edgecolors=None, shade=True,
+               lightsource=None, **kwargs):
+    @_preprocess_data(replace_names=["x", "y", "z", "xerr", "yerr", "zerr"])
+    def errorbar(self, x, y, z, zerr=None, yerr=None, xerr=None, fmt='',
+                 barsabove=False, errorevery=1, ecolor=None, elinewidth=None,
+                 capsize=None, capthick=None, xlolims=False, xuplims=False,
+                 ylolims=False, yuplims=False, zlolims=False, zuplims=False,
+                 **kwargs):
+    def get_tightbbox(self, renderer=None, call_axes_locator=True,
+                      bbox_extra_artists=None, *, for_layout_only=False):
+    @_preprocess_data()
+    def stem(self, x, y, z, *, linefmt='C0-', markerfmt='C0o', basefmt='C3-',
+             bottom=0, label=None, orientation='z'):
+    stem3D = st
+...[TRUNCATED]...
+p.stack(
+                [cbook._array_patch_perimeters(a, rstride, cstride)
+                 for a in (X, Y, Z)],
+                axis=-1)
+        else:
+            # evenly spaced, and including both endpoints
+            row_inds = list(range(0, rows-1, rstride)) + [rows-1]
+            col_inds = list(range(0, cols-1, cstride)) + [cols-1]
+
+            polys = []
+            for rs, rs_next in zip(row_inds[:-1], row_inds[1:]):
+                for cs, cs_next in zip(col_inds[:-1], col_inds[1:]):
+                    ps = [
+                        # +1 ensures we share edges between polygons
+                        cbook._array_perimeter(a[rs:rs_next+1, cs:cs_next+1])
+                        for a in (X, Y, Z)
+                    ]
+                    # ps = np.stack(ps, axis=-1)
+                    ps = np.array(ps).T
+                    polys.append(ps)
+
+                    if fcolors is not None:
+                        colset.append(fcolors[rs][cs])
+
+        # In cases where there are NaNs in the data (possibly from masked
+        # arrays), artifacts can be introduced. Here check whether NaNs exist
+        # and remove the entries if so
+        if not isinstance(polys, np.ndarray) or np.isnan(polys).any():
+            new_polys = []
+            new_colset = []
+
+            # Depending on fcolors, colset is either an empty list or has as
+            # many elements as polys. In the former case new_colset results in
+            # a list with None entries, that is discarded later.
+            for p, col in itertools.zip_longest(polys, colset):
+                new_poly = np.array(p)[~np.isnan(p).any(axis=1)]
+                if len(new_poly):
+                    new_polys.append(new_poly)
+                    new_colset.append(col)
+
+            # Replace previous polys and, if fcolors is not None, colset
+            polys = new_polys
+            if fcolors is not None:
+                colset = new_colset
+
+        # note that the striding causes some polygons to have more coordinates
+        # than others
+        polyc = art3d.Poly3DCollection(polys, **kwargs)
+
+        if fcolors is not None:
+            if shade:
+                colset = self._shade_colors(
+                    colset, self._generate_normals(polys), lightsource)
+            polyc.set_facecolors(colset)
+            polyc.set_edgecolors(colset)
+        elif cmap:
+            # can't always vectorize, because polys might be jagged
+            if isinstance(polys, np.ndarray):
+                avg_z = polys[..., 2].mean(axis=-1)
+            else:
+                avg_z = np.array([ps[:, 2].mean() for ps in polys])
+            polyc.set_array(avg_z)
+            if vmin is not None or vmax is not None:
+                polyc.set_clim(vmin, vmax)
+            if norm is not None:
+                polyc.set_norm(norm)
+        else:
+            if shade:
+                colset = self._shade_colors(
+                    color, self._generate_normals(polys), lightsource)
+            else:
+                colset = color
+            polyc.set_facecolors(colset)
+
+        self.add_collection(polyc)
+        self.auto_scale_xyz(X, Y, Z, had_data)
+
+        return polyc
+
+
+【源码片段 4】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：figure
+节点类型：top-level function
+父节点：pyplot
+行号范围：655-793
+代码：
+def figure(num=None,  # autoincrement if None, else integer from 1-N
+           figsize=None,  # defaults to rc figure.figsize
+           dpi=None,  # defaults to rc figure.dpi
+           facecolor=None,  # defaults to rc figure.facecolor
+           edgecolor=None,  # defaults to rc figure.edgecolor
+           frameon=True,
+           FigureClass=Figure,
+           clear=False,
+           **kwargs
+           ):
+    """
+    Create a new figure, or activate an existing figure.
+
+    Parameters
+    ----------
+    num : int or str or `.Figure` or `.SubFigure`, optional
+        A unique identifier for the figure.
+
+        If a figure with that identifier already exists, this figure is made
+        active and returned. An integer refers to the ``Figure.number``
+        attribute, a string refers to the figure label.
+
+        If there is no figure with the identifier or *num* is not given, a new
+        figure is created, made active and returned.  If *num* is an int, it
+        will be used for the ``Figure.number`` attribute, otherwise, an
+        auto-generated integer value is used (starting at 1 and incremented
+        for each new figure). If *num* is a string, the figure label and the
+        window title is set to this value.  If num is a ``SubFigure``, its
+        parent ``Figure`` is activated.
+
+    figsize : (float, float), default: :rc:`figure.figsize`
+        Width, height in inches.
+
+    dpi : float, default: :rc:`figure.dpi`
+        The resolution of the figure in dots-per-inch.
+
+    facecolor : color, default: :rc:`figure.facecolor`
+        The background color.
+
+    edgecolor : color, default: :rc:`figure.edgecolor`
+        The border color.
+
+    frameon : bool, default: True
+        If False, suppress drawing the figure frame.
+
+    FigureClass : subclass of `~matplotlib.figure.Figure`
+        If set, an instance of this subclass will be created, rather than a
+        plain `.Figure`.
+
+    clear : bool, default: False
+        If True and the figure already exists, then it is cleared.
+
+    layout : {'constrained', 'tight', `.LayoutEngine`, None}, default: None
+        The layout mechanism for positioning of plot elements to avoid
+        overlapping Axes decorations (labels, ticks, etc). Note that layout
+        managers can measurably slow down figure display. Defaults to *None*
+        (but see the documentation of the `.Figure` constructor regarding the
+        interaction with rcParams).
+
+    **kwargs
+        Additional keyword arguments are passed to the `.Figure` constructor.
+
+    Returns
+    -------
+    `~matplotlib.figure.Figure`
+
+    Notes
+    -----
+    Newly created figures are passed to the `~.FigureCanvasBase.new_manager`
+    method or the `new_figure_manager` function provided by the current
+    backend, which install a canvas and a manager on the figure.
+
+    If you are creating many figures, make sure you explicitly call
+    `.pyplot.close` on the figures you are not using, because this will
+    enable pyplot to properly clean up the memory.
+
+    `~matplotlib.rcParams` defines the default values, which can be modified
+    in the matplotlibrc file.
+    """
+    if isinstance(num, FigureBase):
+        if num.canvas.manager is None:
+            raise ValueError("The passed figure is not managed by pyplot")
+        _pylab_helpers.Gcf.set_active(num.canvas.manager)
+        return num.figure
+
+    allnums = get_fignums()
+    next_num = max(allnums) + 1 if allnums else 1
+    fig_label = ''
+    if num is None:
+        num = next_num
+    elif isinstance(num, str):
+        fig_label = num
+        all_labels = get_figlabels()
+        if fig_label not in all_labels:
+            if fig_label == 'all':
+                _api.warn_external("close('all') closes all existing figures.")
+            num = next_num
+        else:
+            inum = all_labels.index(fig_label)
+            num = allnums[inum]
+    else:
+        num = int(num)  # crude validation of num argument
+
+    manager = _pylab_helpers.Gcf.get_fig_manager(num)
+    if manager is None:
+        max_open_warning = rcParams['figure.max_open_warning']
+        if len(allnums) == max_open_warning >= 1:
+            _api.warn_external(
+                f"More than {max_open_warning} figures have been opened. "
+                f"Figures created through the pyplot interface "
+                f"(`matplotlib.pyplot.figure`) are retained until explicitly "
+                f"closed and may consume too much memory. (To control this "
+                f"warning, see the rcParam `figure.max_open_warning`). "
+                f"Consider using `matplotlib.pyplot.close()`.",
+                RuntimeWarning)
+
+        manager = new_figure_manager(
+            num, figsize=figsize, dpi=dpi,
+            facecolor=facecolor, edgecolor=edgecolor, frameon=frameon,
+            FigureClass=FigureClass, **kwargs)
+        fig = manager.canvas.figure
+        if fig_label:
+            fig.set_label(fig_label)
+
+        _pylab_helpers.Gcf._set_new_active_manager(manager)
+
+        # make sure backends (inline) that we don't ship that expect this
+        # to be called in plotting commands to make the figure call show
+        # still work.  There is probably a better way to do this in the
+        # FigureManager base class.
+        draw_if_interactive()
+
+        if _REPL_DISPLAYHOOK is _ReplDisplayHook.PLAIN:
+            fig.stale_callback = _auto_draw_if_interactive
+
+    if clear:
+        manager.canvas.figure.clear()
+
+    return manager.canvas.figure
+
+
+【源码片段 5】
+文件路径：examples/mplot3d/trisurf3d_2.py
+对象名称：tri
+节点类型：global_var
+父节点：trisurf3d_2
+行号范围：37-37
+代码：
+tri = mtri.Triangulation(u, v)
+
+
+【源码片段 6】
+文件路径：lib/mpl_toolkits/mplot3d/art3d.py
+对象名称：art3d
+节点类型：file
+父节点：repo_root
+行号范围：-1--1
+代码：
+file_content
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_poly3dcollection_closed
+测试代码：
+@mpl3d_image_comparison(['poly3dcollection_closed.png'])
+def test_poly3dcollection_closed():
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+
+    poly1 = np.array([[0, 0, 1], [0, 1, 1], [0, 0, 0]], float)
+    poly2 = np.array([[0, 1, 1], [1, 1, 1], [1, 1, 0]], float)
+    c1 = art3d.Poly3DCollection([poly1], linewidths=3, edgecolor='k',
+                                facecolor=(0.5, 0.5, 1, 0.5), closed=True)
+    c2 = art3d.Poly3DCollection([poly2], linewidths=3, edgecolor='k',
+                                facecolor=(1, 0.5, 0.5, 0.5), closed=False)
+    ax.add_collection3d(c1)
+    ax.add_collection3d(c2)
+
+【相关测试 2】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_surface3d
+测试代码：
+@mpl3d_image_comparison(['surface3d.png'])
+def test_surface3d():
+    # Remove this line when this test image is regenerated.
+    plt.rcParams['pcolormesh.snap'] = False
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    X = np.arange(-5, 5, 0.25)
+    Y = np.arange(-5, 5, 0.25)
+    X, Y = np.meshgrid(X, Y)
+    R = np.hypot(X, Y)
+    Z = np.sin(R)
+    surf = ax.plot_surface(X, Y, Z, rcount=40, ccount=40, cmap=cm.coolwarm,
+                           lw=0, antialiased=False)
+    ax.set_zlim(-1.01, 1.01)
+    fig.colorbar(surf, shrink=0.5, aspect=5)
+
+【相关测试 3】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_surface3d_masked_strides
+测试代码：
+@mpl3d_image_comparison(['surface3d_masked_strides.png'])
+def test_surface3d_masked_strides():
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+
+    x, y = np.mgrid[-6:6.1:1, -6:6.1:1]
+    z = np.ma.masked_less(x * y, 2)
+
+    ax.plot_surface(x, y, z, rstride=4, cstride=4)
+    ax.view_init(60, -45, 0)
+
+【相关测试 4】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_trisurf3d
+测试代码：
+@mpl3d_image_comparison(['trisurf3d.png'], tol=0.061)
+def test_trisurf3d():
+    n_angles = 36
+    n_radii = 8
+    radii = np.linspace(0.125, 1.0, n_radii)
+    angles = np.linspace(0, 2*np.pi, n_angles, endpoint=False)
+    angles = np.repeat(angles[..., np.newaxis], n_radii, axis=1)
+    angles[:, 1::2] += np.pi/n_angles
+
+    x = np.append(0, (radii*np.cos(angles)).flatten())
+    y = np.append(0, (radii*np.sin(angles)).flatten())
+    z = np.sin(-x*y)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    ax.plot_trisurf(x, y, z, cmap=cm.jet, linewidth=0.2)
+
+【相关测试 5】
+测试文件：lib/mpl_toolkits/tests/test_mplot3d.py
+测试名称：test_surface3d_shaded
+测试代码：
+@mpl3d_image_comparison(['surface3d_shaded.png'])
+def test_surface3d_shaded():
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    X = np.arange(-5, 5, 0.25)
+    Y = np.arange(-5, 5, 0.25)
+    X, Y = np.meshgrid(X, Y)
+    R = np.sqrt(X ** 2 + Y ** 2)
+    Z = np.sin(R)
+    ax.plot_surface(X, Y, Z, rstride=5, cstride=5,
+                    color=[0.25, 1, 0.25], lw=1, antialiased=False)
+    ax.set_zlim(-1.01, 1.01)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

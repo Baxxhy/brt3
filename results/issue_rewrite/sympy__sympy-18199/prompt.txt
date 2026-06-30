@@ -1,0 +1,722 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+nthroot_mod function misses one root of x = 0 mod p.
+When in the equation x**n = a mod p , when a % p == 0. Then x = 0 mod p is also a root of this equation. But right now `nthroot_mod` does not check for this condition. `nthroot_mod(17*17, 5 , 17)` has a root `0 mod 17`. But it does not return it.
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sympy/ntheory/residue_ntheory.py
+对象名称：nthroot_mod
+节点类型：top-level function
+父节点：residue_ntheory
+行号范围：746-807
+代码：
+def nthroot_mod(a, n, p, all_roots=False):
+    """
+    Find the solutions to ``x**n = a mod p``
+
+    Parameters
+    ==========
+
+    a : integer
+    n : positive integer
+    p : positive integer
+    all_roots : if False returns the smallest root, else the list of roots
+
+    Examples
+    ========
+
+    >>> from sympy.ntheory.residue_ntheory import nthroot_mod
+    >>> nthroot_mod(11, 4, 19)
+    8
+    >>> nthroot_mod(11, 4, 19, True)
+    [8, 11]
+    >>> nthroot_mod(68, 3, 109)
+    23
+    """
+    from sympy.core.numbers import igcdex
+    a, n, p = as_int(a), as_int(n), as_int(p)
+    if n == 2:
+        return sqrt_mod(a, p, all_roots)
+    # see Hackman "Elementary Number Theory" (2009), page 76
+    if not is_nthpow_residue(a, n, p):
+        return None
+    if not isprime(p):
+        raise NotImplementedError("Not implemented for composite p")
+
+    if (p - 1) % n == 0:
+        return _nthroot_mod1(a, n, p, all_roots)
+    # The roots of ``x**n - a = 0 (mod p)`` are roots of
+    # ``gcd(x**n - a, x**(p - 1) - 1) = 0 (mod p)``
+    pa = n
+    pb = p - 1
+    b = 1
+    if pa < pb:
+        a, pa, b, pb = b, pb, a, pa
+    while pb:
+        # x**pa - a = 0; x**pb - b = 0
+        # x**pa - a = x**(q*pb + r) - a = (x**pb)**q * x**r - a =
+        #             b**q * x**r - a; x**r - c = 0; c = b**-q * a mod p
+        q, r = divmod(pa, pb)
+        c = pow(b, q, p)
+        c = igcdex(c, p)[0]
+        c = (c * a) % p
+        pa, pb = pb, r
+        a, b = b, c
+    if pa == 1:
+        if all_roots:
+            res = [a]
+        else:
+            res = a
+    elif pa == 2:
+        return sqrt_mod(a, p , all_roots)
+    else:
+        res = _nthroot_mod1(a, pa, p, all_roots)
+    return res
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sympy/ntheory/tests/test_residue.py
+测试名称：test_residue
+测试代码：
+def test_residue():
+    assert n_order(2, 13) == 12
+    assert [n_order(a, 7) for a in range(1, 7)] == \
+           [1, 3, 6, 3, 6, 2]
+    assert n_order(5, 17) == 16
+    assert n_order(17, 11) == n_order(6, 11)
+    assert n_order(101, 119) == 6
+    assert n_order(11, (10**50 + 151)**2) == 10000000000000000000000000000000000000000000000030100000000000000000000000000000000000000000000022650
+    raises(ValueError, lambda: n_order(6, 9))
+
+    assert is_primitive_root(2, 7) is False
+    assert is_primitive_root(3, 8) is False
+    assert is_primitive_root(11, 14) is False
+    assert is_primitive_root(12, 17) == is_primitive_root(29, 17)
+    raises(ValueError, lambda: is_primitive_root(3, 6))
+
+    for p in primerange(3, 100):
+        it = _primitive_root_prime_iter(p)
+        assert len(list(it)) == totient(totient(p))
+    assert primitive_root(97) == 5
+    assert primitive_root(97**2) == 5
+    assert primitive_root(40487) == 5
+    # note that primitive_root(40487) + 40487 = 40492 is a primitive root
+    # of 40487**2, but it is not the smallest
+    assert primitive_root(40487**2) == 10
+    assert primitive_root(82) == 7
+    p = 10**50 + 151
+    assert primitive_root(p) == 11
+    assert primitive_root(2*p) == 11
+    assert primitive_root(p**2) == 11
+    raises(ValueError, lambda: primitive_root(-3))
+
+    assert is_quad_residue(3, 7) is False
+    assert is_quad_residue(10, 13) is True
+    assert is_quad_residue(12364, 139) == is_quad_residue(12364 % 139, 139)
+    assert is_quad_residue(207, 251) is True
+    assert is_quad_residue(0, 1) is True
+    assert is_quad_residue(1, 1) is True
+    assert is_quad_residue(0, 2) == is_quad_residue(1, 2) is True
+    assert is_quad_residue(1, 4) is True
+    assert is_quad_residue(2, 27) is False
+    assert is_quad_residue(13122380800, 13604889600) is True
+    assert [j for j in range(14) if is_quad_residue(j, 14)] == \
+           [0, 1, 2, 4, 7, 8, 9, 11]
+    raises(ValueError, lambda: is_quad_residue(1.1, 2))
+    raises(ValueError, lambda: is_quad_residue(2, 0))
+
+
+    assert quadratic_residues(S.One) == [0]
+    assert quadratic_residues(1) == [0]
+    assert quadratic_residues(12) == [0, 1, 4, 9]
+    assert quadratic_residues(12) == [0, 1, 4, 9]
+    assert quadratic_residues(13) == [0, 1, 3, 4, 9, 10, 12]
+    assert [len(quadratic_residues(i)) for i in range(1, 20)] == \
+      [1, 2, 2, 2, 3, 4, 4, 3, 4, 6, 6, 4, 7, 8, 6, 4, 9, 8, 10]
+
+    assert list(sqrt_mod_iter(6, 2)) == [0]
+    assert sqrt_mod(3, 13) == 4
+    assert sqrt_mod(3, -13) == 4
+    assert sqrt_mod(6, 23) == 11
+    assert sqrt_mod(345, 690) == 345
+    assert sqrt_mod(67, 101) == None
+    assert sqrt_mod(1020, 104729) == None
+
+    for p in range(3, 100):
+        d = defaultdict(list)
+        for i in range(p):
+            d[pow(i, 2, p)].append(i)
+        for i in range(1, p):
+            it = sqrt_mod_iter(i, p)
+            v = sqrt_mod(i, p, True)
+            if v:
+                v = sorted(v)
+                assert d[i] == v
+            else:
+                assert not d[i]
+
+    assert sqrt_mod(9, 27, True) == [3, 6, 12, 15, 21, 24]
+    assert sqrt_mod(9, 81, True) == [3, 24, 30, 51, 57, 78]
+    assert sqrt_mod(9, 3**5, True) == [3, 78, 84, 159, 165, 240]
+    assert sqrt_mod(81, 3**4, True) == [0, 9, 18, 27, 36, 45, 54, 63, 72]
+    assert sqrt_mod(81, 3**5, True) == [9, 18, 36, 45, 63, 72, 90, 99, 117,\
+            126, 144, 153, 171, 180, 198, 207, 225, 234]
+    assert sqrt_mod(81, 3**6, True) == [9, 72, 90, 153, 171, 234, 252, 315,\
+            333, 396, 414, 477, 495, 558, 576, 639, 657, 720]
+    assert sqrt_mod(81, 3**7, True) == [9, 234, 252, 477, 495, 720, 738, 963,\
+            981, 1206, 1224, 1449, 1467, 1692, 1710, 1935, 1953, 2178]
+
+    for a, p in [(26214400, 32768000000), (26214400, 16384000000),
+        (262144, 1048576), (87169610025, 163443018796875),
+        (22315420166400, 167365651248000000)]:
+        assert pow(sqrt_mod(a, p), 2, p) == a
+
+    n = 70
+    a, p = 5**2*3**n*2**n, 5**6*3**(n+1)*2**(n+2)
+    it = sqrt_mod_iter(a, p)
+    for i in range(10):
+        assert pow(next(it), 2, p) == a
+    a, p = 5**2*3**n*2**n, 5**6*3**(n+1)*2**(n+3)
+    it = sqrt_mod_iter(a, p)
+    for i in range(2):
+        assert pow(next(it), 2, p) == a
+    n = 100
+    a, p = 5**2*3**n*2**n, 5**6*3**(n+1)*2**(n+1)
+    it = sqrt_mod_iter(a, p)
+    for i in range(2):
+        assert pow(next(it), 2, p) == a
+
+    assert type(next(sqrt_mod_iter(9, 27))) is int
+    assert type(next(sqrt_mod_iter(9, 27, ZZ))) is type(ZZ(1))
+    assert type(next(sqrt_mod_iter(1, 7, ZZ))) is type(ZZ(1))
+
+    assert is_nthpow_residue(2, 1, 5)
+
+    #issue 10816
+    assert is_nthpow_residue(1, 0, 1) is False
+    assert is_nthpow_residue(1, 0, 2) is True
+    assert is_nthpow_residue(3, 0, 2) is False
+    assert is_nthpow_residue(0, 1, 8) is True
+    assert is_nthpow_residue(2, 3, 2) is True
+    assert is_nthpow_residue(2, 3, 9) is False
+    assert is_nthpow_residue(3, 5, 30) is True
+    assert is_nthpow_residue(21, 11, 20) is True
+    assert is_nthpow_residue(7, 10, 20) is False
+    assert is_nthpow_residue(5, 10, 20) is True
+    assert is_nthpow_residue(3, 10, 48) is False
+    assert is_nthpow_residue(1, 10, 40) is True
+    assert is_nthpow_residue(3, 10, 24) is False
+    assert is_nthpow_residue(1, 10, 24) is True
+    assert is_nthpow_residue(3, 10, 24) is False
+    assert is_nthpow_residue(2, 10, 48) is False
+    assert is_nthpow_residue(81, 3, 972) is False
+    assert is_nthpow_residue(243, 5, 5103) is True
+    assert is_nthpow_residue(243, 3, 1240029) is False
+    x = set([pow(i, 56, 1024) for i in range(1024)])
+    assert set([a for a in range(1024) if is_nthpow_residue(a, 56, 1024)]) == x
+    x = set([ pow(i, 256, 2048) for i in range(2048)])
+    assert set([a for a in range(2048) if is_nthpow_residue(a, 256, 2048)]) == x
+    x = set([ pow(i, 11, 324000) for i in range(1000)])
+    assert [ is_nthpow_residue(a, 11, 324000) for a in x]
+    x = set([ pow(i, 17, 22217575536) for i in range(1000)])
+    assert [ is_nthpow_residue(a, 17, 22217575536) for a in x]
+    assert is_nthpow_residue(676, 3, 5364)
+    assert is_nthpow_residue(9, 12, 36)
+    assert is_nthpow_residue(32, 10, 41)
+    assert is_nthpow_residue(4, 2, 64)
+    assert is_nthpow_residue(31, 4, 41)
+    assert not is_nthpow_residue(2, 2, 5)
+    assert is_nthpow_residue(8547, 12, 10007)
+    raises(NotImplementedError, lambda: nthroot_mod(29, 31, 74))
+    assert nthroot_mod(1801, 11, 2663) == 44
+    for a, q, p in [(51922, 2, 203017), (43, 3, 109), (1801, 11, 2663),
+          (26118163, 1303, 33333347), (1499, 7, 2663), (595, 6, 2663),
+          (1714, 12, 2663), (28477, 9, 33343)]:
+        r = nthroot_mod(a, q, p)
+        assert pow(r, q, p) == a
+    assert nthroot_mod(11, 3, 109) is None
+    raises(NotImplementedError, lambda: nthroot_mod(16, 5, 36))
+    raises(NotImplementedError, lambda: nthroot_mod(9, 16, 36))
+
+    for p in primerange(5, 100):
+        qv = range(3, p, 4)
+        for q in qv:
+            d = defaultdict(list)
+            for i in range(p):
+                d[pow(i, q, p)].append(i)
+            for a in range(1, p - 1):
+                res = nthroot_mod(a, q, p, True)
+                if d[a]:
+                    assert d[a] == res
+                else:
+                    assert res is None
+
+    assert legendre_symbol(5, 11) == 1
+    assert legendre_symbol(25, 41) == 1
+    assert legendre_symbol(67, 101) == -1
+    assert legendre_symbol(0, 13) == 0
+    assert legendre_symbol(9, 3) == 0
+    raises(ValueError, lambda: legendre_symbol(2, 4))
+
+    assert jacobi_symbol(25, 41) == 1
+    assert jacobi_symbol(-23, 83) == -1
+    assert jacobi_symbol(3, 9) == 0
+    assert jacobi_symbol(42, 97) == -1
+    assert jacobi_symbol(3, 5) == -1
+    assert jacobi_symbol(7, 9) == 1
+    assert jacobi_symbol(0, 3) == 0
+    assert jacobi_symbol(0, 1) == 1
+    assert jacobi_symbol(2, 1) == 1
+    assert jacobi_symbol(1, 3) == 1
+    raises(ValueError, lambda: jacobi_symbol(3, 8))
+
+    assert mobius(13*7) == 1
+    assert mobius(1) == 1
+    assert mobius(13*7*5) == -1
+    assert mobius(13**2) == 0
+    raises(ValueError, lambda: mobius(-3))
+
+    p = Symbol('p', integer=True, positive=True, prime=True)
+    x = Symbol('x', positive=True)
+    i = Symbol('i', integer=True)
+    assert mobius(p) == -1
+    raises(TypeError, lambda: mobius(x))
+    raises(ValueError, lambda: mobius(i))
+
+    assert _discrete_log_trial_mul(587, 2**7, 2) == 7
+    assert _discrete_log_trial_mul(941, 7**18, 7) == 18
+    assert _discrete_log_trial_mul(389, 3**81, 3) == 81
+    assert _discrete_log_trial_mul(191, 19**123, 19) == 123
+    assert _discrete_log_shanks_steps(442879, 7**2, 7) == 2
+    assert _discrete_log_shanks_steps(874323, 5**19, 5) == 19
+    assert _discrete_log_shanks_steps(6876342, 7**71, 7) == 71
+    assert _discrete_log_shanks_steps(2456747, 3**321, 3) == 321
+    assert _discrete_log_pollard_rho(6013199, 2**6, 2, rseed=0) == 6
+    assert _discrete_log_pollard_
+...[TRUNCATED]...
+
+        eq = x**4 + a*x**3 + b*x**2 + c*x + d
+        ans = roots_quartic(Poly(eq, x))
+        assert all(eq.subs(x, ai).n(chop=True) == 0 for ai in ans)
+
+    # not all symbolic quartics are unresolvable
+    eq = Poly(q*x + q/4 + x**4 + x**3 + 2*x**2 - Rational(1, 3), x)
+    sol = roots_quartic(eq)
+    assert all(verify_numerically(eq.subs(x, i), 0) for i in sol)
+    z = symbols('z', negative=True)
+    eq = x**4 + 2*x**3 + 3*x**2 + x*(z + 11) + 5
+    zans = roots_quartic(Poly(eq, x))
+    assert all([verify_numerically(eq.subs(((x, i), (z, -1))), 0) for i in zans])
+    # but some are (see also issue 4989)
+    # it's ok if the solution is not Piecewise, but the tests below should pass
+    eq = Poly(y*x**4 + x**3 - x + z, x)
+    ans = roots_quartic(eq)
+    assert all(type(i) == Piecewise for i in ans)
+    reps = (
+        dict(y=Rational(-1, 3), z=Rational(-1, 4)),  # 4 real
+        dict(y=Rational(-1, 3), z=Rational(-1, 2)),  # 2 real
+        dict(y=Rational(-1, 3), z=-2))  # 0 real
+    for rep in reps:
+        sol = roots_quartic(Poly(eq.subs(rep), x))
+        assert all([verify_numerically(w.subs(rep) - s, 0) for w, s in zip(ans, sol)])
+
+【相关测试 3】
+测试文件：sympy/solvers/tests/test_solveset.py
+测试名称：test_return_root_of
+测试代码：
+def test_return_root_of():
+    f = x**5 - 15*x**3 - 5*x**2 + 10*x + 20
+    s = list(solveset_complex(f, x))
+    for root in s:
+        assert root.func == CRootOf
+
+    # if one uses solve to get the roots of a polynomial that has a CRootOf
+    # solution, make sure that the use of nfloat during the solve process
+    # doesn't fail. Note: if you want numerical solutions to a polynomial
+    # it is *much* faster to use nroots to get them than to solve the
+    # equation only to get CRootOf solutions which are then numerically
+    # evaluated. So for eq = x**5 + 3*x + 7 do Poly(eq).nroots() rather
+    # than [i.n() for i in solve(eq)] to get the numerical roots of eq.
+    assert nfloat(list(solveset_complex(x**5 + 3*x**3 + 7, x))[0],
+                  exponent=False) == CRootOf(x**5 + 3*x**3 + 7, 0).n()
+
+    sol = list(solveset_complex(x**6 - 2*x + 2, x))
+    assert all(isinstance(i, CRootOf) for i in sol) and len(sol) == 6
+
+    f = x**5 - 15*x**3 - 5*x**2 + 10*x + 20
+    s = list(solveset_complex(f, x))
+    for root in s:
+        assert root.func == CRootOf
+
+    s = x**5 + 4*x**3 + 3*x**2 + Rational(7, 4)
+    assert solveset_complex(s, x) == \
+        FiniteSet(*Poly(s*4, domain='ZZ').all_roots())
+
+    # Refer issue #7876
+    eq = x*(x - 1)**2*(x + 1)*(x**6 - x + 1)
+    assert solveset_complex(eq, x) == \
+        FiniteSet(-1, 0, 1, CRootOf(x**6 - x + 1, 0),
+                       CRootOf(x**6 - x + 1, 1),
+                       CRootOf(x**6 - x + 1, 2),
+                       CRootOf(x**6 - x + 1, 3),
+                       CRootOf(x**6 - x + 1, 4),
+                       CRootOf(x**6 - x + 1, 5))
+
+【相关测试 4】
+测试文件：sympy/functions/combinatorial/tests/test_comb_factorials.py
+测试名称：test_factorial_Mod
+测试代码：
+def test_factorial_Mod():
+    pr = Symbol('pr', prime=True)
+    p, q = 10**9 + 9, 10**9 + 33 # prime modulo
+    r, s = 10**7 + 5, 33333333 # composite modulo
+    assert Mod(factorial(pr - 1), pr) == pr - 1
+    assert Mod(factorial(pr - 1), -pr) == -1
+    assert Mod(factorial(r - 1, evaluate=False), r) == 0
+    assert Mod(factorial(s - 1, evaluate=False), s) == 0
+    assert Mod(factorial(p - 1, evaluate=False), p) == p - 1
+    assert Mod(factorial(q - 1, evaluate=False), q) == q - 1
+    assert Mod(factorial(p - 50, evaluate=False), p) == 854928834
+    assert Mod(factorial(q - 1800, evaluate=False), q) == 905504050
+    assert Mod(factorial(153, evaluate=False), r) == Mod(factorial(153), r)
+    assert Mod(factorial(255, evaluate=False), s) == Mod(factorial(255), s)
+
+【相关测试 5】
+测试文件：sympy/core/tests/test_arit.py
+测试名称：test_Mod
+测试代码：
+def test_Mod():
+    assert Mod(x, 1).func is Mod
+    assert pi % pi is S.Zero
+    assert Mod(5, 3) == 2
+    assert Mod(-5, 3) == 1
+    assert Mod(5, -3) == -1
+    assert Mod(-5, -3) == -2
+    assert type(Mod(3.2, 2, evaluate=False)) == Mod
+    assert 5 % x == Mod(5, x)
+    assert x % 5 == Mod(x, 5)
+    assert x % y == Mod(x, y)
+    assert (x % y).subs({x: 5, y: 3}) == 2
+    assert Mod(nan, 1) is nan
+    assert Mod(1, nan) is nan
+    assert Mod(nan, nan) is nan
+
+    Mod(0, x) == 0
+    with raises(ZeroDivisionError):
+        Mod(x, 0)
+
+    k = Symbol('k', integer=True)
+    m = Symbol('m', integer=True, positive=True)
+    assert (x**m % x).func is Mod
+    assert (k**(-m) % k).func is Mod
+    assert k**m % k == 0
+    assert (-2*k)**m % k == 0
+
+    # Float handling
+    point3 = Float(3.3) % 1
+    assert (x - 3.3) % 1 == Mod(1.*x + 1 - point3, 1)
+    assert Mod(-3.3, 1) == 1 - point3
+    assert Mod(0.7, 1) == Float(0.7)
+    e = Mod(1.3, 1)
+    assert comp(e, .3) and e.is_Float
+    e = Mod(1.3, .7)
+    assert comp(e, .6) and e.is_Float
+    e = Mod(1.3, Rational(7, 10))
+    assert comp(e, .6) and e.is_Float
+    e = Mod(Rational(13, 10), 0.7)
+    assert comp(e, .6) and e.is_Float
+    e = Mod(Rational(13, 10), Rational(7, 10))
+    assert comp(e, .6) and e.is_Rational
+
+    # check that sign is right
+    r2 = sqrt(2)
+    r3 = sqrt(3)
+    for i in [-r3, -r2, r2, r3]:
+        for j in [-r3, -r2, r2, r3]:
+            assert verify_numerically(i % j, i.n() % j.n())
+    for _x in range(4):
+        for _y in range(9):
+            reps = [(x, _x), (y, _y)]
+            assert Mod(3*x + y, 9).subs(reps) == (3*_x + _y) % 9
+
+    # denesting
+    t = Symbol('t', real=True)
+    assert Mod(Mod(x, t), t) == Mod(x, t)
+    assert Mod(-Mod(x, t), t) == Mod(-x, t)
+    assert Mod(Mod(x, 2*t), t) == Mod(x, t)
+    assert Mod(-Mod(x, 2*t), t) == Mod(-x, t)
+    assert Mod(Mod(x, t), 2*t) == Mod(x, t)
+    assert Mod(-Mod(x, t), -2*t) == -Mod(x, t)
+    for i in [-4, -2, 2, 4]:
+        for j in [-4, -2, 2, 4]:
+            for k in range(4):
+                assert Mod(Mod(x, i), j).subs({x: k}) == (k % i) % j
+                assert Mod(-Mod(x, i), j).subs({x: k}) == -(k % i) % j
+
+    # known difference
+    assert Mod(5*sqrt(2), sqrt(5)) == 5*sqrt(2) - 3*sqrt(5)
+    p = symbols('p', positive=True)
+    assert Mod(2, p + 3) == 2
+    assert Mod(-2, p + 3) == p + 1
+    assert Mod(2, -p - 3) == -p - 1
+    assert Mod(-2, -p - 3) == -2
+    assert Mod(p + 5, p + 3) == 2
+    assert Mod(-p - 5, p + 3) == p + 1
+    assert Mod(p + 5, -p - 3) == -p - 1
+    assert Mod(-p - 5, -p - 3) == -2
+    assert Mod(p + 1, p - 1).func is Mod
+
+    # handling sums
+    assert (x + 3) % 1 == Mod(x, 1)
+    assert (x + 3.0) % 1 == Mod(1.*x, 1)
+    assert (x - S(33)/10) % 1 == Mod(x + S(7)/10, 1)
+
+    a = Mod(.6*x + y, .3*y)
+    b = Mod(0.1*y + 0.6*x, 0.3*y)
+    # Test that a, b are equal, with 1e-14 accuracy in coefficients
+    eps = 1e-14
+    assert abs((a.args[0] - b.args[0]).subs({x: 1, y: 1})) < eps
+    assert abs((a.args[1] - b.args[1]).subs({x: 1, y: 1})) < eps
+
+    assert (x + 1) % x == 1 % x
+    assert (x + y) % x == y % x
+    assert (x + y + 2) % x == (y + 2) % x
+    assert (a + 3*x + 1) % (2*x) == Mod(a + x + 1, 2*x)
+    assert (12*x + 18*y) % (3*x) == 3*Mod(6*y, x)
+
+    # gcd extraction
+    assert (-3*x) % (-2*y) == -Mod(3*x, 2*y)
+    assert (.6*pi) % (.3*x*pi) == 0.3*pi*Mod(2, x)
+    assert (.6*pi) % (.31*x*pi) == pi*Mod(0.6, 0.31*x)
+    assert (6*pi) % (.3*x*pi) == 0.3*pi*Mod(20, x)
+    assert (6*pi) % (.31*x*pi) == pi*Mod(6, 0.31*x)
+    assert (6*pi) % (.42*x*pi) == pi*Mod(6, 0.42*x)
+    assert (12*x) % (2*y) == 2*Mod(6*x, y)
+    assert (12*x) % (3*5*y) == 3*Mod(4*x, 5*y)
+    assert (12*x) % (15*x*y) == 3*x*Mod(4, 5*y)
+    assert (-2*pi) % (3*pi) == pi
+    assert (2*x + 2) % (x + 1) == 0
+    assert (x*(x + 1)) % (x + 1) == (x + 1)*Mod(x, 1)
+    assert Mod(5.0*x, 0.1*y) == 0.1*Mod(50*x, y)
+    i = Symbol('i', integer=True)
+    assert (3*i*x) % (2*i*y) == i*Mod(3*x, 2*y)
+    assert Mod(4*i, 4) == 0
+
+    # issue 8677
+    n = Symbol('n', integer=True, positive=True)
+    assert factorial(n) % n == 0
+    assert factorial(n + 2) % n == 0
+    assert (factorial(n + 4) % (n + 5)).func is Mod
+
+    # Wilson's theorem
+    factorial(18042, evaluate=False) % 18043 == 18042
+    p = Symbol('n', prime=True)
+    factorial(p - 1) % p == p - 1
+    factorial(p - 1) % -p == -1
+    (factorial(3, evaluate=False) % 4).doit() == 2
+    n = Symbol('n', composite=True, odd=True)
+    factorial(n - 1) % n == 0
+
+    # symbolic with known parity
+    n = Symbol('n', even=True)
+    assert Mod(n, 2) == 0
+    n = Symbol('n', odd=True)
+    assert Mod(n, 2) == 1
+
+    # issue 10963
+    assert (x**6000%400).args[1] == 400
+
+    #issue 13543
+    assert Mod(Mod(x + 1, 2) + 1 , 2) == Mod(x,2)
+
+    assert Mod(Mod(x + 2, 4)*(x + 4), 4) == Mod(x*(x + 2), 4)
+    assert Mod(Mod(x + 2, 4)*4, 4) == 0
+
+    # issue 15493
+    i, j = symbols('i j', integer=True, positive=True)
+    assert Mod(3*i, 2) == Mod(i, 2)
+    assert Mod(8*i/j, 4) == 4*Mod(2*i/j, 1)
+    assert Mod(8*i, 4) == 0
+
+    # rewrite
+    assert Mod(x, y).rewrite(floor) == x - y*floor(x/y)
+    assert ((x - Mod(x, y))/y).rewrite(floor) == floor(x/y)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

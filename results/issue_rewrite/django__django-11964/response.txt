@@ -1,0 +1,234 @@
+```json
+{
+    "original_issue": {
+        "text": "The value of a TextChoices/IntegerChoices field has a differing type\nDescription\n\nIf we create an instance of a model having a CharField or IntegerField with the keyword choices pointing to IntegerChoices or TextChoices, the value returned by the getter of the field will be of the same type as the one created by enum.Enum (enum value).\nFor example, this model:\nfrom django.db import models\nfrom django.utils.translation import gettext_lazy as _\nclass MyChoice(models.TextChoices):\n\tFIRST_CHOICE = \"first\", _(\"The first choice, it is\")\n\tSECOND_CHOICE = \"second\", _(\"The second choice, it is\")\nclass MyObject(models.Model):\n\tmy_str_value = models.CharField(max_length=10, choices=MyChoice.choices)\nThen this test:\nfrom django.test import TestCase\nfrom testing.pkg.models import MyObject, MyChoice\nclass EnumTest(TestCase):\n\tdef setUp(self) -> None:\n\t\tself.my_object = MyObject.objects.create(my_str_value=MyChoice.FIRST_CHOICE)\n\tdef test_created_object_is_str(self):\n\t\tmy_object = self.my_object\n\t\tself.assertIsInstance(my_object.my_str_value, str)\n\t\tself.assertEqual(str(my_object.my_str_value), \"first\")\n\tdef test_retrieved_object_is_str(self):\n\t\tmy_object = MyObject.objects.last()\n\t\tself.assertIsInstance(my_object.my_str_value, str)\n\t\tself.assertEqual(str(my_object.my_str_value), \"first\")\nAnd then the results:\n(django30-venv) ➜ django30 ./manage.py test\nCreating test database for alias 'default'...\nSystem check identified no issues (0 silenced).\nF.\n======================================================================\nFAIL: test_created_object_is_str (testing.tests.EnumTest)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n File \"/Users/mikailkocak/Development/django30/testing/tests.py\", line 14, in test_created_object_is_str\n\tself.assertEqual(str(my_object.my_str_value), \"first\")\nAssertionError: 'MyChoice.FIRST_CHOICE' != 'first'\n- MyChoice.FIRST_CHOICE\n+ first\n----------------------------------------------------------------------\nRan 2 tests in 0.002s\nFAILED (failures=1)\nWe notice when invoking __str__(...) we don't actually get the value property of the enum value which can lead to some unexpected issues, especially when communicating to an external API with a freshly created instance that will send MyEnum.MyValue, and the one that was retrieved would send my_value.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用一个指向 TextChoices 或 IntegerChoices 枚举的 choices 参数定义模型字段（如 CharField 或 IntegerField）时，如果通过模型的 getter 访问该字段的值，对于新创建（未从数据库刷新）的模型实例，返回值的类型是枚举成员（enum member），而不是其底层的字符串或整数值。具体表现为，对新创建实例的字段值调用 str() 会得到类似 'MyChoice.FIRST_CHOICE' 的表示，而不是期望的底层值 'first'。而从数据库检索出的实例则表现正常。这可能导致数据序列化或 API 通信时的不一致。",
+        "facts_from_issue": [
+            "模型字段（CharField/IntegerField）的 choices 参数可以指向 TextChoices/IntegerChoices 枚举。",
+            "通过 MyObject.objects.create(my_str_value=MyChoice.FIRST_CHOICE) 创建实例。",
+            "对新创建实例的字段值 my_object.my_str_value 调用 str() 返回 'MyChoice.FIRST_CHOICE'。",
+            "期望对新创建实例的字段值调用 str() 应返回底层值 'first'。",
+            "从数据库检索的实例（MyObject.objects.last()）的字段值调用 str() 返回正确的 'first'。"
+        ],
+        "facts_from_retrieved_context": [
+            "django.db.models.enums 模块定义了 TextChoices 和 Choices 类。",
+            "TextChoices 继承自 str 和 Choices。",
+            "Choices 元类有一个 choices 类方法，返回 (member.value, member.label) 的列表。",
+            "相关测试 test_assignment_from_choice_enum 展示了将枚举成员赋值给模型字段并验证其值。",
+            "相关测试 test_textchoices 展示了枚举成员具有 value 和 label 属性。"
+        ],
+        "inferences": [
+            "问题可能出现在模型实例化或字段值设置过程中，枚举成员未被正确转换为其底层值。",
+            "数据库保存和读取过程可能触发了值的正确转换，掩盖了新创建实例的问题。",
+            "问题与模型的 __init__、字段的 to_python 方法或从数据库反序列化（from_db）的路径有关。"
+        ],
+        "do_not_assume": [
+            "具体的修复位置在哪个文件或函数。",
+            "IntegerChoices 是否表现出完全相同的症状。",
+            "所有类型的 choices 字段（如 DateField）是否都受影响。",
+            "问题的根本原因是 Django 内部缓存、序列化逻辑还是类型检查。"
+        ]
+    },
+    "issue_summary": "使用 TextChoices/IntegerChoices 作为模型字段的 choices 时，新创建实例的字段 getter 返回枚举成员对象而非其底层值，导致 str() 表示不一致。",
+    "trigger_condition": {
+        "text": "1. 定义一个继承自 models.TextChoices 或 models.IntegerChoices 的枚举类。2. 定义一个模型，其字段（如 CharField 或 IntegerField）的 choices 参数设置为该枚举类的 .choices 属性。3. 使用 Model.objects.create(field=Enum.MEMBER) 创建模型实例，其中传入的是枚举成员（如 MyChoice.FIRST_CHOICE），而不是原始值（如 'first'）。4. 对新创建的实例（尚未调用 refresh_from_db）访问该字段的值。",
+        "evidence": [
+            "Issue 中提供了完整的模型定义和创建实例的代码：MyObject.objects.create(my_str_value=MyChoice.FIRST_CHOICE)。",
+            "Issue 中测试失败发生在 test_created_object_is_str，该测试检查新创建实例的字段值。",
+            "相关测试 test_assignment_from_choice_enum 也使用了类似的模式：Post.objects.create(title=Event.C)。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "对新创建的模型实例，访问其 choices 字段（使用 TextChoices/IntegerChoices）的 getter 返回的值是一个枚举成员对象，而不是其底层的字符串或整数。对该值调用 str() 返回枚举成员的表示（如 'MyChoice.FIRST_CHOICE'），而不是底层值（如 'first'）。而从数据库检索的同一实例的相同字段值调用 str() 则返回正确的底层值。",
+        "symptom_type": "wrong_type",
+        "evidence": [
+            "Issue 中测试失败：AssertionError: 'MyChoice.FIRST_CHOICE' != 'first'。",
+            "Issue 描述：\"the value returned by the getter of the field will be of the same type as the one created by enum.Enum (enum value)\"。",
+            "Issue 描述：\"when invoking __str__(...) we don't actually get the value property of the enum value\"。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "无论模型实例是新创建的还是从数据库检索的，访问其 choices 字段（使用 TextChoices/IntegerChoices）的 getter 都应返回该字段的底层值（字符串或整数），并且对该值调用 str() 应返回该底层值的字符串表示。枚举成员应仅在赋值时使用，字段的存储和访问值应为其底层值。",
+        "evidence": [
+            "Issue 中期望的断言：self.assertEqual(str(my_object.my_str_value), \"first\") 和 self.assertIsInstance(my_object.my_str_value, str)。",
+            "相关测试 test_assignment_from_choice_enum 中的断言：self.assertEqual(p1.title, 'Carnival!') 和 self.assertEqual(p1.title, Event.C)，表明期望字段值既等于原始字符串，也等于枚举成员（可能通过值比较）。",
+            "相关测试 test_textchoices 显示枚举成员具有 .value 属性，该属性是底层值。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "models.TextChoices",
+            "kind": "class",
+            "source_path": "django/db/models/enums.py",
+            "reason": "Issue 中使用的枚举基类，用于创建字符串选择项。"
+        },
+        {
+            "name": "models.IntegerChoices",
+            "kind": "class",
+            "source_path": "django/db/models/enums.py",
+            "reason": "Issue 中提到 IntegerField 的 choices 也可以指向 IntegerChoices，问题可能类似。"
+        },
+        {
+            "name": "models.CharField",
+            "kind": "class",
+            "source_path": "django/db/models/__init__.py",
+            "reason": "Issue 中使用的字段类型，其 choices 参数指向 TextChoices。"
+        },
+        {
+            "name": "models.IntegerField",
+            "kind": "class",
+            "source_path": "django/db/models/__init__.py",
+            "reason": "Issue 中提到的另一种可能受影响的字段类型。"
+        },
+        {
+            "name": "Model.objects.create",
+            "kind": "method",
+            "source_path": "django/db/models/manager.py",
+            "reason": "触发 bug 的创建实例的 API 调用。"
+        },
+        {
+            "name": "QuerySet.last",
+            "kind": "method",
+            "source_path": "django/db/models/query.py",
+            "reason": "Issue 中用于从数据库检索实例的 API 调用。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/db/models/base.py",
+            "object": "Model.__init__ 或 Model.from_db",
+            "lines": "",
+            "reason": "模型实例的初始化和从数据库加载是字段值设置的关键路径，可能在这里枚举成员未被正确转换。"
+        },
+        {
+            "path": "django/db/models/fields/__init__.py",
+            "object": "CharField.to_python 或 IntegerField.to_python",
+            "lines": "",
+            "reason": "字段的 to_python 方法负责将输入值转换为 Python 对象，可能未正确处理枚举成员输入。"
+        },
+        {
+            "path": "django/db/models/enums.py",
+            "object": "ChoicesMeta 或 TextChoices/IntegerChoices 相关逻辑",
+            "lines": "",
+            "reason": "枚举类的定义和其成员的行为可能影响了字段值的处理。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_assignment_from_choice_enum",
+            "test_file": "tests/model_fields/test_charfield.py",
+            "why_relevant": "该测试直接涉及将 TextChoices 枚举成员赋值给模型字段（CharField），并验证字段值。它复用了 Issue 中核心的测试协议：定义枚举、创建模型、赋值枚举成员、断言字段值。",
+            "reusable_parts": [
+                "从 django.db 导入 models",
+                "定义继承自 models.TextChoices 的枚举类",
+                "使用 Model.objects.create(field=Enum.MEMBER) 创建实例",
+                "使用 refresh_from_db()",
+                "使用 assertEqual 比较字段值与字符串及枚举成员"
+            ],
+            "possible_gap": "该测试在创建实例后立即调用了 refresh_from_db()，这可能会掩盖新创建实例（未刷新）的问题。它没有检查新创建实例字段值的 str() 表示或类型。断言 self.assertEqual(p1.title, Event.C) 可能通过值比较（Event.C.value）成功，但未检测到 p1.title 本身是否是枚举对象。"
+        },
+        {
+            "test_name": "test_textchoices",
+            "test_file": "tests/model_enums/tests.py",
+            "why_relevant": "该测试验证了 TextChoices 枚举成员的基本属性，如 value 和 label。它展示了枚举成员的正确行为，可作为理解期望状态的参考。",
+            "reusable_parts": [
+                "枚举类的定义和属性访问（.value, .label）",
+                "使用 assertIsInstance 检查类型",
+                "使用 assertEqual 检查值"
+            ],
+            "possible_gap": "该测试不涉及模型字段或数据库操作，纯粹是枚举类的单元测试。需要将其与模型测试结合才能复现 Issue。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "object_state",
+            "current_pattern": "在 test_assignment_from_choice_enum 中，创建实例后立即调用 p1.refresh_from_db()，然后进行断言。",
+            "target_pattern": "创建实例后，不调用 refresh_from_db()，直接对新创建的实例（self.my_object）的字段值进行断言，检查其类型和 str() 表示。",
+            "reason": "Issue 显示问题仅出现在新创建（未刷新）的实例上。移除 refresh_from_db() 调用可以让测试暴露原始的错误路径。",
+            "confidence": "high"
+        },
+        {
+            "slot": "argument",
+            "current_pattern": "test_assignment_from_choice_enum 中创建实例时直接使用枚举成员：Post.objects.create(title=Event.C, body=Event.F)。",
+            "target_pattern": "保持使用枚举成员作为 create() 的参数，这与 Issue 触发条件一致。",
+            "reason": "使用枚举成员（而非原始值）作为输入是触发 bug 的关键。相似测试已经使用了此模式，无需改变。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "相似测试中断言字段值等于字符串和枚举成员：self.assertEqual(p1.title, 'Carnival!'); self.assertEqual(p1.title, Event.C)。",
+            "target_pattern": "增加对新创建实例字段值的类型检查和 str() 表示检查：assertIsInstance(my_object.my_str_value, str); assertEqual(str(my_object.my_str_value), \"first\")。",
+            "reason": "Issue 中的错误症状直接体现在类型和 str() 表示上。增加这些断言可以捕获 bug。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "type",
+            "expression_hint": "type(my_object.my_str_value)",
+            "reason": "Issue 核心是类型错误：期望是 str/int，实际是枚举成员。观察类型可以直接判断是否触发问题。"
+        },
+        {
+            "kind": "str",
+            "expression_hint": "str(my_object.my_str_value)",
+            "reason": "Issue 中测试失败的直接原因是 str() 表示错误（'MyChoice.FIRST_CHOICE' vs 'first'）。这是最直接的公开可观测症状。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "my_object.my_str_value",
+            "reason": "字段 getter 的返回值本身是需要检查的对象。可以观察其 repr 或与原始值的比较。"
+        },
+        {
+            "kind": "before_after_relation",
+            "expression_hint": "比较新创建实例的字段 str() 表示与从数据库检索的同一实例的字段 str() 表示",
+            "reason": "Issue 指出新创建实例和检索实例行为不一致。观察这种前后关系可以强化缺陷复现。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "对新创建的模型实例，其 choices 字段的值应为字符串（或整数）类型。",
+            "preferred_assertion_style": "isinstance",
+            "avoid": "断言私有属性 __class__ 或内部枚举标记。",
+            "reason": "类型检查是 Issue 描述的核心问题之一，isinstance 是稳定且公开的断言方式。"
+        },
+        {
+            "assertion_goal": "对新创建的模型实例，其 choices 字段值的字符串表示应等于该字段底层值的字符串形式（如 'first'）。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言完整的 repr 字符串（如 \"<MyChoice.FIRST_CHOICE: 'first'>\"）或枚举成员名称。",
+            "reason": "Issue 中测试失败的直接断言就是 str(field_value) == 'first'。这是一个稳定、公开的输出检查。"
+        },
+        {
+            "assertion_goal": "新创建实例的字段值与从数据库检索的同一实例的字段值应相等。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言对象身份（is）相同，因为可能涉及不同的 Python 对象。",
+            "reason": "这可以验证一致性，是 Issue 中隐含的期望（外部 API 通信时不应有差异）。使用值相等（==）是稳定的。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要使用 Django 的 TestCase 来支持数据库操作。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试需要设置和迁移数据库。可以使用 manage.py test 或 django.test.utils.setup_test_environment。",
+            "source": "issue",
+            "confidence": "high"
+        },
+        {
+            "hint": "模型和枚举类需要在测试模块内定义或从测试应用导入。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "IntegerChoices 是否表现出完全相同的 str() 表示问题，还是类型问题（返回枚举对象而非 int）。",
+        "问题是否也影响其他字段类型（如 DateField）与相应的 Choices 子类。",
+        "在模型保存（save()）但未提交事务的情况下，字段值的行为是什么。",
+        "问题的根本原因是在 Model.__init__、字段描述符的

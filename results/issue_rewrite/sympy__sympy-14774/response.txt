@@ -1,0 +1,132 @@
+```json
+{
+    "original_issue": {
+        "text": "Latex printer does not support full inverse trig function names for acsc and asec\nFor example\n`latex(asin(x), inv_trig_style=\"full\")` works as expected returning `'\\\\arcsin{\\\\left (x \\\\right )}'`\nBut `latex(acsc(x), inv_trig_style=\"full\")` gives `'\\\\operatorname{acsc}{\\\\left (x \\\\right )}'` instead of `'\\\\operatorname{arccsc}{\\\\left (x \\\\right )}'`\n\nA fix seems to be to change line 743 of sympy/printing/latex.py from\n`inv_trig_table = [\"asin\", \"acos\", \"atan\", \"acot\"]` to\n`inv_trig_table = [\"asin\", \"acos\", \"atan\", \"acsc\", \"asec\", \"acot\"]`",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用 SymPy 的 latex 函数打印反三角函数表达式，并设置参数 `inv_trig_style=\"full\"` 时，对于 `asin`、`acos`、`atan`、`acot` 函数，能正确输出对应的完整名称（如 `\\arcsin`）。但对于 `acsc` 和 `asec` 函数，输出仍为 `\\operatorname{acsc}` 和 `\\operatorname{asec}`，而不是预期的完整名称 `\\operatorname{arccsc}` 和 `\\operatorname{arcsec}`。问题可能源于 `sympy/printing/latex.py` 文件中 `inv_trig_table` 列表的定义不完整。",
+        "facts_from_issue": [
+            "`latex(asin(x), inv_trig_style=\"full\")` 返回 `'\\\\arcsin{\\\\left (x \\\\right )}'`，符合预期。",
+            "`latex(acsc(x), inv_trig_style=\"full\")` 返回 `'\\\\operatorname{acsc}{\\\\left (x \\\\right )}'`，不符合预期。预期应为 `'\\\\operatorname{arccsc}{\\\\left (x \\\\right )}'`。",
+            "Issue 指出问题可能位于 `sympy/printing/latex.py` 文件的第 743 行，`inv_trig_table` 列表缺少 `\"acsc\"` 和 `\"asec\"`。"
+        ],
+        "facts_from_retrieved_context": [
+            "相关测试 `test_latex_functions` 中包含了 `latex(asin(x)**2, inv_trig_style=\"full\")` 的断言，验证了 `asin` 在 `inv_trig_style=\"full\"` 下输出 `\\\\arcsin`。",
+            "相关测试 `test_InverseTrigQ` 表明 `acsc` 和 `asec` 是 SymPy 中定义的反三角函数。"
+        ],
+        "inferences": [
+            "`latex` 函数是 SymPy 的公开 API，用于生成 LaTeX 字符串。",
+            "`inv_trig_style` 参数控制反三角函数的输出样式，`\"full\"` 应输出完整名称（如 `arcsin`, `arccsc`）。",
+            "`acsc` 和 `asec` 是 SymPy 中有效的反三角函数符号。"
+        ],
+        "do_not_assume": [
+            "`inv_trig_table` 列表的确切行号（Issue 中提到的 743 行）在检索的源码片段中未验证。",
+            "除了 `acsc` 和 `asec` 之外，是否还有其他反三角函数存在相同问题。",
+            "`inv_trig_style=\"power\"` 等其他样式是否受影响。"
+        ]
+    },
+    "issue_summary": "SymPy 的 LaTeX 打印器在 `inv_trig_style=\"full\"` 模式下，未能为反余割 (`acsc`) 和反正割 (`asec`) 函数生成正确的完整名称 (`arccsc`, `arcsec`)。",
+    "trigger_condition": {
+        "text": "调用 `latex(acsc(x), inv_trig_style=\"full\")` 或 `latex(asec(x), inv_trig_style=\"full\")`。",
+        "evidence": [
+            "原始 Issue 中给出的示例：`latex(acsc(x), inv_trig_style=\"full\")`。",
+            "相关测试 `test_latex_functions` 中展示了 `latex(asin(x)**2, inv_trig_style=\"full\")` 的调用模式。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "`latex(acsc(x), inv_trig_style=\"full\")` 返回的 LaTeX 字符串包含 `\\operatorname{acsc}`，而不是预期的 `\\operatorname{arccsc}`。对于 `asec` 同理。",
+        "symptom_type": "wrong_return",
+        "evidence": [
+            "原始 Issue 中明确给出了错误的输出 `'\\\\operatorname{acsc}{\\\\left (x \\\\right )}'` 和期望的输出 `'\\\\operatorname{arccsc}{\\\\left (x \\\\right )}'`。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当使用 `inv_trig_style=\"full\"` 参数时，`latex(acsc(x))` 应返回包含 `\\operatorname{arccsc}` 的 LaTeX 字符串，`latex(asec(x))` 应返回包含 `\\operatorname{arcsec}` 的 LaTeX 字符串。",
+        "evidence": [
+            "原始 Issue 中明确给出了对 `acsc` 的期望输出：`'\\\\operatorname{arccsc}{\\\\left (x \\\\right )}'`。",
+            "通过类比 `asin` 在 `inv_trig_style=\"full\"` 下输出 `\\\\arcsin` 的行为。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "latex",
+            "kind": "function",
+            "source_path": "sympy/printing/latex.py",
+            "reason": "这是 Issue 中直接调用的函数，用于生成 LaTeX 输出。"
+        },
+        {
+            "name": "acsc",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Issue 中涉及的有缺陷的函数符号。"
+        },
+        {
+            "name": "asec",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Issue 中涉及的有缺陷的函数符号。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "sympy/printing/latex.py",
+            "object": "inv_trig_table 列表定义",
+            "lines": "",
+            "reason": "Issue 明确指出问题可能源于 `inv_trig_table` 列表缺少 `\"acsc\"` 和 `\"asec\"` 条目。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_latex_functions",
+            "test_file": "sympy/printing/tests/test_latex.py",
+            "why_relevant": "该测试包含了大量 `latex` 函数对各种数学函数的测试，特别是包含了 `latex(asin(x)**2, inv_trig_style=\"full\")` 的断言，直接测试了 `inv_trig_style=\"full\"` 参数下反三角函数的输出。",
+            "reusable_parts": [
+                "导入模式（如 `from sympy import ...`, `from sympy.abc import ...`）。",
+                "`latex` 函数的调用方式及 `inv_trig_style` 参数的使用。",
+                "使用 `assert latex(...) == ...` 的断言风格来验证 LaTeX 字符串输出。"
+            ],
+            "possible_gap": "该测试只验证了 `asin` 在 `inv_trig_style=\"full\"` 下的正确行为，没有测试 `acsc` 和 `asec`。需要将测试对象从 `asin` 变异为 `acsc` 或 `asec`。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "latex(asin(x)**2, inv_trig_style=\"full\")",
+            "target_pattern": "latex(acsc(x), inv_trig_style=\"full\") 或 latex(asec(x), inv_trig_style=\"full\")",
+            "reason": "相似测试已验证了 `asin` 的正确路径。将输入函数从 `asin` 改为 `acsc` 或 `asec` 应能触发缺陷路径，因为 `inv_trig_table` 可能缺少这些条目。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "return_value",
+            "expression_hint": "latex(acsc(x), inv_trig_style=\"full\") 返回的字符串。",
+            "reason": "错误症状直接体现在返回的 LaTeX 字符串内容上。观察返回的字符串是否包含 `\\operatorname{acsc}` 或 `\\operatorname{arccsc}` 是关键。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "`latex(acsc(x), inv_trig_style=\"full\")` 返回的字符串应包含子串 `arccsc`。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的 LaTeX 字符串完全相等，因为括号格式、空格等细节可能变化。避免断言私有属性或内部数据结构。",
+            "reason": "Issue 的核心是函数名称的转换（`acsc` -> `arccsc`）。检查输出字符串是否包含正确的函数名称片段是稳定且与问题对齐的断言方式。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要导入 `sympy` 中的 `latex` 函数、`acsc`、`asec` 等符号，以及可能用到的变量（如 `x`）。可以参考 `test_latex_functions` 测试的导入部分。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "`sympy/printing/latex.py` 中 `inv_trig_table` 的确切定义和行号需要进一步确认。",
+        "除了 `acsc` 和 `asec`，是否还有其他反三角函数（如 `acot` 已支持）或双曲反三角函数存在类似问题。",
+        "`inv_trig_style` 参数的其他可能值（如 `\"power\"`）对 `acsc` 和 `asec` 的输出是否有影响。"
+    ]
+}
+```

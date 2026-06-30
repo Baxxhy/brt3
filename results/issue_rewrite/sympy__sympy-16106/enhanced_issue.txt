@@ -1,0 +1,125 @@
+instance_id: sympy__sympy-16106
+
+issue_summary: 使用 MathML 打印机处理 `Indexed` 对象时，由于 `_print_Basic` 方法尝试迭代不可迭代的对象而引发 TypeError。
+
+trigger_condition:
+{
+  "text": "调用 `sympy.printing.mathml()` 函数或 `MathMLPrinter().doprint()` 方法，参数为 `Indexed` 对象（例如 `IndexedBase('a')[b]`）。",
+  "evidence": [
+    "Issue 中提供了触发代码：`sympy.printing.mathml(sympy.IndexedBase(a)[b])`。",
+    "Issue 提到更复杂的表达式如果包含至少一个 `Indexed` 元素也会失败。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "抛出 `TypeError: 'Indexed' object is not iterable` 异常。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中的异常堆栈和错误信息。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，`sympy.printing.mathml()` 函数应能成功处理 `Indexed` 对象，并返回一个表示该对象的 MathML 字符串，而不抛出异常。",
+  "evidence": [
+    "Issue 标题和上下文暗示需要一个 MathML 打印机来处理 `IndexedBase`/`Indexed`。",
+    "`mathml` 函数的文档字符串（源码片段4）表明其目的是返回表达式的 MathML 表示。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "sympy.printing.mathml",
+    "kind": "function",
+    "source_path": "sympy/printing/mathml.py",
+    "reason": "Issue 中直接调用的函数，用于生成 MathML。"
+  },
+  {
+    "name": "MathMLPrinter.doprint",
+    "kind": "method",
+    "source_path": "sympy/printing/mathml.py",
+    "reason": "`mathml` 函数内部调用的方法，负责打印逻辑。"
+  },
+  {
+    "name": "IndexedBase",
+    "kind": "class",
+    "source_path": "sympy/tensor/indexed.py",
+    "reason": "用于创建触发错误的 `Indexed` 对象的基类。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "相似测试 `test_mathml_printer` 中使用普通表达式如 `1+x` 作为 `mathml` 或 `doprint` 的输入。",
+    "target_pattern": "将输入改为 `IndexedBase('a')[b]` 或更复杂的包含 `Indexed` 元素的表达式。",
+    "reason": "当前测试使用可迭代的表达式，不会触发错误。使用 `Indexed` 对象作为输入将执行到有缺陷的 `_print_Basic` 路径。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试 `test_jscode_Indexed` 中调用 `p._print_Indexed(x)`，其中 `p` 是 `JavascriptCodePrinter`。",
+    "target_pattern": "调用 `mathml(expr)` 或 `MathMLPrinter().doprint(expr)`，其中 `expr` 是 `Indexed` 对象。",
+    "reason": "MathML 打印机可能缺少对应的 `_print_Indexed` 方法，导致回退到有缺陷的 `_print_Basic`。改变调用链以触发 MathML 打印路径。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 `mathml(indexed_expr)` 时是否抛出 `TypeError`，并检查异常消息是否包含 `'Indexed' object is not iterable`。",
+    "reason": "Issue 的核心错误现象是特定的 TypeError。观测异常类型和消息可以直接验证缺陷是否被触发。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "调用 `mathml(indexed_expr)` 成功时的返回值类型应为 `str`，并且可能包含 MathML 标签片段（如 `<mi>`、`<mo>`）。",
+    "reason": "修复后，函数应返回一个字符串而不是抛出异常。观察返回的字符串可以验证功能是否正常。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`mathml(IndexedBase('a')[b])` 的调用应成功完成并返回一个字符串，而不抛出 `TypeError`。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的 MathML 输出字符串，因为 Issue 未指定确切格式。避免断言私有属性。",
+    "reason": "修复的核心是消除异常。断言不抛出特定异常是稳定且与 Issue 对齐的。成功后，可以进一步断言返回类型为字符串。"
+  },
+  {
+    "assertion_goal": "返回的字符串应是一个格式良好的 XML/MathML 片段（例如，可以解析或包含标签）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、具体的 MathML 标记序列。",
+    "reason": "这表明打印机不仅没有崩溃，而且产生了一些合理的输出。检查是否存在如 `<` 或特定标签的片段是稳定的。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要从 `sympy.abc` 或 `sympy` 导入符号（如 `a, b`），从 `sympy.tensor` 导入 `IndexedBase`，并从 `sympy.printing.mathml` 导入 `mathml` 或 `MathMLPrinter`。",
+    "source": "issue|retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要在 `sympy/printing/tests/test_mathml.py` 类似的测试文件中运行，或者使用 pytest。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "`_print_Basic` 方法在缺陷版本中的确切实现是 `for arg in e:` 还是 `for arg in e.args:`。",
+  "`Indexed` 类是否具有 `args` 属性以及该属性是否可迭代。",
+  "修复后的正确 MathML 输出应该是什么样子（例如，标签结构）。",
+  "是否已经存在一个未使用的 `_print_Indexed` 方法，或者是否需要添加一个。"
+]

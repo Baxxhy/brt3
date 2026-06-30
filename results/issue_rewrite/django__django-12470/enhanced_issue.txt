@@ -1,0 +1,129 @@
+instance_id: django__django-12470
+
+issue_summary: 继承模型的默认排序规则（Meta.ordering）在查询时方向（DESC/ASC）发生错误反转。
+
+trigger_condition:
+{
+  "text": "定义一个父模型，其 Meta.ordering 设置为包含负号的字段（如 [\"-pk\"]）。定义一个子模型继承该父模型。对子模型调用 objects.all() 方法生成查询集。",
+  "evidence": [
+    "原始 Issue 中给出了模型定义和查询调用。",
+    "相关测试 ModelInheritanceTests.test_meta_fields_and_ordering 展示了检查 _meta.ordering 的模式。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的 SQL 查询语句中 ORDER BY 子句的方向与模型 Meta.ordering 中指定的方向相反（例如，指定 DESC 却生成 ASC）。",
+  "symptom_type": "wrong_sql",
+  "evidence": [
+    "原始 Issue 中打印的 SQL 显示 ORDER BY ... ASC，而模型定义是 ordering = [\"-pk\"]。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "继承自定义了 Meta.ordering 的父模型的子模型，在查询时生成的 SQL 语句中的 ORDER BY 子句方向应与父模型 Meta.ordering 中指定的方向一致（例如，若父模型指定 [\"-pk\"]，则应为 DESC）。",
+  "evidence": [
+    "原始 Issue 中明确说明 \"I expect the order to be DESC.\""
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "models.Model",
+    "kind": "class",
+    "source_path": "django/db/models/base.py",
+    "reason": "Issue 中定义的 Parent 和 Child 模型都继承自此类。"
+  },
+  {
+    "name": "QuerySet.all",
+    "kind": "method",
+    "source_path": "django/db/models/query.py",
+    "reason": "Issue 中通过 Child.objects.all() 触发查询。"
+  },
+  {
+    "name": "QuerySet.query",
+    "kind": "property",
+    "source_path": "django/db/models/query.py",
+    "reason": "Issue 中通过打印 .query 属性来观察生成的 SQL。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试中，模型的 Meta.ordering 可能设置为正向字段（如 ['rating']）或不涉及负号。",
+    "target_pattern": "将父模型的 Meta.ordering 设置为包含负号的字段，如 ['-pk'] 或 ['-some_field']。",
+    "reason": "Issue 的核心触发条件是 ordering 列表中包含负号前缀（表示 DESC）。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试可能直接检查 _meta.ordering 属性，或使用显式的 .order_by() 调用。",
+    "target_pattern": "对子模型调用 .objects.all()（不添加显式 .order_by()），然后检查其生成的 SQL。",
+    "reason": "Issue 中是通过默认查询（无显式排序）来触发错误的默认排序行为。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "sql",
+    "expression_hint": "str(Child.objects.all().query) 或 Child.objects.all().query.get_compiler('default').as_sql()[0]",
+    "reason": "错误直接体现在生成的 SQL 语句的 ORDER BY 子句中，观察 SQL 是判断问题是否触发的直接方式。"
+  },
+  {
+    "kind": "order",
+    "expression_hint": "list(Child.objects.all()) 的实际顺序（如果数据库中有数据）",
+    "reason": "SQL 方向错误最终会导致查询结果的顺序与预期相反，可以通过实际查询结果验证。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "Child._meta.ordering",
+    "reason": "首先确认子模型是否正确继承了父模型的排序规则定义。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的 SQL 语句的 ORDER BY 部分应包含 DESC 关键字（当模型 ordering 为 ['-pk'] 时）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的 SQL 字符串相等，因为表名、别名等可能因数据库后端或设置而变化。",
+    "reason": "Issue 的核心是排序方向，DESC/ASC 是稳定且与数据库无关的 SQL 关键字片段。"
+  },
+  {
+    "assertion_goal": "子模型实例的查询结果顺序应与模型定义的排序方向一致（例如，按主键降序排列）。",
+    "preferred_assertion_style": "order_equals",
+    "avoid": "仅断言结果列表长度或内容集合相等，而不检查顺序。",
+    "reason": "这是排序功能的最终用户可见行为，是稳定的功能验证。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要使用 Django 的 TestCase，并确保测试数据库已设置。可能需要创建简单的父类和子类模型用于测试。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要在数据库中创建几个 Child 模型（及其隐含的 Parent 模型）的实例，以便观察排序结果。",
+    "source": "inference",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "该缺陷是否只影响单表继承，还是也影响多表继承？",
+  "除了 pk，其他字段（如 '-name'）是否也有同样问题？",
+  "缺陷的确切代码位置在 options.py 还是 query.py 的哪个具体函数中？",
+  "是否所有数据库后端（SQLite, PostgreSQL, MySQL）都表现一致？"
+]

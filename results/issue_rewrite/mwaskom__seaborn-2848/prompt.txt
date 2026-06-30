@@ -1,0 +1,614 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+pairplot fails with hue_order not containing all hue values in seaborn 0.11.1
+In seaborn < 0.11, one could plot only a subset of the values in the hue column, by passing a hue_order list containing only the desired values. Points with hue values not in the list were simply not plotted.
+```python
+iris = sns.load_dataset("iris")`
+# The hue column contains three different species; here we want to plot two
+sns.pairplot(iris, hue="species", hue_order=["setosa", "versicolor"])
+```
+
+This no longer works in 0.11.1. Passing a hue_order list that does not contain some of the values in the hue column raises a long, ugly error traceback. The first exception arises in seaborn/_core.py:
+```
+TypeError: ufunc 'isnan' not supported for the input types, and the inputs could not be safely coerced to any supported types according to the casting rule ''safe''
+```
+seaborn version: 0.11.1
+matplotlib version: 3.3.2
+matplotlib backends: MacOSX, Agg or jupyter notebook inline.
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：seaborn/axisgrid.py
+对象名称：PairGrid
+节点类型：class
+父节点：axisgrid
+行号范围：1124-1635
+代码：
+class PairGrid(Grid):
+    """Subplot grid for plotting pairwise relationships in a dataset.
+
+    This object maps each variable in a dataset onto a column and row in a
+    grid of multiple axes. Different axes-level plotting functions can be
+    used to draw bivariate plots in the upper and lower triangles, and the
+    the marginal distribution of each variable can be shown on the diagonal.
+
+    Several different common plots can be generated in a single line using
+    :func:`pairplot`. Use :class:`PairGrid` when you need more flexibility.
+
+    See the :ref:`tutorial <grid_tutorial>` for more information.
+
+    """
+    def __init__(
+        self, data, *, hue=None, vars=None, x_vars=None, y_vars=None,
+        hue_order=None, palette=None, hue_kws=None, corner=False, diag_sharey=True,
+        height=2.5, aspect=1, layout_pad=.5, despine=True, dropna=False, size=None
+    ):
+    def map(self, func, **kwargs):
+    def map_lower(self, func, **kwargs):
+    def map_upper(self, func, **kwargs):
+    def map_offdiag(self, func, **kwargs):
+    def map_diag(self, func, **kwargs):
+    def _map_diag_iter_hue(self, func, **kwargs):
+    def _map_bivariate(self, func, indices, **kwargs):
+    def _plot_bivariate(self, x_var, y_var, ax, func, **kwargs):
+    def _plot_bivariate_iter_hue(self, x_var, y_var, ax, func, **kwargs):
+    def _add_axis_labels(self):
+    def _find_numeric_cols(self, data):
+
+
+【源码片段 2】
+文件路径：seaborn/axisgrid.py
+对象名称：map
+节点类型：class_function
+父节点：PairGrid
+行号范围：1320-1335
+代码：
+    def map(self, func, **kwargs):
+        """Plot with the same function in every subplot.
+
+        Parameters
+        ----------
+        func : callable plotting function
+            Must take x, y arrays as positional arguments and draw onto the
+            "currently active" matplotlib Axes. Also needs to accept kwargs
+            called ``color`` and  ``label``.
+
+        """
+        row_indices, col_indices = np.indices(self.axes.shape)
+        indices = zip(row_indices.flat, col_indices.flat)
+        self._map_bivariate(func, indices, **kwargs)
+
+        return self
+
+
+【源码片段 3】
+文件路径：seaborn/regression.py
+对象名称：scatterplot
+节点类型：class_function
+父节点：_RegressionPlotter
+行号范围：376-406
+代码：
+    def scatterplot(self, ax, kws):
+        """Draw the data."""
+        # Treat the line-based markers specially, explicitly setting larger
+        # linewidth than is provided by the seaborn style defaults.
+        # This would ideally be handled better in matplotlib (i.e., distinguish
+        # between edgewidth for solid glyphs and linewidth for line glyphs
+        # but this should do for now.
+        line_markers = ["1", "2", "3", "4", "+", "x", "|", "_"]
+        if self.x_estimator is None:
+            if "marker" in kws and kws["marker"] in line_markers:
+                lw = mpl.rcParams["lines.linewidth"]
+            else:
+                lw = mpl.rcParams["lines.markeredgewidth"]
+            kws.setdefault("linewidths", lw)
+
+            if not hasattr(kws['color'], 'shape') or kws['color'].shape[1] < 4:
+                kws.setdefault("alpha", .8)
+
+            x, y = self.scatter_data
+            ax.scatter(x, y, **kws)
+        else:
+            # TODO abstraction
+            ci_kws = {"color": kws["color"]}
+            ci_kws["linewidth"] = mpl.rcParams["lines.linewidth"] * 1.75
+            kws.setdefault("s", 50)
+
+            xs, ys, cis = self.estimate_data
+            if [ci for ci in cis if ci is not None]:
+                for x, ci in zip(xs, cis):
+                    ax.plot([x, x], ci, **ci_kws)
+            ax.scatter(xs, ys, **kws)
+
+
+【源码片段 4】
+文件路径：seaborn/regression.py
+对象名称：regplot
+节点类型：top-level function
+父节点：regression
+行号范围：832-856
+代码：
+def regplot(
+    data=None, *, x=None, y=None,
+    x_estimator=None, x_bins=None, x_ci="ci",
+    scatter=True, fit_reg=True, ci=95, n_boot=1000, units=None,
+    seed=None, order=1, logistic=False, lowess=False, robust=False,
+    logx=False, x_partial=None, y_partial=None,
+    truncate=True, dropna=True, x_jitter=None, y_jitter=None,
+    label=None, color=None, marker="o",
+    scatter_kws=None, line_kws=None, ax=None
+):
+
+    plotter = _RegressionPlotter(x, y, data, x_estimator, x_bins, x_ci,
+                                 scatter, fit_reg, ci, n_boot, units, seed,
+                                 order, logistic, lowess, robust, logx,
+                                 x_partial, y_partial, truncate, dropna,
+                                 x_jitter, y_jitter, color, label)
+
+    if ax is None:
+        ax = plt.gca()
+
+    scatter_kws = {} if scatter_kws is None else copy.copy(scatter_kws)
+    scatter_kws["marker"] = marker
+    line_kws = {} if line_kws is None else copy.copy(line_kws)
+    plotter.plot(ax, scatter_kws, line_kws)
+    return ax
+
+
+【源码片段 5】
+文件路径：seaborn/utils.py
+对象名称：load_dataset
+节点类型：top-level function
+父节点：utils
+行号范围：532-631
+代码：
+def load_dataset(name, cache=True, data_home=None, **kws):
+    """Load an example dataset from the online repository (requires internet).
+
+    This function provides quick access to a small number of example datasets
+    that are useful for documenting seaborn or generating reproducible examples
+    for bug reports. It is not necessary for normal usage.
+
+    Note that some of the datasets have a small amount of preprocessing applied
+    to define a proper ordering for categorical variables.
+
+    Use :func:`get_dataset_names` to see a list of available datasets.
+
+    Parameters
+    ----------
+    name : str
+        Name of the dataset (``{name}.csv`` on
+        https://github.com/mwaskom/seaborn-data).
+    cache : boolean, optional
+        If True, try to load from the local cache first, and save to the cache
+        if a download is required.
+    data_home : string, optional
+        The directory in which to cache data; see :func:`get_data_home`.
+    kws : keys and values, optional
+        Additional keyword arguments are passed to passed through to
+        :func:`pandas.read_csv`.
+
+    Returns
+    -------
+    df : :class:`pandas.DataFrame`
+        Tabular data, possibly with some preprocessing applied.
+
+    """
+    # A common beginner mistake is to assume that one's personal data needs
+    # to be passed through this function to be usable with seaborn.
+    # Let's provide a more helpful error than you would otherwise get.
+    if isinstance(name, pd.DataFrame):
+        err = (
+            "This function accepts only strings (the name of an example dataset). "
+            "You passed a pandas DataFrame. If you have your own dataset, "
+            "it is not necessary to use this function before plotting."
+        )
+        raise TypeError(err)
+
+    url = f"https://raw.githubusercontent.com/mwaskom/seaborn-data/master/{name}.csv"
+
+    if cache:
+        cache_path = os.path.join(get_data_home(data_home), os.path.basename(url))
+        if not os.path.exists(cache_path):
+            if name not in get_dataset_names():
+                raise ValueError(f"'{name}' is not one of the example datasets.")
+            urlretrieve(url, cache_path)
+        full_path = cache_path
+    else:
+        full_path = url
+
+    df = pd.read_csv(full_path, **kws)
+
+    if df.iloc[-1].isnull().all():
+        df = df.iloc[:-1]
+
+    # Set some columns as a categorical type with ordered levels
+
+    if name == "tips":
+        df["day"] = pd.Categorical(df["day"], ["Thur", "Fri", "Sat", "Sun"])
+        df["sex"] = pd.Categorical(df["sex"], ["Male", "Female"])
+        df["time"] = pd.Categorical(df["time"], ["Lunch", "Dinner"])
+        df["smoker"] = pd.Categorical(df["smoker"], ["Yes", "No"])
+
+    if name == "flights":
+        months = df["month"].str[:3]
+        df["month"] = pd.Categorical(months, months.unique())
+
+    if name == "exercise":
+        df["time"] = pd.Categorical(df["time"], ["1 min", "15 min", "30 min"])
+        df["kind"] = pd.Categorical(df["kind"], ["rest", "walking", "running"])
+        df["diet"] = pd.Categorical(df["diet"], ["no fat", "low fat"])
+
+    if name == "titanic":
+        df["class"] = pd.Categorical(df["class"], ["First", "Second", "Third"])
+        df["deck"] = pd.Categorical(df["deck"], list("ABCDEFG"))
+
+    if name == "penguins":
+        df["sex"] = df["sex"].str.title()
+
+    if name == "diamonds":
+        df["color"] = pd.Categorical(
+            df["color"], ["D", "E", "F", "G", "H", "I", "J"],
+        )
+        df["clarity"] = pd.Categorical(
+            df["clarity"], ["IF", "VVS1", "VVS2", "VS1", "VS2", "SI1", "SI2", "I1"],
+        )
+        df["cut"] = pd.Categorical(
+            df["cut"], ["Ideal", "Premium", "Very Good", "Good", "Fair"],
+        )
+
+    elif name == "taxis":
+        df["pickup"] = pd.to_datetime(df["pickup"])
+        df["dropoff"] = pd.to_datetime(df["dropoff"])
+
+    return df
+
+
+【源码片段 6】
+文件路径：examples/jitter_stripplot.py
+对象名称：iris
+节点类型：global_var
+父节点：jitter_stripplot
+行号范围：11-11
+代码：
+iris = sns.load_dataset("iris")
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：tests/test_axisgrid.py
+测试名称：test_hue_order_missing_level
+测试代码：
+class TestPairGrid:
+    def test_hue_order_missing_level(self):
+
+        order = list("dcaeb")
+        g = ag.PairGrid(self.df, hue="a", hue_order=order)
+        g.map(plt.plot)
+
+        for line, level in zip(g.axes[1, 0].lines, order):
+            x, y = line.get_xydata().T
+            npt.assert_array_equal(x, self.df.loc[self.df.a == level, "x"])
+            npt.assert_array_equal(y, self.df.loc[self.df.a == level, "y"])
+
+        plt.close("all")
+
+        g = ag.PairGrid(self.df, hue="a", hue_order=order)
+        g.map_diag(plt.plot)
+
+        for line, level in zip(g.axes[0, 0].lines, order):
+            x, y = line.get_xydata().T
+            npt.assert_array_equal(x, self.df.loc[self.df.a == level, "x"])
+            npt.assert_array_equal(y, self.df.loc[self.df.a == level, "x"])
+
+        plt.close("all")
+
+        g = ag.PairGrid(self.df, hue="a", hue_order=order)
+        g.map_lower(plt.plot)
+
+        for line, level in zip(g.axes[1, 0].lines, order):
+            x, y = line.get_xydata().T
+            npt.assert_array_equal(x, self.df.loc[self.df.a == level, "x"])
+            npt.assert_array_equal(y, self.df.loc[self.df.a == level, "y"])
+
+        plt.close("all")
+
+        g = ag.PairGrid(self.df, hue="a", hue_order=order)
+        g.map_upper(plt.plot)
+
+        for line, level in zip(g.axes[0, 1].lines, order):
+            x, y = line.get_xydata().T
+            npt.assert_array_equal(x, self.df.loc[self.df.a == level, "y"])
+            npt.assert_array_equal(y, self.df.loc[self.df.a == level, "x"])
+
+        plt.close("all")
+
+【相关测试 2】
+测试文件：tests/test_axisgrid.py
+测试名称：test_pairplot_markers
+测试代码：
+class TestPairGrid:
+    def test_pairplot_markers(self):
+
+        vars = ["x", "y", "z"]
+        markers = ["o", "X", "s"]
+        g = ag.pairplot(self.df, hue="a", vars=vars, markers=markers)
+        m1 = g._legend.legendHandles[0].get_paths()[0]
+        m2 = g._legend.legendHandles[1].get_paths()[0]
+        assert m1 != m2
+
+        with pytest.raises(ValueError):
+            g = ag.pairplot(self.df, hue="a", vars=vars, markers=markers[:-2])
+
+【相关测试 3】
+测试文件：tests/test_axisgrid.py
+测试名称：test_hue_order
+测试代码：
+class TestPairGrid:
+    def test_hue_order(self):
+
+        order = list("dcab")
+        g = ag.PairGrid(self.df, hue="a", hue_order=order)
+        g.map(plt.plot)
+
+        for line, level in zip(g.axes[1, 0].lines, order):
+            x, y = line.get_xydata().T
+            npt.assert_array_equal(x, self.df.loc[self.df.a == level, "x"])
+            npt.assert_array_equal(y, self.df.loc[self.df.a == level, "y"])
+
+        plt.close("all")
+
+        g = ag.PairGrid(self.df, hue="a", hue_order=order)
+        g.map_diag(plt.plot)
+
+        for line, level in zip(g.axes[0, 0].lines, order):
+            x, y = line.get_xydata().T
+            npt.assert_array_equal(x, self.df.loc[self.df.a == level, "x"])
+            npt.assert_array_equal(y, self.df.loc[self.df.a == level, "x"])
+
+        plt.close("all")
+
+        g = ag.PairGrid(self.df, hue="a", hue_order=order)
+        g.map_lower(plt.plot)
+
+        for line, level in zip(g.axes[1, 0].lines, order):
+            x, y = line.get_xydata().T
+            npt.assert_array_equal(x, self.df.loc[self.df.a == level, "x"])
+            npt.assert_array_equal(y, self.df.loc[self.df.a == level, "y"])
+
+        plt.close("all")
+
+        g = ag.PairGrid(self.df, hue="a", hue_order=order)
+        g.map_upper(plt.plot)
+
+        for line, level in zip(g.axes[0, 1].lines, order):
+            x, y = line.get_xydata().T
+            npt.assert_array_equal(x, self.df.loc[self.df.a == level, "y"])
+            npt.assert_array_equal(y, self.df.loc[self.df.a == level, "x"])
+
+        plt.close("all")
+
+【相关测试 4】
+测试文件：tests/test_axisgrid.py
+测试名称：test_pairplot_reg_hue
+测试代码：
+class TestPairGrid:
+    def test_pairplot_reg_hue(self):
+
+        markers = ["o", "s", "d"]
+        g = ag.pairplot(self.df, kind="reg", hue="a", markers=markers)
+
+        ax = g.axes[-1, 0]
+        c1 = ax.collections[0]
+        c2 = ax.collections[2]
+
+        assert not np.array_equal(c1.get_facecolor(), c2.get_facecolor())
+        assert not np.array_equal(
+            c1.get_paths()[0].vertices, c2.get_paths()[0].vertices,
+        )
+
+【相关测试 5】
+测试文件：tests/test_categorical.py
+测试名称：test_hue_order
+测试代码：
+class TestCategoricalPlotter(CategoricalFixture):
+    def test_hue_order(self):
+
+        p = cat._CategoricalPlotter()
+
+        # Test inferred hue order
+        p.establish_variables("g", "y", hue="h", data=self.df)
+        assert p.hue_names == ["m", "n"]
+
+        # Test specified hue order
+        p.establish_variables("g", "y", hue="h", data=self.df,
+                              hue_order=["n", "m"])
+        assert p.hue_names == ["n", "m"]
+
+        # Test inferred hue order from a categorical hue input
+        df = self.df.copy()
+        df.h = df.h.astype("category")
+        df.h = df.h.cat.reorder_categories(["n", "m"])
+        p.establish_variables("g", "y", hue="h", data=df)
+        assert p.hue_names == ["n", "m"]
+
+        df.h = (df.h.cat.add_categories("o")
+                    .cat.reorder_categories(["o", "m", "n"]))
+        p.establish_variables("g", "y", hue="h", data=df)
+        assert p.hue_names == ["o", "m", "n"]
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

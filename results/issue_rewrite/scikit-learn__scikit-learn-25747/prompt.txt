@@ -1,0 +1,828 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+FeatureUnion not working when aggregating data and pandas transform output selected
+### Describe the bug
+
+I would like to use `pandas` transform output and use a custom transformer in a feature union which aggregates data. When I'm using this combination I got an error. When I use default `numpy` output it works fine.
+
+### Steps/Code to Reproduce
+
+```python
+import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn import set_config
+from sklearn.pipeline import make_union
+
+index = pd.date_range(start="2020-01-01", end="2020-01-05", inclusive="left", freq="H")
+data = pd.DataFrame(index=index, data=[10] * len(index), columns=["value"])
+data["date"] = index.date
+
+
+class MyTransformer(BaseEstimator, TransformerMixin):
+    def fit(self, X: pd.DataFrame, y: pd.Series | None = None, **kwargs):
+        return self
+
+    def transform(self, X: pd.DataFrame, y: pd.Series | None = None) -> pd.DataFrame:
+        return X["value"].groupby(X["date"]).sum()
+
+
+# This works.
+set_config(transform_output="default")
+print(make_union(MyTransformer()).fit_transform(data))
+
+# This does not work.
+set_config(transform_output="pandas")
+print(make_union(MyTransformer()).fit_transform(data))
+```
+
+### Expected Results
+
+No error is thrown when using `pandas` transform output.
+
+### Actual Results
+
+```python
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+Cell In[5], line 25
+     23 # This does not work.
+     24 set_config(transform_output="pandas")
+---> 25 print(make_union(MyTransformer()).fit_transform(data))
+
+File ~/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/sklearn/utils/_set_output.py:150, in _wrap_method_output.<locals>.wrapped(self, X, *args, **kwargs)
+    143 if isinstance(data_to_wrap, tuple):
+    144     # only wrap the first output for cross decomposition
+    145     return (
+    146         _wrap_data_with_container(method, data_to_wrap[0], X, self),
+    147         *data_to_wrap[1:],
+    148     )
+--> 150 return _wrap_data_with_container(method, data_to_wrap, X, self)
+
+File ~/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/sklearn/utils/_set_output.py:130, in _wrap_data_with_container(method, data_to_wrap, original_input, estimator)
+    127     return data_to_wrap
+    129 # dense_config == "pandas"
+--> 130 return _wrap_in_pandas_container(
+    131     data_to_wrap=data_to_wrap,
+    132     index=getattr(original_input, "index", None),
+    133     columns=estimator.get_feature_names_out,
+    134 )
+
+File ~/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/sklearn/utils/_set_output.py:59, in _wrap_in_pandas_container(data_to_wrap, columns, index)
+     57         data_to_wrap.columns = columns
+     58     if index is not None:
+---> 59         data_to_wrap.index = index
+     60     return data_to_wrap
+     62 return pd.DataFrame(data_to_wrap, index=index, columns=columns)
+
+File ~/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/pandas/core/generic.py:5588, in NDFrame.__setattr__(self, name, value)
+   5586 try:
+   5587     object.__getattribute__(self, name)
+-> 5588     return object.__setattr__(self, name, value)
+   5589 except AttributeError:
+   5590     pass
+
+File ~/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/pandas/_libs/properties.pyx:70, in pandas._libs.properties.AxisProperty.__set__()
+
+File ~/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/pandas/core/generic.py:769, in NDFrame._set_axis(self, axis, labels)
+    767 def _set_axis(self, axis: int, labels: Index) -> None:
+    768     labels = ensure_index(labels)
+--> 769     self._mgr.set_axis(axis, labels)
+    770     self._clear_item_cache()
+
+File ~/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/pandas/core/internals/managers.py:214, in BaseBlockManager.set_axis(self, axis, new_labels)
+    212 def set_axis(self, axis: int, new_labels: Index) -> None:
+    213     # Caller is responsible for ensuring we have an Index object.
+--> 214     self._validate_set_axis(axis, new_labels)
+    215     self.axes[axis] = new_labels
+
+File ~/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/pandas/core/internals/base.py:69, in DataManager._validate_set_axis(self, axis, new_labels)
+     66     pass
+     68 elif new_len != old_len:
+---> 69     raise ValueError(
+     70         f"Length mismatch: Expected axis has {old_len} elements, new "
+     71         f"values have {new_len} elements"
+     72     )
+
+ValueError: Length mismatch: Expected axis has 4 elements, new values have 96 elements
+```
+
+### Versions
+
+```shell
+System:
+    python: 3.10.6 (main, Aug 30 2022, 05:11:14) [Clang 13.0.0 (clang-1300.0.29.30)]
+executable: /Users/macbookpro/.local/share/virtualenvs/3e_VBrf2/bin/python
+   machine: macOS-11.3-x86_64-i386-64bit
+
+Python dependencies:
+      sklearn: 1.2.1
+          pip: 22.3.1
+   setuptools: 67.3.2
+        numpy: 1.23.5
+        scipy: 1.10.1
+       Cython: None
+       pandas: 1.4.4
+   matplotlib: 3.7.0
+       joblib: 1.2.0
+threadpoolctl: 3.1.0
+
+Built with OpenMP: True
+
+threadpoolctl info:
+       user_api: blas
+   internal_api: openblas
+         prefix: libopenblas
+       filepath: /Users/macbookpro/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/numpy/.dylibs/libopenblas64_.0.dylib
+        version: 0.3.20
+threading_layer: pthreads
+   architecture: Haswell
+    num_threads: 4
+
+       user_api: openmp
+   internal_api: openmp
+         prefix: libomp
+       filepath: /Users/macbookpro/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/sklearn/.dylibs/libomp.dylib
+        version: None
+    num_threads: 8
+
+       user_api: blas
+   internal_api: openblas
+         prefix: libopenblas
+       filepath: /Users/macbookpro/.local/share/virtualenvs/3e_VBrf2/lib/python3.10/site-packages/scipy/.dylibs/libopenblas.0.dylib
+        version: 0.3.18
+threading_layer: pthreads
+   architecture: Haswell
+    num_threads: 4
+```
+
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sklearn/pipeline.py
+对象名称：fit
+节点类型：class_function
+父节点：Pipeline
+行号范围：388-422
+代码：
+    def fit(self, X, y=None, **fit_params):
+        """Fit the model.
+
+        Fit all the transformers one after the other and transform the
+        data. Finally, fit the transformed data using the final estimator.
+
+        Parameters
+        ----------
+        X : iterable
+            Training data. Must fulfill input requirements of first step of the
+            pipeline.
+
+        y : iterable, default=None
+            Training targets. Must fulfill label requirements for all steps of
+            the pipeline.
+
+        **fit_params : dict of string -> object
+            Parameters passed to the ``fit`` method of each step, where
+            each parameter name is prefixed such that parameter ``p`` for step
+            ``s`` has key ``s__p``.
+
+        Returns
+        -------
+        self : object
+            Pipeline with fitted steps.
+        """
+        self._validate_params()
+        fit_params_steps = self._check_fit_params(**fit_params)
+        Xt = self._fit(X, y, **fit_params_steps)
+        with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+            if self._final_estimator != "passthrough":
+                fit_params_last_step = fit_params_steps[self.steps[-1][0]]
+                self._final_estimator.fit(Xt, y, **fit_params_last_step)
+
+        return self
+
+
+【源码片段 2】
+文件路径：sklearn/pipeline.py
+对象名称：transform
+节点类型：class_function
+父节点：Pipeline
+行号范围：651-676
+代码：
+    def transform(self, X):
+        """Transform the data, and apply `transform` with the final estimator.
+
+        Call `transform` of each transformer in the pipeline. The transformed
+        data are finally passed to the final estimator that calls
+        `transform` method. Only valid if the final estimator
+        implements `transform`.
+
+        This also works where final estimator is `None` in which case all prior
+        transformations are applied.
+
+        Parameters
+        ----------
+        X : iterable
+            Data to transform. Must fulfill input requirements of first step
+            of the pipeline.
+
+        Returns
+        -------
+        Xt : ndarray of shape (n_samples, n_transformed_features)
+            Transformed data.
+        """
+        Xt = X
+        for _, _, transform in self._iter():
+            Xt = transform.transform(Xt)
+        return Xt
+
+
+【源码片段 3】
+文件路径：sklearn/pipeline.py
+对象名称：make_union
+节点类型：top-level function
+父节点：pipeline
+行号范围：1328-1372
+代码：
+def make_union(*transformers, n_jobs=None, verbose=False):
+    """Construct a FeatureUnion from the given transformers.
+
+    This is a shorthand for the FeatureUnion constructor; it does not require,
+    and does not permit, naming the transformers. Instead, they will be given
+    names automatically based on their types. It also does not allow weighting.
+
+    Parameters
+    ----------
+    *transformers : list of estimators
+        One or more estimators.
+
+    n_jobs : int, default=None
+        Number of jobs to run in parallel.
+        ``None`` means 1 unless in a :obj:`joblib.parallel_backend` context.
+        ``-1`` means using all processors. See :term:`Glossary <n_jobs>`
+        for more details.
+
+        .. versionchanged:: v0.20
+           `n_jobs` default changed from 1 to None.
+
+    verbose : bool, default=False
+        If True, the time elapsed while fitting each transformer will be
+        printed as it is completed.
+
+    Returns
+    -------
+    f : FeatureUnion
+        A :class:`FeatureUnion` object for concatenating the results of multiple
+        transformer objects.
+
+    See Also
+    --------
+    FeatureUnion : Class for concatenating the results of multiple transformer
+        objects.
+
+    Examples
+    --------
+    >>> from sklearn.decomposition import PCA, TruncatedSVD
+    >>> from sklearn.pipeline import make_union
+    >>> make_union(PCA(), TruncatedSVD())
+     FeatureUnion(transformer_list=[('pca', PCA()),
+                                   ('truncatedsvd', TruncatedSVD())])
+    """
+    return FeatureUnion(_name_estimators(transformers), n_jobs=n_jobs, verbose=verbose)
+
+
+【源码片段 4】
+文件路径：sklearn/_config.py
+对象名称：set_config
+节点类型：top-level function
+父节点：_config
+行号范围：48-159
+代码：
+def set_config(
+    assume_finite=None,
+    working_memory=None,
+    print_changed_only=None,
+    display=None,
+    pairwise_dist_chunk_size=None,
+    enable_cython_pairwise_dist=None,
+    array_api_dispatch=None,
+    transform_output=None,
+):
+    """Set global scikit-learn configuration
+
+    .. versionadded:: 0.19
+
+    Parameters
+    ----------
+    assume_finite : bool, default=None
+        If True, validation for finiteness will be skipped,
+        saving time, but leading to potential crashes. If
+        False, validation for finiteness will be performed,
+        avoiding error.  Global default: False.
+
+        .. versionadded:: 0.19
+
+    working_memory : int, default=None
+        If set, scikit-learn will attempt to limit the size of temporary arrays
+        to this number of MiB (per job when parallelised), often saving both
+        computation time and memory on expensive operations that can be
+        performed in chunks. Global default: 1024.
+
+        .. versionadded:: 0.20
+
+    print_changed_only : bool, default=None
+        If True, only the parameters that were set to non-default
+        values will be printed when printing an estimator. For example,
+        ``print(SVC())`` while True will only print 'SVC()' while the default
+        behaviour would be to print 'SVC(C=1.0, cache_size=200, ...)' with
+        all the non-changed parameters.
+
+        .. versionadded:: 0.21
+
+    display : {'text', 'diagram'}, default=None
+        If 'diagram', estimators will be displayed as a diagram in a Jupyter
+        lab or notebook context. If 'text', estimators will be displayed as
+        text. Default is 'diagram'.
+
+        .. versionadded:: 0.23
+
+    pairwise_dist_chunk_size : int, default=None
+        The number of row vectors per chunk for the accelerated pairwise-
+        distances reduction backend. Default is 256 (suitable for most of
+        modern laptops' caches and architectures).
+
+        Intended for easier benchmarking and testing of scikit-learn internals.
+        End users are not expected to benefit from customizing this configuration
+        setting.
+
+        .. versionadded:: 1.1
+
+    enable_cython_pairwise_dist : bool, default=None
+        Use the accelerated pairwise-distances reduction backend when
+        possible. Global default: True.
+
+        Intended for easier benchmarking and testing of scikit-learn internals.
+        End users are not expected to benefit from customizing this configuration
+        setting.
+
+        .. versionadded:: 1.1
+
+    array_api_dispatch : bool, default=None
+        Use Array API dispatching when inputs follow the Array API standard.
+        Default is False.
+
+        See the :ref:`User Guide <array_api>` for more details.
+
+        .. versionadded:: 1.2
+
+    transform_output : str, default=None
+        Configure output of `transform` and `fit_transform`.
+
+        See :ref:`sphx_glr_auto_examples_miscellaneous_plot_set_output.py`
+        for an example on how to use the API.
+
+        - `"default"`: Default output format of a transformer
+        - `"pandas"`: DataFrame output
+        - `None`: Transform configuration is unchanged
+
+        .. versionadded:: 1.2
+
+    See Also
+    --------
+    config_context : Context manager for global scikit-learn configuration.
+    get_config : Retrieve current values of the global configuration.
+    """
+    local_config = _get_threadlocal_config()
+
+    if assume_finite is not None:
+        local_config["assume_finite"] = assume_finite
+    if working_memory is not None:
+        local_config["working_memory"] = working_memory
+    if print_changed_only is not None:
+        local_config["print_changed_only"] = print_changed_only
+    if display is not None:
+        local_config["display"] = display
+    if pairwise_dist_chunk_size is not None:
+        local_config["pairwise_dist_chunk_size"] = pairwise_dist_chunk_size
+    if enable_cython_pairwise_dist is not None:
+        local_config["enable_cython_pairwise_dist"] = enable_cython_pairwise_dist
+    if array_api_dispatch is not None:
+        local_config["array_api_dispatch"] = array_api_dispatch
+    if transform_output is not None:
+        local_config["transform_output"] = transform_output
+
+
+【源码片段 5】
+文件路径：sklearn/base.py
+对象名称：BaseEstimator
+节点类型：class
+父节点：base
+行号范围：125-654
+代码：
+class BaseEstimator:
+    """Base class for all estimators in scikit-learn.
+
+    Notes
+    -----
+    All estimators should specify all the parameters that can be set
+    at the class level in their ``__init__`` as explicit keyword
+    arguments (no ``*args`` or ``**kwargs``).
+    """
+    @classmethod
+    def _get_param_names(cls):
+    def get_params(self, deep=True):
+    def set_params(self, **params):
+    def __sklearn_clone__(self):
+    def __repr__(self, N_CHAR_MAX=700):
+
+    def __getstate__(self):
+    def __setstate__(self, state):
+    def _more_tags(self):
+    def _get_tags(self):
+    def _check_n_features(self, X, reset):
+    def _check_feature_names(self, X, *, reset):
+    def _validate_data(
+        self,
+        X="no_validation",
+        y="no_validation",
+        reset=True,
+        validate_separately=False,
+        cast_to_ndarray=True,
+        **check_params,
+    ):
+    def _validate_params(self):
+    @property
+    def _repr_html_(self):
+    def _repr_html_inner(self):
+    def _repr_mimebundle_(self, **kwargs):
+
+
+【源码片段 6】
+文件路径：sklearn/base.py
+对象名称：TransformerMixin
+节点类型：class
+父节点：base
+行号范围：858-901
+代码：
+class TransformerMixin(_SetOutputMixin):
+    """Mixin class for all transformers in scikit-learn.
+
+    If :term:`get_feature_names_out` is defined, then `BaseEstimator` will
+    automatically wrap `transform` and `fit_transform` to follow the `set_output`
+    API. See the :ref:`developer_api_set_output` for details.
+
+    :class:`base.OneToOneFeatureMixin` and
+    :class:`base.ClassNamePrefixFeaturesOutMixin` are helpful mixins for
+    defining :term:`get_feature_names_out`.
+    """
+    def fit_transform(self, X, y=None, **fit_params):
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sklearn/tests/test_pipeline.py
+测试名称：test_feature_union_set_output
+测试代码：
+def test_feature_union_set_output():
+    """Test feature union with set_output API."""
+    pd = pytest.importorskip("pandas")
+
+    X, _ = load_iris(as_frame=True, return_X_y=True)
+    X_train, X_test = train_test_split(X, random_state=0)
+    union = FeatureUnion([("scalar", StandardScaler()), ("pca", PCA())])
+    union.set_output(transform="pandas")
+    union.fit(X_train)
+
+    X_trans = union.transform(X_test)
+    assert isinstance(X_trans, pd.DataFrame)
+    assert_array_equal(X_trans.columns, union.get_feature_names_out())
+    assert_array_equal(X_trans.index, X_test.index)
+
+【相关测试 2】
+测试文件：sklearn/tests/test_pipeline.py
+测试名称：test_feature_union_feature_names_in_
+测试代码：
+def test_feature_union_feature_names_in_():
+    """Ensure feature union has `.feature_names_in_` attribute if `X` has a
+    `columns` attribute.
+
+    Test for #24754.
+    """
+    pytest.importorskip("pandas")
+
+    X, _ = load_iris(as_frame=True, return_X_y=True)
+
+    # FeatureUnion should have the feature_names_in_ attribute if the
+    # first transformer also has it
+    scaler = StandardScaler()
+    scaler.fit(X)
+    union = FeatureUnion([("scale", scaler)])
+    assert hasattr(union, "feature_names_in_")
+    assert_array_equal(X.columns, union.feature_names_in_)
+    assert_array_equal(scaler.feature_names_in_, union.feature_names_in_)
+
+    # fit with pandas.DataFrame
+    union = FeatureUnion([("pass", "passthrough")])
+    union.fit(X)
+    assert hasattr(union, "feature_names_in_")
+    assert_array_equal(X.columns, union.feature_names_in_)
+
+    # fit with numpy array
+    X_array = X.to_numpy()
+    union = FeatureUnion([("pass", "passthrough")])
+    union.fit(X_array)
+    assert not hasattr(union, "feature_names_in_")
+
+【相关测试 3】
+测试文件：sklearn/compose/tests/test_column_transformer.py
+测试名称：test_transformers_with_pandas_out_but_not_feature_names_out
+测试代码：
+@pytest.mark.parametrize(
+    "trans_1, expected_verbose_names, expected_non_verbose_names",
+    [
+        (
+            PandasOutTransformer(offset=2.0),
+            ["trans_0__feat1", "trans_1__feat0"],
+            ["feat1", "feat0"],
+        ),
+        (
+            "drop",
+            ["trans_0__feat1"],
+            ["feat1"],
+        ),
+        (
+            "passthrough",
+            ["trans_0__feat1", "trans_1__feat0"],
+            ["feat1", "feat0"],
+        ),
+    ],
+)
+def test_transformers_with_pandas_out_but_not_feature_names_out(
+    trans_1, expected_verbose_names, expected_non_verbose_names
+):
+    """Check that set_config(transform="pandas") is compatible with more transformers.
+
+    Specifically, if transformers returns a DataFrame, but does not define
+    `get_feature_names_out`.
+    """
+    pd = pytest.importorskip("pandas")
+
+    X_df = pd.DataFrame({"feat0": [1.0, 2.0, 3.0], "feat1": [2.0, 3.0, 4.0]})
+    ct = ColumnTransformer(
+        [
+            ("trans_0", PandasOutTransformer(offset=3.0), ["feat1"]),
+            ("trans_1", trans_1, ["feat0"]),
+        ]
+    )
+    X_trans_np = ct.fit_transform(X_df)
+    assert isinstance(X_trans_np, np.ndarray)
+
+    # `ct` does not have `get_feature_names_out` because `PandasOutTransformer` does
+    # not define the method.
+    with pytest.raises(AttributeError, match="not provide get_feature_names_out"):
+        ct.get_feature_names_out()
+
+    # The feature names are prefixed because verbose_feature_names_out=True is default
+    ct.set_output(transform="pandas")
+    X_trans_df0 = ct.fit_transform(X_df)
+    assert_array_equal(X_trans_df0.columns, expected_verbose_names)
+
+    ct.set_params(verbose_feature_names_out=False)
+    X_trans_df1 = ct.fit_transform(X_df)
+    assert_array_equal(X_trans_df1.columns, expected_non_verbose_names)
+
+【相关测试 4】
+测试文件：sklearn/compose/tests/test_column_transformer.py
+测试名称：test_empty_selection_pandas_output
+测试代码：
+@pytest.mark.parametrize(
+    "empty_selection",
+    [[], np.array([False, False]), [False, False]],
+    ids=["list", "bool", "bool_int"],
+)
+def test_empty_selection_pandas_output(empty_selection):
+    """Check that pandas output works when there is an empty selection.
+
+    Non-regression test for gh-25487
+    """
+    pd = pytest.importorskip("pandas")
+
+    X = pd.DataFrame([[1.0, 2.2], [3.0, 1.0]], columns=["a", "b"])
+    ct = ColumnTransformer(
+        [
+            ("categorical", "passthrough", empty_selection),
+            ("numerical", StandardScaler(), ["a", "b"]),
+        ],
+        verbose_feature_names_out=True,
+    )
+    ct.set_output(transform="pandas")
+    X_out = ct.fit_transform(X)
+    assert_array_equal(X_out.columns, ["numerical__a", "numerical__b"])
+
+    ct.set_params(verbose_feature_names_out=False)
+    X_out = ct.fit_transform(X)
+    assert_array_equal(X_out.columns, ["a", "b"])
+
+【相关测试 5】
+测试文件：sklearn/compose/tests/test_column_transformer.py
+测试名称：test_column_transformer_set_output
+测试代码：
+@pytest.mark.parametrize("verbose_feature_names_out", [True, False])
+@pytest.mark.parametrize("remainder", ["drop", "passthrough"])
+def test_column_transformer_set_output(verbose_feature_names_out, remainder):
+    """Check column transformer behavior with set_output."""
+    pd = pytest.importorskip("pandas")
+    df = pd.DataFrame([[1, 2, 3, 4]], columns=["a", "b", "c", "d"], index=[10])
+    ct = ColumnTransformer(
+        [("first", TransWithNames(), ["a", "c"]), ("second", TransWithNames(), ["d"])],
+        remainder=remainder,
+        verbose_feature_names_out=verbose_feature_names_out,
+    )
+    X_trans = ct.fit_transform(df)
+    assert isinstance(X_trans, np.ndarray)
+
+    ct.set_output(transform="pandas")
+
+    df_test = pd.DataFrame([[1, 2, 3, 4]], columns=df.columns, index=[20])
+    X_trans = ct.transform(df_test)
+    assert isinstance(X_trans, pd.DataFrame)
+
+    feature_names_out = ct.get_feature_names_out()
+    assert_array_equal(X_trans.columns, feature_names_out)
+    assert_array_equal(X_trans.index, df_test.index)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

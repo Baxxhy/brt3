@@ -1,0 +1,120 @@
+instance_id: sympy__sympy-19254
+
+issue_summary: Issue 建议将多项式 Mignotte 边界计算方法从当前实现替换为 Knuth-Cohen bound 以优化性能。
+
+trigger_condition:
+{
+  "text": "调用 `dup_zz_mignotte_bound` 或 `dmp_zz_mignotte_bound` 方法，传入一个多项式（单变量或多变量）。",
+  "evidence": [
+    "Issue 明确提到 `dup_zz_mignotte_bound(f, K)` 和 `dmp_zz_mignotte_bound(f, u, K)`。",
+    "检索到的测试代码展示了调用 `R.dup_zz_mignotte_bound(2*x**2 + 3*x + 4)` 和 `R.dmp_zz_mignotte_bound(2*x**2 + 3*x + 4)`。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "当前方法返回的边界值可能不是最紧的（即数值可能偏大），导致依赖该边界的后续算法（如多项式因子分解）效率不是最优。",
+  "symptom_type": "performance",
+  "evidence": [
+    "Issue 描述为“可以显著改进 (significantly improved)”，并建议替换为更优的 bound。",
+    "Issue 提到他们比较了不同 bound 在数十个多项式上的结果。"
+  ],
+  "confidence": "medium"
+}
+
+expected_behavior:
+{
+  "text": "使用 Knuth-Cohen bound 实现后，`dup_zz_mignotte_bound` 和 `dmp_zz_mignotte_bound` 方法对于给定的多项式应返回一个更紧（数值更小或相等）的边界值，从而提升相关算法的效率。",
+  "evidence": [
+    "Issue 明确提议用 Knuth-Cohen bound 替换 Mignotte bound 以实现改进。",
+    "Issue 提到他们已实现并比较了不同 bound，结果表明 Knuth-Cohen bound 更优。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "dup_zz_mignotte_bound",
+    "kind": "function",
+    "source_path": "sympy/polys/compatibility.py",
+    "reason": "Issue 明确点名此方法需要改进。检索到的源码显示它是 IPolys 类的一个方法，并调用了一个同名函数。"
+  },
+  {
+    "name": "dmp_zz_mignotte_bound",
+    "kind": "function",
+    "source_path": "sympy/polys/compatibility.py",
+    "reason": "Issue 明确点名此方法需要改进。检索到的源码显示它是 IPolys 类的一个方法，并调用了一个同名函数。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "使用简单多项式 `2*x**2 + 3*x + 4`（单变量）或 `2*x**2 + 3*x + 4`（多变量，但实际是单变量形式）作为输入。",
+    "target_pattern": "使用 Issue 中提到的“不同次数、密度和系数范围”的多项式。例如，更高次数的多项式、系数更大的多项式、真正的多变量多项式（如 `x**2*y + 3*x*y**2 - 5`）。",
+    "reason": "不同 bound 的差异可能在特定多项式上更明显。Issue 提到他们比较了数十个不同特征的多项式。",
+    "confidence": "medium"
+  },
+  {
+    "slot": "assertion_hints",
+    "current_pattern": "断言返回值等于一个固定的硬编码值（32）。",
+    "target_pattern": "断言使用新 bound（Knuth-Cohen）计算的值小于或等于使用旧 bound（Mignotte）计算的值，并且对于某些多项式严格小于。或者，与一个独立实现的 Knuth-Cohen bound 计算结果进行比较。",
+    "reason": "Issue 的核心是 bound 的紧致性改进。断言应反映新 bound 至少不差于旧 bound，且通常更优。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "`bound_value = R.dup_zz_mignotte_bound(poly)` 或 `bound_value = R.dmp_zz_mignotte_bound(poly)` 的返回值。",
+    "reason": "Issue 直接关注边界计算方法的返回值。观察返回的整数值是判断 bound 是否更紧的直接依据。"
+  },
+  {
+    "kind": "performance",
+    "expression_hint": "调用 `dup_zz_mignotte_bound` / `dmp_zz_mignotte_bound` 方法所需的时间（可选，如果 Issue 隐含性能考量）。",
+    "reason": "Issue 提到“显著改进”，可能包括计算速度。但主要焦点是 bound 的紧致性。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "对于给定的多项式，使用新实现（Knuth-Cohen bound）计算出的边界值应小于或等于使用当前实现（Mignotte bound）计算出的值。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言返回值等于某个固定的硬编码值，因为新 bound 的精确值可能未知或随实现变化。避免断言私有计算字段。",
+    "reason": "这种断言直接验证了“更紧”的核心要求，不依赖于具体的绝对数值，更稳定。"
+  },
+  {
+    "assertion_goal": "新实现应能正确处理单变量和多变量多项式，不引发异常。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的内部数据结构。",
+    "reason": "确保替换后的基本功能正常。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要使用 `sympy.polys.rings.ring` 创建多项式环（如 `ZZ` 域）。测试可能位于类似 `test_factortools.py` 的测试文件中。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要导入 `sympy.polys.factortools` 模块以直接调用底层函数，或使用环对象的接口。",
+    "source": "retrieved_source",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "当前 Mignotte bound 和提议的 Knuth-Cohen bound 的具体实现代码位置和算法细节。",
+  "对于哪些具体的多项式输入，两个 bound 的计算结果会有显著差异。",
+  "Issue 是否认为当前实现有功能错误（返回错误值），还是纯粹的性能/优化改进。",
+  "`dmp_zz_mignotte_bound` 中参数 `u`（变量个数）的具体影响。"
+]

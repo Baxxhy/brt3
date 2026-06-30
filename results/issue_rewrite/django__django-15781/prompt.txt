@@ -1,0 +1,433 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+Customizable management command formatters.
+Description
+	
+With code like:
+class Command(BaseCommand):
+	help = '''
+	Import a contract from tzkt.
+	Example usage:
+		./manage.py tzkt_import 'Tezos Mainnet' KT1HTDtMBRCKoNHjfWEEvXneGQpCfPAt6BRe
+	'''
+Help output is:
+$ ./manage.py help tzkt_import
+usage: manage.py tzkt_import [-h] [--api API] [--version] [-v {0,1,2,3}] [--settings SETTINGS]
+							 [--pythonpath PYTHONPATH] [--traceback] [--no-color] [--force-color]
+							 [--skip-checks]
+							 blockchain target
+Import a contract from tzkt Example usage: ./manage.py tzkt_import 'Tezos Mainnet'
+KT1HTDtMBRCKoNHjfWEEvXneGQpCfPAt6BRe
+positional arguments:
+ blockchain			Name of the blockchain to import into
+ target				Id of the contract to import
+When that was expected:
+$ ./manage.py help tzkt_import
+usage: manage.py tzkt_import [-h] [--api API] [--version] [-v {0,1,2,3}] [--settings SETTINGS]
+							 [--pythonpath PYTHONPATH] [--traceback] [--no-color] [--force-color]
+							 [--skip-checks]
+							 blockchain target
+Import a contract from tzkt 
+Example usage: 
+	./manage.py tzkt_import 'Tezos Mainnet' KT1HTDtMBRCKoNHjfWEEvXneGQpCfPAt6BRe
+positional arguments:
+ blockchain			Name of the blockchain to import into
+ target				Id of the contract to import
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：django/contrib/auth/management/commands/changepassword.py
+对象名称：Command
+节点类型：class
+父节点：changepassword
+行号范围：12-81
+代码：
+class Command(BaseCommand):
+    help = "Change a user's password for django.contrib.auth."
+    requires_migrations_checks = True
+    requires_system_checks = []
+    def _get_pass(self, prompt="Password: "):
+    def add_arguments(self, parser):
+    def handle(self, *args, **options):
+
+
+【源码片段 2】
+文件路径：django/core/management/base.py
+对象名称：BaseCommand
+节点类型：class
+父节点：base
+行号范围：173-596
+代码：
+class BaseCommand:
+    """
+    The base class from which all management commands ultimately
+    derive.
+
+    Use this class if you want access to all of the mechanisms which
+    parse the command-line arguments and work out what code to call in
+    response; if you don't need to change any of that behavior,
+    consider using one of the subclasses defined in this file.
+
+    If you are interested in overriding/customizing various aspects of
+    the command-parsing and -execution behavior, the normal flow works
+    as follows:
+
+    1. ``django-admin`` or ``manage.py`` loads the command class
+       and calls its ``run_from_argv()`` method.
+
+    2. The ``run_from_argv()`` method calls ``create_parser()`` to get
+       an ``ArgumentParser`` for the arguments, parses them, performs
+       any environment changes requested by options like
+       ``pythonpath``, and then calls the ``execute()`` method,
+       passing the parsed arguments.
+
+    3. The ``execute()`` method attempts to carry out the command by
+       calling the ``handle()`` method with the parsed arguments; any
+       output produced by ``handle()`` will be printed to standard
+       output and, if the command is intended to produce a block of
+       SQL statements, will be wrapped in ``BEGIN`` and ``COMMIT``.
+
+    4. If ``handle()`` or ``execute()`` raised any exception (e.g.
+       ``CommandError``), ``run_from_argv()`` will  instead print an error
+       message to ``stderr``.
+
+    Thus, the ``handle()`` method is typically the starting point for
+    subclasses; many built-in commands and command types either place
+    all of their logic in ``handle()``, or perform some additional
+    parsing work in ``handle()`` and then delegate from it to more
+    specialized methods as needed.
+
+    Several attributes affect behavior at various steps along the way:
+
+    ``help``
+        A short description of the command, which will be printed in
+        help messages.
+
+    ``output_transaction``
+        A boolean indicating whether the command outputs SQL
+        statements; if ``True``, the output will automatically be
+        wrapped with ``BEGIN;`` and ``COMMIT;``. Default value is
+        ``False``.
+
+    ``requires_migrations_checks``
+        A boolean; if ``True``, the command prints a warning if the set of
+        migrations on disk don't match the migrations in the database.
+
+    ``requires_system_checks``
+        A list or tuple of tags, e.g. [Tags.staticfiles, Tags.models]. System
+        checks registered in the chosen tags will be checked for errors prior
+        to executing the command. The value '__all__' can be used to specify
+        that all system checks should be performed. Default value is '__all__'.
+
+        To validate an individual application's models
+        rather than all applications' models, call
+        ``self.check(app_configs)`` from ``handle()``, where ``app_configs``
+        is the list of application's configuration provided by the
+        app registry.
+
+    ``stealth_options``
+        A tuple of any options the command uses which aren't defined by the
+        argument parser.
+    """
+    help = ""
+    _called_from_command_line = False
+    output_transaction = False  # Whether to wrap the output in a "BEGIN; COMMIT;"
+    requires_migrations_checks = False
+    requires_system_checks = "__all__"
+    base_stealth_options = ("stderr", "stdout")
+    stealth_options = ()
+    suppressed_base_arguments = set()
+    def __init__(self, stdout=None, stderr=None, no_color=False, force_color=False):
+    def get_version(self):
+    def create_parser(self, prog_name, subcommand, **kwargs):
+    def add_arguments(self, parser):
+    def add_base_argument(self, parser, *args, **kwargs):
+    def print_help(self, prog_name, subcommand):
+    def run_from_argv(self, argv):
+    def execute(self, *args, **options):
+    def check(
+        self,
+        app_configs=None,
+        tags=None,
+        display_num_errors=False,
+        include_deployment_checks=False,
+        fail_level=checks.ERROR,
+        databases=None,
+    ):
+    def check_migrations(self):
+    def handle(self, *args, **options):
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：tests/admin_scripts/tests.py
+测试名称：test_specific_help
+测试代码：
+class CommandTypes(AdminScriptTestCase):
+    def test_specific_help(self):
+        "--help can be used on a specific command"
+        args = ["check", "--help"]
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        # Command-specific options like --tag appear before options common to
+        # all commands like --version.
+        tag_location = out.find("--tag")
+        version_location = out.find("--version")
+        self.assertNotEqual(tag_location, -1)
+        self.assertNotEqual(version_location, -1)
+        self.assertLess(tag_location, version_location)
+        self.assertOutput(
+            out, "Checks the entire Django project for potential problems."
+        )
+
+【相关测试 2】
+测试文件：tests/admin_scripts/tests.py
+测试名称：test_help_default_options_with_custom_arguments
+测试代码：
+class CommandTypes(AdminScriptTestCase):
+    def test_help_default_options_with_custom_arguments(self):
+        args = ["base_command", "--help"]
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        expected_options = [
+            "-h",
+            "--option_a OPTION_A",
+            "--option_b OPTION_B",
+            "--option_c OPTION_C",
+            "--version",
+            "-v {0,1,2,3}",
+            "--settings SETTINGS",
+            "--pythonpath PYTHONPATH",
+            "--traceback",
+            "--no-color",
+            "--force-color",
+            "args ...",
+        ]
+        for option in expected_options:
+            self.assertOutput(out, f"[{option}]")
+        self.assertOutput(out, "--option_a OPTION_A, -a OPTION_A")
+        self.assertOutput(out, "--option_b OPTION_B, -b OPTION_B")
+        self.assertOutput(out, "--option_c OPTION_C, -c OPTION_C")
+        self.assertOutput(out, "-v {0,1,2,3}, --verbosity {0,1,2,3}")
+
+【相关测试 3】
+测试文件：tests/admin_scripts/tests.py
+测试名称：test_suppress_base_options_command_help
+测试代码：
+class CommandTypes(AdminScriptTestCase):
+    def test_suppress_base_options_command_help(self):
+        args = ["suppress_base_options_command", "--help"]
+        out, err = self.run_manage(args)
+        self.assertNoOutput(err)
+        self.assertOutput(out, "Test suppress base options command.")
+        self.assertNotInOutput(out, "input file")
+        self.assertOutput(out, "-h, --help")
+        self.assertNotInOutput(out, "--version")
+        self.assertNotInOutput(out, "--verbosity")
+        self.assertNotInOutput(out, "-v {0,1,2,3}")
+        self.assertNotInOutput(out, "--settings")
+        self.assertNotInOutput(out, "--pythonpath")
+        self.assertNotInOutput(out, "--traceback")
+        self.assertNotInOutput(out, "--no-color")
+        self.assertNotInOutput(out, "--force-color")
+
+【相关测试 4】
+测试文件：tests/i18n/test_compilation.py
+测试名称：test_command_help
+测试代码：
+class ExcludedLocaleCompilationTests(MessageCompilationTests):
+    def test_command_help(self):
+        with captured_stdout(), captured_stderr():
+            # `call_command` bypasses the parser; by calling
+            # `execute_from_command_line` with the help subcommand we
+            # ensure that there are no issues with the parser itself.
+            execute_from_command_line(["django-admin", "help", "compilemessages"])
+
+【相关测试 5】
+测试文件：tests/i18n/test_extraction.py
+测试名称：test_command_help
+测试代码：
+class ExcludedLocaleExtractionTests(ExtractorTests):
+    def test_command_help(self):
+        with captured_stdout(), captured_stderr():
+            # `call_command` bypasses the parser; by calling
+            # `execute_from_command_line` with the help subcommand we
+            # ensure that there are no issues with the parser itself.
+            execute_from_command_line(["django-admin", "help", "makemessages"])
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

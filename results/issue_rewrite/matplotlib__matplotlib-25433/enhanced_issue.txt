@@ -1,0 +1,154 @@
+instance_id: matplotlib__matplotlib-25433
+
+issue_summary: 在 RangeSlider 的 on_changed 回调中清除并重绘图形会导致所有控件失去响应，而 Button 的 on_clicked 回调中相同操作则正常。
+
+trigger_condition:
+{
+  "text": "创建一个包含 RangeSlider 和 Button 的图形。为 RangeSlider 设置一个 on_changed 回调函数，该回调函数内部调用 pyplot.clf() 清除图形，重新添加控件（包括 RangeSlider 和 Button），然后调用 pyplot.draw() 重绘图形。随后尝试与控件（如移动 RangeSlider 滑块或点击 Button）交互。",
+  "evidence": [
+    "Issue 中的复现代码展示了完整的触发步骤。",
+    "Issue 描述明确指出在 on_changed 回调中执行 clf, addElements, draw 操作。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "图形中的控件（RangeSlider 和 Button）无法接收任何鼠标输入（例如，无法拖动滑块，无法点击按钮）。程序不崩溃，但用户交互失效。",
+  "symptom_type": "state_not_updated",
+  "evidence": [
+    "Issue 中描述：\"The widgets can't receive any input from a mouse click\"。",
+    "复现代码执行后，用户无法与控件交互。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "在 RangeSlider 的 on_changed 回调中执行图形清除和重绘操作后，图形中新添加的控件（包括 RangeSlider 自身和 Button）应能正常响应用户的鼠标输入事件，其行为应与在 Button 的 on_clicked 回调中执行相同操作后的行为一致。",
+  "evidence": [
+    "Issue 中明确说明：\"The range slider callback on_changed behaves the same as the button callback on_clicked.\"",
+    "Issue 表明 Button 的回调场景下控件响应正常，这应作为期望的基准。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "matplotlib.pyplot.clf",
+    "kind": "function",
+    "source_path": "lib/matplotlib/pyplot.py",
+    "reason": "在触发缺陷的回调中被调用，用于清除当前图形。"
+  },
+  {
+    "name": "matplotlib.pyplot.draw",
+    "kind": "function",
+    "source_path": "lib/matplotlib/pyplot.py",
+    "reason": "在触发缺陷的回调中被调用，用于重绘图形。"
+  },
+  {
+    "name": "matplotlib.widgets.RangeSlider",
+    "kind": "class",
+    "source_path": "lib/matplotlib/widgets.py",
+    "reason": "缺陷涉及的核心控件，其 on_changed 回调是触发条件的关键部分。"
+  },
+  {
+    "name": "matplotlib.widgets.RangeSlider.on_changed",
+    "kind": "method",
+    "source_path": "lib/matplotlib/widgets.py",
+    "reason": "缺陷发生的回调入口点。"
+  },
+  {
+    "name": "matplotlib.widgets.Button",
+    "kind": "class",
+    "source_path": "lib/matplotlib/widgets.py",
+    "reason": "作为对比的正常行为参照控件。"
+  },
+  {
+    "name": "matplotlib.widgets.Button.on_clicked",
+    "kind": "method",
+    "source_path": "lib/matplotlib/widgets.py",
+    "reason": "作为对比的正常回调入口点。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试（如 test_range_slider）通常只进行静态的属性设置和断言，不涉及在控件回调中修改图形状态。",
+    "target_pattern": "在测试中，为 RangeSlider 设置一个 on_changed 回调函数。在该回调函数内部，调用 plt.clf() 清除当前图形，在同一图形中创建新的坐标轴并添加新的 RangeSlider 和 Button 控件，然后调用 plt.draw()。随后，程序化地模拟鼠标事件（如按下、移动、释放）来尝试与新的 RangeSlider 交互。",
+    "reason": "Issue 明确指出缺陷触发需要这个特定的调用链（回调 -> clf -> 添加控件 -> draw）。将静态测试变异为包含此动态、交互式回调逻辑的测试，是走向缺陷路径的关键。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试中，图形和控件在测试开始时创建，之后状态基本不变或通过 set_val 等方法显式改变。",
+    "target_pattern": "图形和控件的状态在测试过程中被回调函数动态地、彻底地重置（通过 clf 清除所有子图，然后重新创建）。新创建的控件对象（尽管类型相同）替换了旧对象。",
+    "reason": "缺陷可能与这种“在回调中销毁并重建整个图形内容”的状态转换有关，而不仅仅是改变滑块的值。需要测试这种状态剧烈变化后的交互能力。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "state",
+    "expression_hint": "在模拟鼠标交互事件（如按下滑块）前后，观察 RangeSlider 的公开属性 val 是否发生变化，或者关联的回调函数（on_changed）是否被调用并打印输出。",
+    "reason": "如果控件响应正常，val 值应随模拟的拖动而改变，或回调函数应被触发。如果缺陷被触发，这些公开的、可观测的行为将不会发生。"
+  },
+  {
+    "kind": "state",
+    "expression_hint": "观察 Button 的公开状态，例如其关联的回调函数（on_clicked）在模拟点击后是否被调用。",
+    "reason": "Issue 描述所有控件输入被阻塞。观察 Button 的响应可以确认问题是全局性的（影响所有控件）还是仅针对 RangeSlider。"
+  },
+  {
+    "kind": "warning",
+    "expression_hint": "观察在回调函数执行 clf 和 draw 操作期间或之后，是否有任何警告信息（warnings）被发出。",
+    "reason": "某些内部状态错误或不当操作可能会触发警告，这有助于定位问题。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "在触发 RangeSlider 的 on_changed 回调并完成图形重绘后，模拟拖动 RangeSlider 滑块应能导致其 val 属性发生预期变化。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言完整的内部数据结构（如 _handles 列表）、画布私有属性或与缺陷无关的几何精度。",
+    "reason": "val 是 RangeSlider 的公开属性，其变化直接反映了控件对用户输入的响应能力。使用前后关系断言（如拖动后 val != 初始值）比断言具体数值更稳定，且与 Issue 核心（输入被阻塞）对齐。"
+  },
+  {
+    "assertion_goal": "在触发 RangeSlider 的 on_changed 回调并完成图形重绘后，模拟点击 Button 应能成功触发其 on_clicked 回调。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言 Button 的内部颜色或标签文本等无关属性。",
+    "reason": "这验证了缺陷是否如 Issue 所述影响了所有控件。可以通过检查回调函数内的打印语句是否执行或一个外部标志变量是否被设置来断言。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试可能需要使用特定的 matplotlib 后端（如 'TkAgg' 或 'Qt5Agg'），并在非交互模式下运行，或者使用能够模拟 GUI 事件而不需要真实显示窗口的工具（如 matplotlib.testing 中的相关工具或 mock 事件）。",
+    "source": "issue|inference",
+    "confidence": "medium"
+  },
+  {
+    "hint": "参考现有测试（如 test_never_update）中使用 @pytest.mark.backend 装饰器来指定和隔离后端环境。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要创建自定义的 pytest fixture 来管理图形（fig）和坐标轴（ax）的生命周期，尤其是在回调中会清除并重建图形的情况下。",
+    "source": "inference",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "在无头（headless）或非交互式测试环境中，如何准确模拟能触发 on_changed 和 on_clicked 回调的鼠标事件（如按下、拖动、释放）。",
+  "缺陷是否与特定的 matplotlib 后端（TkAgg, QtAgg）强相关，还是所有后端都存在。",
+  "在回调中调用 clf() 和 draw() 是否是 matplotlib 官方支持的使用模式，或者这本身就是一个有问题的用法。",
+  "除了观察公开属性 val 和回调执行，是否还有其他更稳定或更直接的公开行为可以用来断言控件是否“被阻塞”。"
+]

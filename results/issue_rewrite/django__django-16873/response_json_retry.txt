@@ -1,0 +1,200 @@
+```json
+{
+    "original_issue": {
+        "text": "Template filter `join` should not escape the joining string if `autoescape` is `off`\nDescription\n\nConsider the following template code snippet:\n{% autoescape off %}\n{{ some_list|join:some_var }}\n{% endautoescape %}\nin this case, the items inside some_list will not be escaped (matching the expected behavior) but some_var will forcibly be escaped. From the docs for autoescape or join I don't think this is expected behavior.\nThe following testcase illustrates what I think is a bug in the join filter (run inside the template_tests/filter_tests folder):\nfrom django.template.defaultfilters import escape\nfrom django.test import SimpleTestCase\nfrom ..utils import setup\nclass RegressionTests(SimpleTestCase):\n\t@setup({\"join01\": '{{ some_list|join:some_var }}'})\n\tdef test_join01(self):\n\t\tsome_list = [\"<p>Hello World!</p>\", \"beta & me\", \"<script>Hi!</script>\"]\n\t\tsome_var = \"<br/>\"\n\t\toutput = self.engine.render_to_string(\"join01\", {\"some_list\": some_list, \"some_var\": some_var})\n\t\tself.assertEqual(output, escape(some_var.join(some_list)))\n\t@setup({\"join02\": '{% autoescape off %}{{ some_list|join:some_var }}{% endautoescape %}'})\n\tdef test_join02(self):\n\t\tsome_list = [\"<p>Hello World!</p>\", \"beta & me\", \"<script>Hi!</script>\"]\n\t\tsome_var = \"<br/>\"\n\t\toutput = self.engine.render_to_string(\"join02\", {\"some_list\": some_list, \"some_var\": some_var})\n\t\tself.assertEqual(output, some_var.join(some_list))\nResult of this run in current main is:\n.F\n======================================================================\nFAIL: test_join02 (template_tests.filter_tests.test_regression.RegressionTests.test_join02)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n File \"/home/nessita/fellowship/django/django/test/utils.py\", line 443, in inner\n\treturn func(*args, **kwargs)\n\t\t ^^^^^^^^^^^^^^^^^^^^^\n File \"/home/nessita/fellowship/django/tests/template_tests/utils.py\", line 58, in inner\n\tfunc(self)\n File \"/home/nessita/fellowship/django/tests/template_tests/filter_tests/test_regression.py\", line 21, in test_join02\n\tself.assertEqual(output, some_var.join(some_list))\nAssertionError: '<p>Hello World!</p>&lt;br/&gt;beta & me&lt;br/&gt;<script>Hi!</script>' != '<p>Hello World!</p><br/>beta & me<br/><script>Hi!</script>'\n----------------------------------------------------------------------\nRan 2 tests in 0.007s",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "在 Django 模板中，当使用 `{% autoescape off %}` 块关闭自动转义时，模板过滤器 `join` 的行为存在缺陷。具体表现为：`join` 过滤器会将列表中的项目正确保持不转义，但会错误地对连接字符串参数进行 HTML 转义。例如，模板 `{% autoescape off %}{{ some_list|join:some_var }}{% endautoescape %}` 中，如果 `some_var` 是 `<br/>`，输出中 `some_var` 会被转义为 `&lt;br/&gt;`，而期望的行为是连接字符串也应保持不转义，输出原始的 `<br/>`。这违背了 `autoescape off` 的语义。",
+        "facts_from_issue": [
+            "Issue 报告了 Django 模板过滤器 `join` 在 `{% autoescape off %}` 块内的一个缺陷。",
+            "缺陷现象：当 `autoescape` 为 `off` 时，`join` 过滤器连接的列表项保持不转义，但连接字符串参数被错误地转义了。",
+            "Issue 提供了两个测试用例 (`test_join01` 和 `test_join02`) 来演示问题。",
+            "`test_join02` 在 `autoescape off` 下失败，实际输出包含转义的连接符 `&lt;br/&gt;`，而期望输出是未转义的 `<br/>`。"
+        ],
+        "facts_from_retrieved_context": [
+            "检索到的相关测试代码展示了 `join` 过滤器的多种使用场景，包括带 `autoescape off` 的测试 (`test_join02`, `test_join04`)。",
+            "测试代码使用了 `SimpleTestCase` 和 `@setup` 装饰器来定义模板和上下文。",
+            "测试通过 `self.engine.render_to_string` 渲染模板并比较输出。",
+            "源码片段显示 `django.utils.html.escape` 函数用于 HTML 转义。",
+            "`django.template.engine.Engine.render_to_string` 方法在渲染时会考虑 `autoescape` 设置。"
+        ],
+        "inferences": [
+            "`join` 过滤器的实现在处理连接字符串参数时，可能没有正确考虑外层 `autoescape` 指令的状态。",
+            "缺陷可能位于 `join` 过滤器的实现逻辑中，该逻辑负责决定何时对参数进行转义。",
+            "`autoescape off` 应该影响整个模板表达式的输出，包括过滤器的参数。"
+        ],
+        "do_not_assume": [
+            "`join` 过滤器内部具体的实现函数名或代码位置。",
+            "修复缺陷的具体代码改动。",
+            "除了 `join` 过滤器外，其他过滤器是否也存在类似问题。"
+        ]
+    },
+    "issue_summary": "Django 模板过滤器 `join` 在 `{% autoescape off %}` 块内错误地对连接字符串参数进行了 HTML 转义。",
+    "trigger_condition": {
+        "text": "在 Django 模板中使用 `{% autoescape off %}` 块包裹一个包含 `join` 过滤器的表达式，且 `join` 过滤器的连接字符串参数包含需要 HTML 转义的字符（如 `<`, `>`, `&`）。例如：`{% autoescape off %}{{ some_list|join:some_var }}{% endautoescape %}`，其中 `some_var` 类似 `<br/>`。",
+        "evidence": [
+            "Issue 中的模板代码片段和测试用例 `test_join02`。",
+            "检索到的相关测试 `test_join02` 和 `test_join04` 也使用了 `{% autoescape off %}` 和 `join` 过滤器。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "模板渲染输出中，连接字符串被错误地进行了 HTML 转义（例如 `<br/>` 变成 `&lt;br/&gt;`），而列表项保持未转义。这导致输出字符串与预期的未转义连接不符。",
+        "symptom_type": "wrong_return",
+        "evidence": [
+            "Issue 中 `test_join02` 的 AssertionError 显示实际输出包含 `&lt;br/&gt;`，而期望是 `<br/>`。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当模板位于 `{% autoescape off %}` 块内时，`join` 过滤器应保持连接字符串参数不进行 HTML 转义，输出原始的连接字符串。列表项也应保持不转义。整个表达式的输出应与 Python 字符串的 `join` 方法结果一致。",
+        "evidence": [
+            "Issue 描述指出 \"the items inside some_list will not be escaped (matching the expected behavior) but some_var will forcibly be escaped\"，暗示连接字符串也不应被转义。",
+            "Issue 中 `test_join02` 的期望输出是 `some_var.join(some_list)`，即未转义的连接。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "join",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Issue 直接针对模板过滤器 `join` 的行为。"
+        },
+        {
+            "name": "Engine.render_to_string",
+            "kind": "method",
+            "source_path": "django/template/engine.py",
+            "reason": "测试用例中用于渲染模板的核心方法，控制着 `autoescape` 上下文。"
+        },
+        {
+            "name": "SimpleTestCase",
+            "kind": "class",
+            "source_path": "django/test/testcases.py",
+            "reason": "Issue 和检索到的测试都使用此类作为测试基类。"
+        },
+        {
+            "name": "setup",
+            "kind": "function",
+            "source_path": "",
+            "reason": "测试装饰器，用于定义模板，在相关测试中广泛使用。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/template/defaultfilters.py",
+            "object": "join 过滤器的实现函数",
+            "lines": "",
+            "reason": "`join` 过滤器的逻辑很可能在此文件中定义，负责处理连接字符串的转义决策。"
+        },
+        {
+            "path": "django/template/base.py",
+            "object": "模板变量解析或过滤器应用逻辑",
+            "lines": "",
+            "reason": "处理 `autoescape` 指令和过滤器参数转义的通用逻辑可能位于此。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "JoinTests.test_join02",
+            "test_file": "tests/template_tests/filter_tests/test_join.py",
+            "why_relevant": "该测试直接使用了 `{% autoescape off %}` 块和 `join` 过滤器，测试协议（使用 `SimpleTestCase`, `@setup`, `render_to_string`）与 Issue 中的测试完全一致。",
+            "reusable_parts": [
+                "测试类 `JoinTests(SimpleTestCase)`",
+                "`@setup` 装饰器定义模板",
+                "`self.engine.render_to_string` 调用",
+                "`self.assertEqual` 断言风格"
+            ],
+            "possible_gap": "该测试使用硬编码的连接字符串 `\", \"`，不包含需要转义的 HTML 字符，因此无法触发缺陷。需要将连接字符串改为包含 HTML 特殊字符的变量。"
+        },
+        {
+            "test_name": "JoinTests.test_join04",
+            "test_file": "tests/template_tests/filter_tests/test_join.py",
+            "why_relevant": "同样在 `autoescape off` 下测试 `join`，且连接字符串包含 `&amp;`，涉及转义字符。",
+            "reusable_parts": [
+                "`{% autoescape off %}` 模板结构",
+                "包含 HTML 实体的连接字符串参数",
+                "基本的测试结构和断言"
+            ],
+            "possible_gap": "连接字符串是硬编码的字面量 `\" &amp; \"`，测试的是字面量中的实体是否被双重转义，而非变量参数在 `autoescape off` 下是否被错误转义。需要将连接字符串改为模板变量。"
+        },
+        {
+            "test_name": "JoinTests.test_join06",
+            "test_file": "tests/template_tests/filter_tests/test_join.py",
+            "why_relevant": "测试了 `join` 过滤器使用变量作为连接字符串，且变量被标记为 `mark_safe`。展示了连接字符串参数来源的另一种模式。",
+            "reusable_parts": [
+                "使用变量 `var` 作为 `join` 的参数",
+                "`mark_safe` 的使用",
+                "测试变量参数的行为"
+            ],
+            "possible_gap": "该测试在默认（自动转义开启）环境下运行，且连接字符串被标记为 safe。Issue 关注的是 `autoescape off` 环境下普通（非 safe）变量的行为。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "相似测试 `test_join02` 使用硬编码的连接字符串字面量 `\", \"`（不包含特殊字符）。",
+            "target_pattern": "将连接字符串改为一个包含 HTML 特殊字符（如 `<br/>`）的模板变量，并在上下文中提供该变量。模板变为 `{% autoescape off %}{{ a|join:var }}{% endautoescape %}`，上下文 `{\"a\": [\"...\"], \"var\": \"<br/>\"}`。",
+            "reason": "Issue 表明缺陷仅在连接字符串是变量且包含需转义字符、同时处于 `autoescape off` 时触发。硬编码字面量可能被不同处理。",
+            "confidence": "high"
+        },
+        {
+            "slot": "config",
+            "current_pattern": "相似测试在 `{% autoescape off %}` 块内测试，但连接字符串是安全的字面量或实体。",
+            "target_pattern": "确保连接字符串变量是普通的未标记安全的字符串，且包含原始 HTML 字符（如 `<`, `>`），而不是 HTML 实体（如 `&amp;`）。",
+            "reason": "`mark_safe` 的变量可能被特殊处理，而缺陷是关于普通字符串在 `autoescape off` 下是否被错误转义。",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "return_value",
+            "expression_hint": "`self.engine.render_to_string(...)` 的返回值，即渲染后的完整模板字符串。",
+            "reason": "缺陷直接表现为最终输出字符串的错误转义。观察完整输出可以比较连接符是否被转义。"
+        },
+        {
+            "kind": "str",
+            "expression_hint": "连接字符串变量在传入上下文前的原始值，以及输出字符串中对应位置的片段。",
+            "reason": "可以具体检查 `<` 是否被转为 `&lt;`，`&` 是否被转为 `&amp;` 等。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "验证在 `autoescape off` 下，`join` 过滤器的输出中，连接字符串保持未转义（即包含原始的 `<br/>` 等字符）。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的、精确的期望输出字符串，因为列表项的内容可能涉及其他转义逻辑。避免断言内部状态或私有属性。",
+            "reason": "缺陷核心是连接符被转义，因此断言输出包含未转义的连接符片段（如 `<br/>`）是稳定且直接的对齐方式。完整字符串相等可能因列表项转义细节而脆弱。"
+        },
+        {
+            "assertion_goal": "验证输出与 Python `str.join` 在相同输入下的结果相等。",
+            "preferred_assertion_style": "equals",
+            "avoid": "使用 `escape()` 函数包装期望值。",
+            "reason": "Issue 中期望行为明确表述为应与 `some_var.join(some_list)` 结果一致。这是一个清晰、公开且稳定的语义目标。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "使用 `SimpleTestCase` 作为测试基类，并导入 `setup` 装饰器（可能来自 `django.template_tests.utils` 或类似位置）。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试需要访问 `self.engine`（一个模板引擎实例），这通常在 `SimpleTestCase` 子类中由测试框架提供。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "构造包含 HTML 特殊字符的字符串列表和连接字符串作为模板上下文。",
+            "source": "issue",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "`join` 过滤器实现函数的确切名称和位置。",
+        "除了变量参数，硬编码的字面量参数在 `autoescape off` 下是否也存在问题？",
+        "`autoescape off` 块嵌套或其他复杂模板结构是否影响缺陷触发。",
+        "是否还有其他过滤器存在类似的参数转义问题。"
+    ]
+}
+```

@@ -1,0 +1,175 @@
+```json
+{
+    "original_issue": {
+        "text": "Prevent using __isnull lookup with non-boolean value.\nDescription\n\t \n\t\t(last modified by Mariusz Felisiak)\n\t \n__isnull should not allow for non-boolean values. Using truthy/falsey doesn't promote INNER JOIN to an OUTER JOIN but works fine for a simple queries. Using non-boolean values is ​undocumented and untested. IMO we should raise an error for non-boolean values to avoid confusion and for consistency.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当在 Django ORM 查询中使用 `__isnull` 查找时，如果传入非布尔值（如整数、字符串等 truthy/falsey 值），当前行为是允许的，但会导致 JOIN 类型提升（INNER JOIN 到 OUTER JOIN）不一致。该行为未被记录和测试。期望的行为是：当 `__isnull` 接收到非布尔值（即不是 True、False 或 None）时，应该引发一个错误，以确保行为一致并避免混淆。",
+        "facts_from_issue": [
+            "__isnull 查找当前允许非布尔值。",
+            "使用 truthy/falsey 值不会将 INNER JOIN 提升为 OUTER JOIN，但在简单查询中工作正常。",
+            "使用非布尔值是未记录和未经测试的。",
+            "Issue 作者认为应该为 non-boolean values 引发错误。"
+        ],
+        "facts_from_retrieved_context": [
+            "相关测试显示 `__isnull` 通常与布尔值 True/False 一起使用。",
+            "测试 `test_null_boolean_field_raises_error_message` 表明 NullBooleanField 会对非布尔值引发验证错误。",
+            "测试 `test_isnull_filter_promotion` 表明 `__isnull` 与 Q 对象和 JOIN 类型（LEFT OUTER, INNER JOIN）有关。"
+        ],
+        "inferences": [
+            "`__isnull` 是 Django ORM 的一个查询查找（lookup）。",
+            "缺陷可能位于处理 `__isnull` 查找参数验证的代码中。",
+            "修复后，传入非布尔值应引发异常，而不是静默处理。"
+        ],
+        "do_not_assume": [
+            "具体会引发什么类型的异常（如 ValueError, TypeError, ValidationError）。",
+            "哪些具体的非布尔值（如 0, 1, \"\", \"foo\"）会触发错误。",
+            "错误消息的确切措辞。",
+            "缺陷在源码中的确切位置和行号。"
+        ]
+    },
+    "issue_summary": "Django ORM 的 `__isnull` 查找应拒绝非布尔值参数并引发错误，但目前却允许它们，导致 JOIN 行为不一致。",
+    "trigger_condition": {
+        "text": "在 Django QuerySet 的 filter() 方法中，对某个字段使用 `__isnull` 查找，并传入一个非布尔值（例如整数 0、1，字符串 \"\"、\"foo\"，列表 [] 等）。",
+        "evidence": [
+            "Issue 原文：\"__isnull should not allow for non-boolean values.\"",
+            "Issue 原文：\"Using truthy/falsey doesn't promote INNER JOIN to an OUTER JOIN but works fine for a simple queries.\"",
+            "检索测试中 `__isnull` 均使用布尔值 True/False。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "当前，使用非布尔值调用 `__isnull` 查找不会引发错误，查询可能执行但可能导致 JOIN 类型提升逻辑不一致（例如，不会将 INNER JOIN 提升为 OUTER JOIN）。",
+        "symptom_type": "unknown",
+        "evidence": [
+            "Issue 原文：\"Using truthy/falsey doesn't promote INNER JOIN to an OUTER JOIN but works fine for a simple queries.\"",
+            "Issue 原文：\"Using non-boolean values is ​undocumented and untested.\""
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当 `__isnull` 查找接收到非布尔值（即不是 True、False 或 None）时，应引发一个错误（例如 ValueError 或 TypeError），阻止查询执行。",
+        "evidence": [
+            "Issue 原文：\"IMO we should raise an error for non-boolean values to avoid confusion and for consistency.\"",
+            "检索测试 `test_null_boolean_field_raises_error_message` 显示类似字段会对无效输入引发错误。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "filter",
+            "kind": "method",
+            "source_path": "",
+            "reason": "Issue 涉及在 QuerySet 的 filter() 方法中使用 `__isnull` 查找。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "处理 ORM 查询查找（lookup）和参数验证的源码文件，可能位于 django/db/models/query.py 或 django/db/models/lookups.py 或其相关模块。",
+            "object": "__isnull 查找的处理逻辑，可能是一个 Lookup 类或其 `process_rhs` 或 `get_prep_lookup` 方法。",
+            "lines": "",
+            "reason": "Issue 指出 `__isnull` 查找的参数验证存在问题，应在此类查找处理逻辑中修复。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "IsNullTests.test_primary_key",
+            "test_file": "tests/queries/tests.py",
+            "why_relevant": "该测试直接演示了 `__isnull` 查找与布尔值 True/False 的标准用法，包括对象创建和 QuerySet 过滤。",
+            "reusable_parts": [
+                "测试类继承自 TestCase",
+                "使用 `objects.create()` 创建测试对象",
+                "使用 `Related.objects.filter(custom__isnull=...)` 调用模式",
+                "使用 `assertSequenceEqual` 进行断言"
+            ],
+            "possible_gap": "该测试只使用了正确的布尔值 True/False。需要变异 `filter` 调用中的参数，将布尔值替换为非布尔值（如 0, 1, \"\"）来触发缺陷。"
+        },
+        {
+            "test_name": "NullJoinPromotionOrTest.test_isnull_filter_promotion",
+            "test_file": "tests/queries/tests.py",
+            "why_relevant": "该测试涉及 `__isnull` 与 Q 对象和 JOIN 类型提升，与 Issue 中提到的 JOIN 行为相关。",
+            "reusable_parts": [
+                "使用 `ModelA.objects.filter(Q(b__name__isnull=...))` 调用模式",
+                "检查查询 SQL (`str(qs.query)`) 中 JOIN 类型的技术"
+            ],
+            "possible_gap": "该测试也只使用布尔值。需要变异 Q 对象中 `__isnull` 的参数为非布尔值，并观察是否引发错误（修复后）或是否影响 JOIN 类型（修复前）。"
+        },
+        {
+            "test_name": "ValidationMessagesTest.test_null_boolean_field_raises_error_message",
+            "test_file": "tests/validation/test_error_messages.py",
+            "why_relevant": "该测试展示了 Django 对非布尔值输入引发验证错误的模式，可作为错误处理机制的参考。",
+            "reusable_parts": [
+                "错误消息验证模式",
+                "使用模型字段进行验证测试的框架"
+            ],
+            "possible_gap": "该测试针对 `NullBooleanField` 模型字段，而非 `__isnull` 查询查找。需要将测试焦点从模型字段验证转移到查询查找参数验证。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "argument",
+            "current_pattern": "filter(custom__isnull=True) 或 filter(custom__isnull=False)",
+            "target_pattern": "filter(custom__isnull=<non-boolean_value>)，例如 filter(custom__isnull=0)、filter(custom__isnull=1)、filter(custom__isnull=\"\")、filter(custom__isnull=[])。",
+            "reason": "Issue 的核心是 `__isnull` 查找的参数应为布尔值。将参数从布尔值变异为非布尔值应触发预期的错误（修复后）或暴露不一致行为（修复前）。",
+            "confidence": "high"
+        },
+        {
+            "slot": "argument",
+            "current_pattern": "Q(b__name__isnull=True/False)",
+            "target_pattern": "Q(b__name__isnull=<non-boolean_value>)",
+            "reason": "在复杂查询（如使用 Q 对象）中，`__isnull` 同样应验证参数。变异此处可以测试 JOIN 提升逻辑是否受影响。",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "调用 `filter(...)` 时是否引发异常，以及异常的类型和消息。",
+            "reason": "修复后的预期行为是引发错误。观测是否引发异常是判断缺陷是否被触发的直接方式。"
+        },
+        {
+            "kind": "sql",
+            "expression_hint": "生成的 SQL 查询字符串（例如 `str(qs.query)`），特别是其中的 JOIN 子句类型（INNER JOIN 或 LEFT OUTER JOIN）。",
+            "reason": "Issue 提到使用非布尔值会影响 JOIN 类型提升。观测 SQL 可以验证行为不一致性。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "执行 `list(qs)` 或评估 QuerySet 返回的结果列表。",
+            "reason": "即使没有引发错误，非布尔值参数可能导致查询返回意外结果，这也可以作为错误症状。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "当 `__isnull` 查找使用非布尔值参数时，应引发一个异常（如 ValueError 或 TypeError）。",
+            "preferred_assertion_style": "raises",
+            "avoid": "断言完整的异常消息字符串（可能不稳定），或断言私有属性。",
+            "reason": "这与 Issue 中 \"raise an error\" 的期望行为直接一致。使用 `pytest.raises` 或 `assertRaises` 是稳定且目标明确的断言方式。"
+        },
+        {
+            "assertion_goal": "引发的异常应表明参数值无效或类型错误。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言异常消息的精确完整匹配。",
+            "reason": "异常消息的具体措辞可能变化，但应包含指示无效参数的相关关键词（如 \"boolean\", \"True\", \"False\", \"None\"）。检查消息片段更稳定。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要一个 Django TestCase 环境，并定义或导入相关的模型（如 Related, ModelA, JSONModel 等），用于创建测试对象和执行查询。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "可能需要配置测试数据库。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "具体会引发哪种异常类型（ValueError, TypeError, django.core.exceptions.ValidationError 等）。",
+        "哪些具体的非布尔值会被视为无效（所有非布尔值？还是某些如 None 被允许？）。",
+        "错误消息的确切格式和内容。",
+        "缺陷在源码中的确切位置和修复方式。"
+    ]
+}
+```

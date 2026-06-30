@@ -1,0 +1,922 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+CalibratedClassifierCV doesn't work with `set_config(transform_output="pandas")`
+### Describe the bug
+
+CalibratedClassifierCV with isotonic regression doesn't work when we previously set `set_config(transform_output="pandas")`.
+The IsotonicRegression seems to return a dataframe, which is a problem for `_CalibratedClassifier`  in `predict_proba` where it tries to put the dataframe in a numpy array row `proba[:, class_idx] = calibrator.predict(this_pred)`.
+
+### Steps/Code to Reproduce
+
+```python
+import numpy as np
+from sklearn import set_config
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.linear_model import SGDClassifier
+
+set_config(transform_output="pandas")
+model = CalibratedClassifierCV(SGDClassifier(), method='isotonic')
+model.fit(np.arange(90).reshape(30, -1), np.arange(30) % 2)
+model.predict(np.arange(90).reshape(30, -1))
+```
+
+### Expected Results
+
+It should not crash.
+
+### Actual Results
+
+```
+../core/model_trainer.py:306: in train_model
+    cv_predictions = cross_val_predict(pipeline,
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/model_selection/_validation.py:968: in cross_val_predict
+    predictions = parallel(
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:1085: in __call__
+    if self.dispatch_one_batch(iterator):
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:901: in dispatch_one_batch
+    self._dispatch(tasks)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:819: in _dispatch
+    job = self._backend.apply_async(batch, callback=cb)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/_parallel_backends.py:208: in apply_async
+    result = ImmediateResult(func)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/_parallel_backends.py:597: in __init__
+    self.results = batch()
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:288: in __call__
+    return [func(*args, **kwargs)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/joblib/parallel.py:288: in <listcomp>
+    return [func(*args, **kwargs)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/utils/fixes.py:117: in __call__
+    return self.function(*args, **kwargs)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/model_selection/_validation.py:1052: in _fit_and_predict
+    predictions = func(X_test)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/pipeline.py:548: in predict_proba
+    return self.steps[-1][1].predict_proba(Xt, **predict_proba_params)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/calibration.py:477: in predict_proba
+    proba = calibrated_classifier.predict_proba(X)
+../../../../.anaconda3/envs/strategy-training/lib/python3.9/site-packages/sklearn/calibration.py:764: in predict_proba
+    proba[:, class_idx] = calibrator.predict(this_pred)
+E   ValueError: could not broadcast input array from shape (20,1) into shape (20,)
+```
+
+### Versions
+
+```shell
+System:
+    python: 3.9.15 (main, Nov 24 2022, 14:31:59)  [GCC 11.2.0]
+executable: /home/philippe/.anaconda3/envs/strategy-training/bin/python
+   machine: Linux-5.15.0-57-generic-x86_64-with-glibc2.31
+
+Python dependencies:
+      sklearn: 1.2.0
+          pip: 22.2.2
+   setuptools: 62.3.2
+        numpy: 1.23.5
+        scipy: 1.9.3
+       Cython: None
+       pandas: 1.4.1
+   matplotlib: 3.6.3
+       joblib: 1.2.0
+threadpoolctl: 3.1.0
+
+Built with OpenMP: True
+
+threadpoolctl info:
+       user_api: openmp
+   internal_api: openmp
+         prefix: libgomp
+       filepath: /home/philippe/.anaconda3/envs/strategy-training/lib/python3.9/site-packages/scikit_learn.libs/libgomp-a34b3233.so.1.0.0
+        version: None
+    num_threads: 12
+
+       user_api: blas
+   internal_api: openblas
+         prefix: libopenblas
+       filepath: /home/philippe/.anaconda3/envs/strategy-training/lib/python3.9/site-packages/numpy.libs/libopenblas64_p-r0-742d56dc.3.20.so
+        version: 0.3.20
+threading_layer: pthreads
+   architecture: Haswell
+    num_threads: 12
+
+       user_api: blas
+   internal_api: openblas
+         prefix: libopenblas
+       filepath: /home/philippe/.anaconda3/envs/strategy-training/lib/python3.9/site-packages/scipy.libs/libopenblasp-r0-41284840.3.18.so
+        version: 0.3.18
+threading_layer: pthreads
+   architecture: Haswell
+    num_threads: 12
+```
+
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sklearn/calibration.py
+对象名称：CalibratedClassifierCV
+节点类型：class
+父节点：calibration
+行号范围：55-511
+代码：
+class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator):
+    """Probability calibration with isotonic regression or logistic regression.
+
+    This class uses cross-validation to both estimate the parameters of a
+    classifier and subsequently calibrate a classifier. With default
+    `ensemble=True`, for each cv split it
+    fits a copy of the base estimator to the training subset, and calibrates it
+    using the testing subset. For prediction, predicted probabilities are
+    averaged across these individual calibrated classifiers. When
+    `ensemble=False`, cross-validation is used to obtain unbiased predictions,
+    via :func:`~sklearn.model_selection.cross_val_predict`, which are then
+    used for calibration. For prediction, the base estimator, trained using all
+    the data, is used. This is the method implemented when `probabilities=True`
+    for :mod:`sklearn.svm` estimators.
+
+    Already fitted classifiers can be calibrated via the parameter
+    `cv="prefit"`. In this case, no cross-validation is used and all provided
+    data is used for calibration. The user has to take care manually that data
+    for model fitting and calibration are disjoint.
+
+    The calibration is based on the :term:`decision_function` method of the
+    `estimator` if it exists, else on :term:`predict_proba`.
+
+    Read more in the :ref:`User Guide <calibration>`.
+
+    Parameters
+    ----------
+    estimator : estimator instance, default=None
+        The classifier whose output need to be calibrated to provide more
+        accurate `predict_proba` outputs. The default classifier is
+        a :class:`~sklearn.svm.LinearSVC`.
+
+        .. versionadded:: 1.2
+
+    method : {'sigmoid', 'isotonic'}, default='sigmoid'
+        The method to use for calibration. Can be 'sigmoid' which
+        corresponds to Platt's method (i.e. a logistic regression model) or
+        'isotonic' which is a non-parametric approach. It is not advised to
+        use isotonic calibration with too few calibration samples
+        ``(<<1000)`` since it tends to overfit.
+
+    cv : int, cross-validation generator, iterable or "prefit", \
+            default=None
+        Determines the cross-validation splitting strategy.
+        Possible inputs for cv are:
+
+        - None, to use the default 5-fold cross-validation,
+        - integer, to specify the number of folds.
+        - :term:`CV splitter`,
+        - An iterable yielding (train, test) splits as arrays of indices.
+
+        For integer/None inputs, if ``y`` is binary or multiclass,
+        :class:`~sklearn.model_selection.StratifiedKFold` is used. If ``y`` is
+        neither binary nor multiclass, :class:`~sklearn.model_selection.KFold`
+        is used.
+
+        Refer to the :ref:`User Guide <cross_validation>` for the various
+        cross-validation strategies that can be used here.
+
+        If "prefit" is passed, it is assumed that `estimator` has been
+        fitted already and all data is used for calibration.
+
+        .. versionchanged:: 0.22
+            ``cv`` default value if None changed from 3-fold to 5-fold.
+
+    n_jobs : int, default=None
+        Number of jobs to run in parallel.
+        ``None`` means 1 unless in a :obj:`joblib.parallel_backend` context.
+        ``-1`` means using all processors.
+
+        Base estimator clones are fitted in parallel across cross-validation
+        iterations. Therefore parallelism happens only when `cv != "prefit"`.
+
+        See :term:`Glossary <n_jobs>` for more details.
+
+        .. versionadded:: 0.24
+
+    ensemble : bool, default=True
+        Determines how the calibrator is fitted when `cv` is not `'prefit'`.
+        Ignored if `cv='prefit'`.
+
+        If `True`, the `estimator` is fitted using training data, and
+        calibrated using testing data, for each `cv` fold. The final estimator
+        is an ensemble of `n_cv` fitted classifier and calibrator pairs, where
+        `n_cv` is the number of cross-validation folds. The output is the
+        average predicted probabilities of all pairs.
+
+        If `False`, `cv` is used to compute unbiased predictions, via
+        :func:`~sklearn.model_selection.cross_val_predict`, which are then
+        used for calibration. At prediction time, the classifier used is the
+        `estimator` trained on all the data.
+        Note that this method is also internally implemented  in
+        :mod:`sklearn.svm` estimators with the `probabilities=True` parameter.
+
+        .. versionadded:: 0.24
+
+    base_estimator : estimator instance
+        This parameter is deprecated. Use `estimator` instead.
+
+        .. deprecated:: 1.2
+           The parameter `base_estimator` is deprecated in 1.2 and will be
+           removed in 1.4. Use `estimator` instead.
+
+    Attributes
+    ----------
+    classes_ : ndarray of shape (n_classes,)
+        The class labels.
+
+    n_features_in_ : int
+        Number of features seen during :term:`fit`. Only defined if the
+        underlying estimator exposes such an attribute when fit.
+
+        .. versionadded:: 0.24
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during :term:`fit`. Only defined if the
+        underlying estimator exposes such an attribute when fit.
+
+        .. versionadded:: 1.0
+
+    calibrated_classifiers_ : list (len() equal to cv or 1 if `cv="prefit"` \
+            or `ensemble=False`)
+        The list of classifier and calibrator pairs.
+
+        - When `cv="prefit"`, the fitted `estimator` and fitted
+          calibrator.
+        - When `cv` is not "prefit" and `ensemble=True`, `n_cv` fitted
+          `estimator` and calibrator pairs. `n_cv` is the number of
+          cross-validation folds.
+        - When `cv` is not "prefit" and `ensemble=False`, the `estimator`,
+          fitted on all the data, and fitted calibrator.
+
+        .. versionchanged:: 0.24
+            Single calibrated classifier case when `ensemble=False`.
+
+    See Also
+    --------
+    calibration_curve : Compute true and predicted probabilities
+        for a calibration curve.
+
+    References
+    ----------
+    .. [1] Obtaining calibrated probability estimates from decision trees
+           and naive Bayesian classifiers, B. Zadrozny & C. Elkan, ICML 2001
+
+    .. [2] Transforming Classifier Scores into Accurate Multiclass
+           Probability Estimates, B. Zadrozny & C. Elkan, (KDD 2002)
+
+    .. [3] Probabilistic Outputs for Support Vector Machines and Comparisons to
+           Regularized Likelihood Methods, J. Platt, (1999)
+
+    .. [4] Predicting Good Probabilities with Supervised Learning,
+           A. Niculescu-Mizil & R. Caruana, ICML 2005
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.naive_bayes import GaussianNB
+    >>> from sklearn.calibration import CalibratedClassifierCV
+    >>> X, y = make_classification(n_samples=100, n_features=2,
+    ...                            n_redundant=0, random_state=42)
+    >>> base_clf = GaussianNB()
+    >>> calibrated_clf = CalibratedClassifierCV(base_clf, cv=3)
+    >>> calibrated_clf.fit(X, y)
+    CalibratedClassifierCV(...)
+    >>> len(calibrated_clf.calibrated_classifiers_)
+    3
+    >>> calibrated_clf.predict_proba(X)[:5, :]
+    array([[0.110..., 0.889...],
+           [0.072..., 0.927...],
+           [0.928..., 0.071...],
+           [0.928..., 0.071...],
+           [0.071..., 0.928...]])
+    >>> from sklearn.model_selection import train_test_split
+    >>> X, y = make_classification(n_samples=100, n_features=2,
+    ...                            n_redundant=0, random_state=42)
+    >>> X_train, X_calib, y_train, y_calib = train_test_split(
+    ...        X, y, random_state=42
+    ... )
+    >>> base_clf = GaussianNB()
+    >>> base_clf.fit(X_train, y_train)
+    GaussianNB()
+    >>> calibrated_clf = CalibratedClassifierCV(base_clf, cv="prefit")
+    >>> calibrated_clf.fit(X_calib, y_calib)
+    CalibratedClassifierCV(...)
+    >>> len(calibrated_clf.calibrated_classifiers_)
+    1
+    >>> calibrated_clf.predict_proba([[-0.5, 0.5]])
+    def __init__(
+        self,
+        estimator=None,
+        *,
+        method="sigmoid",
+        cv=None,
+        n_jobs=None,
+        ensemble=True,
+        base_estimator="deprecated",
+    ):
+    def fit(self, X, y, sample_weight=None, **fit_params):
+    def predict_proba(self, X):
+    def predict(self, X):
+    def _more_tags(self):
+
+
+【源码片段 2】
+文件路径：sklearn/calibration.py
+对象名称：predict_proba
+节点类型：class_function
+父节点：CalibratedClassifierCV
+行号范围：455-481
+代码：
+    def predict_proba(self, X):
+        """Calibrated probabilities of classification.
+
+        This function returns calibrated probabilities of classification
+        according to each class on an array of test vectors X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The samples, as accepted by `estimator.predict_proba
+...[TRUNCATED]...
+label: weight} or "balanced", default=None
+        Preset for the class_weight fit parameter.
+
+        Weights associated with classes. If not given, all classes
+        are supposed to have weight one.
+
+        The "balanced" mode uses the values of y to automatically adjust
+        weights inversely proportional to class frequencies in the input data
+        as ``n_samples / (n_classes * np.bincount(y))``.
+
+    warm_start : bool, default=False
+        When set to True, reuse the solution of the previous call to fit as
+        initialization, otherwise, just erase the previous solution.
+        See :term:`the Glossary <warm_start>`.
+
+        Repeatedly calling fit or partial_fit when warm_start is True can
+        result in a different solution than when calling fit a single time
+        because of the way the data is shuffled.
+        If a dynamic learning rate is used, the learning rate is adapted
+        depending on the number of samples already seen. Calling ``fit`` resets
+        this counter, while ``partial_fit`` will result in increasing the
+        existing counter.
+
+    average : bool or int, default=False
+        When set to `True`, computes the averaged SGD weights across all
+        updates and stores the result in the ``coef_`` attribute. If set to
+        an int greater than 1, averaging will begin once the total number of
+        samples seen reaches `average`. So ``average=10`` will begin
+        averaging after seeing 10 samples.
+        Integer values must be in the range `[1, n_samples]`.
+
+    Attributes
+    ----------
+    coef_ : ndarray of shape (1, n_features) if n_classes == 2 else \
+            (n_classes, n_features)
+        Weights assigned to the features.
+
+    intercept_ : ndarray of shape (1,) if n_classes == 2 else (n_classes,)
+        Constants in decision function.
+
+    n_iter_ : int
+        The actual number of iterations before reaching the stopping criterion.
+        For multiclass fits, it is the maximum over every binary fit.
+
+    loss_function_ : concrete ``LossFunction``
+
+    classes_ : array of shape (n_classes,)
+
+    t_ : int
+        Number of weight updates performed during training.
+        Same as ``(n_iter_ * n_samples + 1)``.
+
+    n_features_in_ : int
+        Number of features seen during :term:`fit`.
+
+        .. versionadded:: 0.24
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during :term:`fit`. Defined only when `X`
+        has feature names that are all strings.
+
+        .. versionadded:: 1.0
+
+    See Also
+    --------
+    sklearn.svm.LinearSVC : Linear support vector classification.
+    LogisticRegression : Logistic regression.
+    Perceptron : Inherits from SGDClassifier. ``Perceptron()`` is equivalent to
+        ``SGDClassifier(loss="perceptron", eta0=1, learning_rate="constant",
+        penalty=None)``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sklearn.linear_model import SGDClassifier
+    >>> from sklearn.preprocessing import StandardScaler
+    >>> from sklearn.pipeline import make_pipeline
+    >>> X = np.array([[-1, -1], [-2, -1], [1, 1], [2, 1]])
+    >>> Y = np.array([1, 1, 2, 2])
+    >>> # Always scale the input. The most convenient way is to use a pipeline.
+    >>> clf = make_pipeline(StandardScaler(),
+    ...                     SGDClassifier(max_iter=1000, tol=1e-3))
+    >>> clf.fit(X, Y)
+    Pipeline(steps=[('standardscaler', StandardScaler()),
+                    ('sgdclassifier', SGDClassifier())])
+    def __init__(
+        self,
+        loss="hinge",
+        *,
+        penalty="l2",
+        alpha=0.0001,
+        l1_ratio=0.15,
+        fit_intercept=True,
+        max_iter=1000,
+        tol=1e-3,
+        shuffle=True,
+        verbose=0,
+        epsilon=DEFAULT_EPSILON,
+        n_jobs=None,
+        random_state=None,
+        learning_rate="optimal",
+        eta0=0.0,
+        power_t=0.5,
+        early_stopping=False,
+        validation_fraction=0.1,
+        n_iter_no_change=5,
+        class_weight=None,
+        warm_start=False,
+        average=False,
+    ):
+    def _check_proba(self):
+    @available_if(_check_proba)
+    def predict_proba(self, X):
+    @available_if(_check_proba)
+    def predict_log_proba(self, X):
+    def _more_tags(self):
+
+
+【源码片段 5】
+文件路径：sklearn/isotonic.py
+对象名称：IsotonicRegression
+节点类型：class
+父节点：isotonic
+行号范围：137-453
+代码：
+class IsotonicRegression(RegressorMixin, TransformerMixin, BaseEstimator):
+    """Isotonic regression model.
+
+    Read more in the :ref:`User Guide <isotonic>`.
+
+    .. versionadded:: 0.13
+
+    Parameters
+    ----------
+    y_min : float, default=None
+        Lower bound on the lowest predicted value (the minimum value may
+        still be higher). If not set, defaults to -inf.
+
+    y_max : float, default=None
+        Upper bound on the highest predicted value (the maximum may still be
+        lower). If not set, defaults to +inf.
+
+    increasing : bool or 'auto', default=True
+        Determines whether the predictions should be constrained to increase
+        or decrease with `X`. 'auto' will decide based on the Spearman
+        correlation estimate's sign.
+
+    out_of_bounds : {'nan', 'clip', 'raise'}, default='nan'
+        Handles how `X` values outside of the training domain are handled
+        during prediction.
+
+        - 'nan', predictions will be NaN.
+        - 'clip', predictions will be set to the value corresponding to
+          the nearest train interval endpoint.
+        - 'raise', a `ValueError` is raised.
+
+    Attributes
+    ----------
+    X_min_ : float
+        Minimum value of input array `X_` for left bound.
+
+    X_max_ : float
+        Maximum value of input array `X_` for right bound.
+
+    X_thresholds_ : ndarray of shape (n_thresholds,)
+        Unique ascending `X` values used to interpolate
+        the y = f(X) monotonic function.
+
+        .. versionadded:: 0.24
+
+    y_thresholds_ : ndarray of shape (n_thresholds,)
+        De-duplicated `y` values suitable to interpolate the y = f(X)
+        monotonic function.
+
+        .. versionadded:: 0.24
+
+    f_ : function
+        The stepwise interpolating function that covers the input domain ``X``.
+
+    increasing_ : bool
+        Inferred value for ``increasing``.
+
+    See Also
+    --------
+    sklearn.linear_model.LinearRegression : Ordinary least squares Linear
+        Regression.
+    sklearn.ensemble.HistGradientBoostingRegressor : Gradient boosting that
+        is a non-parametric model accepting monotonicity constraints.
+    isotonic_regression : Function to solve the isotonic regression model.
+
+    Notes
+    -----
+    Ties are broken using the secondary method from de Leeuw, 1977.
+
+    References
+    ----------
+    Isotonic Median Regression: A Linear Programming Approach
+    Nilotpal Chakravarti
+    Mathematics of Operations Research
+    Vol. 14, No. 2 (May, 1989), pp. 303-308
+
+    Isotone Optimization in R : Pool-Adjacent-Violators
+    Algorithm (PAVA) and Active Set Methods
+    de Leeuw, Hornik, Mair
+    Journal of Statistical Software 2009
+
+    Correctness of Kruskal's algorithms for monotone regression with ties
+    de Leeuw, Psychometrica, 1977
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_regression
+    >>> from sklearn.isotonic import IsotonicRegression
+    >>> X, y = make_regression(n_samples=10, n_features=1, random_state=41)
+    >>> iso_reg = IsotonicRegression().fit(X, y)
+    >>> iso_reg.predict([.1, .2])
+    array([1.8628..., 3.7256...])
+    """
+    def __init__(self, *, y_min=None, y_max=None, increasing=True, out_of_bounds="nan"):
+    def _check_input_data_shape(self, X):
+    def _build_f(self, X, y):
+    def _build_y(self, X, y, sample_weight, trim_duplicates=True):
+    def fit(self, X, y, sample_weight=None):
+    def transform(self, T):
+    def predict(self, T):
+    def get_feature_names_out(self, input_features=None):
+    def __getstate__(self):
+    def __setstate__(self, state):
+    def _more_tags(self):
+
+
+【源码片段 6】
+文件路径：sklearn/calibration.py
+对象名称：_CalibratedClassifier
+节点类型：class
+父节点：calibration
+行号范围：703-781
+代码：
+class _CalibratedClassifier:
+    """Pipeline-like chaining a fitted classifier and its fitted calibrators.
+
+    Parameters
+    ----------
+    estimator : estimator instance
+        Fitted classifier.
+
+    calibrators : list of fitted estimator instances
+        List of fitted calibrators (either 'IsotonicRegression' or
+        '_SigmoidCalibration'). The number of calibrators equals the number of
+        classes. However, if there are 2 classes, the list contains only one
+        fitted calibrator.
+
+    classes : array-like of shape (n_classes,)
+        All the prediction classes.
+
+    method : {'sigmoid', 'isotonic'}, default='sigmoid'
+        The method to use for calibration. Can be 'sigmoid' which
+        corresponds to Platt's method or 'isotonic' which is a
+        non-parametric approach based on isotonic regression.
+    """
+    def __init__(self, estimator, calibrators, *, classes, method="sigmoid"):
+    def predict_proba(self, X):
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sklearn/tests/test_calibration.py
+测试名称：test_calibrated_classifier_cv_zeros_sample_weights_equivalence
+测试代码：
+@pytest.mark.parametrize("method", ["sigmoid", "isotonic"])
+@pytest.mark.parametrize("ensemble", [True, False])
+def test_calibrated_classifier_cv_zeros_sample_weights_equivalence(method, ensemble):
+    """Check that passing removing some sample from the dataset `X` is
+    equivalent to passing a `sample_weight` with a factor 0."""
+    X, y = load_iris(return_X_y=True)
+    # Scale the data to avoid any convergence issue
+    X = StandardScaler().fit_transform(X)
+    # Only use 2 classes and select samples such that 2-fold cross-validation
+    # split will lead to an equivalence with a `sample_weight` of 0
+    X = np.vstack((X[:40], X[50:90]))
+    y = np.hstack((y[:40], y[50:90]))
+    sample_weight = np.zeros_like(y)
+    sample_weight[::2] = 1
+
+    estimator = LogisticRegression()
+    calibrated_clf_without_weights = CalibratedClassifierCV(
+        estimator,
+        method=method,
+        ensemble=ensemble,
+        cv=2,
+    )
+    calibrated_clf_with_weights = clone(calibrated_clf_without_weights)
+
+    calibrated_clf_with_weights.fit(X, y, sample_weight=sample_weight)
+    calibrated_clf_without_weights.fit(X[::2], y[::2])
+
+    # Check that the underlying fitted estimators have the same coefficients
+    for est_with_weights, est_without_weights in zip(
+        calibrated_clf_with_weights.calibrated_classifiers_,
+        calibrated_clf_without_weights.calibrated_classifiers_,
+    ):
+        assert_allclose(
+            est_with_weights.estimator.coef_,
+            est_without_weights.estimator.coef_,
+        )
+
+    # Check that the predictions are the same
+    y_pred_with_weights = calibrated_clf_with_weights.predict_proba(X)
+    y_pred_without_weights = calibrated_clf_without_weights.predict_proba(X)
+
+    assert_allclose(y_pred_with_weights, y_pred_without_weights)
+
+【相关测试 2】
+测试文件：sklearn/tests/test_calibration.py
+测试名称：test_calibrated_classifier_cv_double_sample_weights_equivalence
+测试代码：
+@pytest.mark.parametrize("method", ["sigmoid", "isotonic"])
+@pytest.mark.parametrize("ensemble", [True, False])
+def test_calibrated_classifier_cv_double_sample_weights_equivalence(method, ensemble):
+    """Check that passing repeating twice the dataset `X` is equivalent to
+    passing a `sample_weight` with a factor 2."""
+    X, y = load_iris(return_X_y=True)
+    # Scale the data to avoid any convergence issue
+    X = StandardScaler().fit_transform(X)
+    # Only use 2 classes
+    X, y = X[:100], y[:100]
+    sample_weight = np.ones_like(y) * 2
+
+    # Interlace the data such that a 2-fold cross-validation will be equivalent
+    # to using the original dataset with a sample weights of 2
+    X_twice = np.zeros((X.shape[0] * 2, X.shape[1]), dtype=X.dtype)
+    X_twice[::2, :] = X
+    X_twice[1::2, :] = X
+    y_twice = np.zeros(y.shape[0] * 2, dtype=y.dtype)
+    y_twice[::2] = y
+    y_twice[1::2] = y
+
+    estimator = LogisticRegression()
+    calibrated_clf_without_weights = CalibratedClassifierCV(
+        estimator,
+        method=method,
+        ensemble=ensemble,
+        cv=2,
+    )
+    calibrated_clf_with_weights = clone(calibrated_clf_without_weights)
+
+    calibrated_clf_with_weights.fit(X, y, sample_weight=sample_weight)
+    calibrated_clf_without_weights.fit(X_twice, y_twice)
+
+    # Check that the underlying fitted estimators have the same coefficients
+    for est_with_weights, est_without_weights in zip(
+        calibrated_clf_with_weights.calibrated_classifiers_,
+        calibrated_clf_without_weights.calibrated_classifiers_,
+    ):
+        assert_allclose(
+            est_with_weights.estimator.coef_,
+            est_without_weights.estimator.coef_,
+        )
+
+    # Check that the predictions are the same
+    y_pred_with_weights = calibrated_clf_with_weights.predict_proba(X)
+    y_pred_without_weights = calibrated_clf_without_weights.predict_proba(X)
+
+    assert_allclose(y_pred_with_weights, y_pred_without_weights)
+
+【相关测试 3】
+测试文件：sklearn/manifold/tests/test_t_sne.py
+测试名称：test_tsne_works_with_pandas_output
+测试代码：
+def test_tsne_works_with_pandas_output():
+    """Make sure that TSNE works when the output is set to "pandas".
+
+    Non-regression test for gh-25365.
+    """
+    pytest.importorskip("pandas")
+    with config_context(transform_output="pandas"):
+        arr = np.arange(35 * 4).reshape(35, 4)
+        TSNE(n_components=2).fit_transform(arr)
+
+【相关测试 4】
+测试文件：sklearn/preprocessing/tests/test_encoders.py
+测试名称：test_X_is_not_1D_pandas
+测试代码：
+@pytest.mark.parametrize("method", ["fit", "fit_transform"])
+def test_X_is_not_1D_pandas(method):
+    pd = pytest.importorskip("pandas")
+    X = pd.Series([6, 3, 4, 6])
+    oh = OneHotEncoder()
+
+    msg = "Expected 2D array, got 1D array instead"
+    with pytest.raises(ValueError, match=msg):
+        getattr(oh, method)(X)
+
+【相关测试 5】
+测试文件：sklearn/tests/test_calibration.py
+测试名称：test_calibrated_classifier_error_base_estimator
+测试代码：
+def test_calibrated_classifier_error_base_estimator(data):
+    """Check that we raise an error is a user set both `base_estimator` and
+    `estimator`."""
+    calibrated_classifier = CalibratedClassifierCV(
+        base_estimator=LogisticRegression(), estimator=LogisticRegression()
+    )
+    with pytest.raises(ValueError, match="Both `base_estimator` and `estimator`"):
+        calibrated_classifier.fit(*data)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

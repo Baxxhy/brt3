@@ -1,0 +1,1157 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+_print_SingularityFunction() got an unexpected keyword argument 'exp'
+On a Jupyter Notebook cell, type the following:
+
+```python
+from sympy import *
+from sympy.physics.continuum_mechanics import Beam
+# Young's modulus
+E = symbols("E")
+# length of the beam
+L = symbols("L")
+# concentrated load at the end tip of the beam
+F = symbols("F")
+# square cross section
+B, H = symbols("B, H")
+I = B * H**3 / 12
+# numerical values (material: steel)
+d = {B: 1e-02, H: 1e-02, E: 210e09, L: 0.2, F: 100}
+
+b2 = Beam(L, E, I)
+b2.apply_load(-F, L / 2, -1)
+b2.apply_support(0, "fixed")
+R0, M0 = symbols("R_0, M_0")
+b2.solve_for_reaction_loads(R0, M0)
+```
+
+Then:
+
+```
+b2.shear_force()
+```
+
+The following error appears:
+```
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+/usr/local/lib/python3.8/dist-packages/IPython/core/formatters.py in __call__(self, obj)
+    343             method = get_real_method(obj, self.print_method)
+    344             if method is not None:
+--> 345                 return method()
+    346             return None
+    347         else:
+
+/usr/local/lib/python3.8/dist-packages/sympy/interactive/printing.py in _print_latex_png(o)
+    184         """
+    185         if _can_print(o):
+--> 186             s = latex(o, mode=latex_mode, **settings)
+    187             if latex_mode == 'plain':
+    188                 s = '$\\displaystyle %s$' % s
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in __call__(self, *args, **kwargs)
+    371 
+    372     def __call__(self, *args, **kwargs):
+--> 373         return self.__wrapped__(*args, **kwargs)
+    374 
+    375     @property
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in latex(expr, **settings)
+   2913 
+   2914     """
+-> 2915     return LatexPrinter(settings).doprint(expr)
+   2916 
+   2917 
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in doprint(self, expr)
+    252 
+    253     def doprint(self, expr):
+--> 254         tex = Printer.doprint(self, expr)
+    255 
+    256         if self._settings['mode'] == 'plain':
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in doprint(self, expr)
+    289     def doprint(self, expr):
+    290         """Returns printer's representation for expr (as a string)"""
+--> 291         return self._str(self._print(expr))
+    292 
+    293     def _print(self, expr, **kwargs):
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)
+    327                 printmethod = '_print_' + cls.__name__
+    328                 if hasattr(self, printmethod):
+--> 329                     return getattr(self, printmethod)(expr, **kwargs)
+    330             # Unknown object, fall back to the emptyPrinter.
+    331             return self.emptyPrinter(expr)
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Add(self, expr, order)
+    381             else:
+    382                 tex += " + "
+--> 383             term_tex = self._print(term)
+    384             if self._needs_add_brackets(term):
+    385                 term_tex = r"\left(%s\right)" % term_tex
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)
+    327                 printmethod = '_print_' + cls.__name__
+    328                 if hasattr(self, printmethod):
+--> 329                     return getattr(self, printmethod)(expr, **kwargs)
+    330             # Unknown object, fall back to the emptyPrinter.
+    331             return self.emptyPrinter(expr)
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Mul(self, expr)
+    565             # use the original expression here, since fraction() may have
+    566             # altered it when producing numer and denom
+--> 567             tex += convert(expr)
+    568 
+    569         else:
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in convert(expr)
+    517                                isinstance(x.base, Quantity)))
+    518 
+--> 519                 return convert_args(args)
+    520 
+    521         def convert_args(args):
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in convert_args(args)
+    523 
+    524                 for i, term in enumerate(args):
+--> 525                     term_tex = self._print(term)
+    526 
+    527                     if self._needs_mul_brackets(term, first=(i == 0),
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)
+    327                 printmethod = '_print_' + cls.__name__
+    328                 if hasattr(self, printmethod):
+--> 329                     return getattr(self, printmethod)(expr, **kwargs)
+    330             # Unknown object, fall back to the emptyPrinter.
+    331             return self.emptyPrinter(expr)
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Add(self, expr, order)
+    381             else:
+    382                 tex += " + "
+--> 383             term_tex = self._print(term)
+    384             if self._needs_add_brackets(term):
+    385                 term_tex = r"\left(%s\right)" % term_tex
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)
+    327                 printmethod = '_print_' + cls.__name__
+    328                 if hasattr(self, printmethod):
+--> 329                     return getattr(self, printmethod)(expr, **kwargs)
+    330             # Unknown object, fall back to the emptyPrinter.
+    331             return self.emptyPrinter(expr)
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Mul(self, expr)
+    569         else:
+    570             snumer = convert(numer)
+--> 571             sdenom = convert(denom)
+    572             ldenom = len(sdenom.split())
+    573             ratio = self._settings['long_frac_ratio']
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in convert(expr)
+    505         def convert(expr):
+    506             if not expr.is_Mul:
+--> 507                 return str(self._print(expr))
+    508             else:
+    509                 if self.order not in ('old', 'none'):
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)
+    327                 printmethod = '_print_' + cls.__name__
+    328                 if hasattr(self, printmethod):
+--> 329                     return getattr(self, printmethod)(expr, **kwargs)
+    330             # Unknown object, fall back to the emptyPrinter.
+    331             return self.emptyPrinter(expr)
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Add(self, expr, order)
+    381             else:
+    382                 tex += " + "
+--> 383             term_tex = self._print(term)
+    384             if self._needs_add_brackets(term):
+    385                 term_tex = r"\left(%s\right)" % term_tex
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)
+    327                 printmethod = '_print_' + cls.__name__
+    328                 if hasattr(self, printmethod):
+--> 329                     return getattr(self, printmethod)(expr, **kwargs)
+    330             # Unknown object, fall back to the emptyPrinter.
+    331             return self.emptyPrinter(expr)
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/latex.py in _print_Pow(self, expr)
+    649         else:
+    650             if expr.base.is_Function:
+--> 651                 return self._print(expr.base, exp=self._print(expr.exp))
+    652             else:
+    653                 tex = r"%s^{%s}"
+
+/usr/local/lib/python3.8/dist-packages/sympy/printing/printer.py in _print(self, expr, **kwargs)
+    327                 printmethod = '_print_' + cls.__name__
+    328                 if hasattr(self, printmethod):
+--> 329                     return getattr(self, printmethod)(expr, **kwargs)
+    330             # Unknown object, fall back to the emptyPrinter.
+    331             return self.emptyPrinter(expr)
+
+TypeError: _print_SingularityFunction() got an unexpected keyword argument 'exp'
+```
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sympy/physics/continuum_mechanics/beam.py
+对象名称：Beam
+节点类型：class
+父节点：beam
+行号范围：22-1788
+代码：
+class Beam:
+    """
+    A Beam is a structural element that is capable of withstanding load
+    primarily by resisting against bending. Beams are characterized by
+    their cross sectional profile(Second moment of area), their length
+    and their material.
+
+    .. note::
+       While solving a beam bending problem, a user should choose its
+       own sign convention and should stick to it. The results will
+       automatically follow the chosen sign convention. However, the
+       chosen sign convention must respect the rule that, on the positive
+       side of beam's axis (in respect to current section), a loading force
+       giving positive shear yields a negative moment, as below (the
+       curved arrow shows the positive moment and rotation):
+
+    .. image:: allowed-sign-conventions.png
+
+    Examples
+    ========
+    There is a beam of length 4 meters. A constant distributed load of 6 N/m
+    is applied from half of the beam till the end. There are two simple supports
+    below the beam, one at the starting point and another at the ending point
+    of the beam. The deflection of the beam at the end is restricted.
+
+    Using the sign convention of downwards forces being positive.
+
+    >>> from sympy.physics.continuum_mechanics.beam import Beam
+    >>> from sympy import symbols, Piecewise
+    >>> E, I = symbols('E, I')
+    >>> R1, R2 = symbols('R1, R2')
+    >>> b = Beam(4, E, I)
+    >>> b.apply_load(R1, 0, -1)
+    >>> b.apply_load(6, 2, 0)
+    >>> b.apply_load(R2, 4, -1)
+    >>> b.bc_deflection = [(0, 0), (4, 0)]
+    >>> b.boundary_conditions
+    {'deflection': [(0, 0), (4, 0)], 'slope': []}
+    >>> b.load
+    R1*SingularityFunction(x, 0, -1) + R2*SingularityFunction(x, 4, -1) + 6*SingularityFunction(x, 2, 0)
+    >>> b.solve_for_reaction_loads(R1, R2)
+    >>> b.load
+    -3*SingularityFunction(x, 0, -1) + 6*SingularityFunction(x, 2, 0) - 9*SingularityFunction(x, 4, -1)
+    >>> b.shear_force()
+    3*SingularityFunction(x, 0, 0) - 6*SingularityFunction(x, 2, 1) + 9*SingularityFunction(x, 4, 0)
+    >>> b.bending_moment()
+    3*SingularityFunction(x, 0, 1) - 3*SingularityFunction(x, 2, 2) + 9*SingularityFunction(x, 4, 1)
+    >>> b.slope()
+    (-3*SingularityFunction(x, 0, 2)/2 + SingularityFunction(x, 2, 3) - 9*SingularityFunction(x, 4, 2)/2 + 7)/(E*I)
+    >>> b.deflection()
+    (7*x - SingularityFunction(x, 0, 3)/2 + SingularityFunction(x, 2, 4)/4 - 3*SingularityFunction(x, 4, 3)/2)/(E*I)
+    >>> b.deflection().rewrite(Piecewise)
+    (7*x - Piecewise((x**3, x > 0), (0, True))/2
+         - 3*Piecewise(((x - 4)**3, x - 4 > 0), (0, True))/2
+         + Piecewise(((x - 2)**4, x - 2 > 0), (0, True))/4)/(E*I)
+    """
+    def __init__(self, length, elastic_modulus, second_moment, area=Symbol('A'), variable=Symbol('x'), base_char='C'):
+    def __str__(self):
+    @property
+    def reaction_loads(self):
+    @property
+    def length(self):
+    @length.setter
+    def length(self, l):
+    @property
+    def area(self):
+    @area.setter
+    def area(self, a):
+    @property
+    def variable(self):
+    @variable.setter
+    def variable(self, v):
+    @property
+    def elastic_modulus(self):
+    @elastic_modulus.setter
+    def elastic_modulus(self, e):
+    @property
+    def second_moment(self):
+    @second_moment.setter
+    def second_moment(self, i):
+    @property
+    def cross_section(self):
+    @cross_section.setter
+    def cross_section(self, s):
+    @property
+    def boundary_conditions(self):
+    @property
+    def bc_slope(self):
+    @bc_slope.setter
+    def bc_slope(self, s_bcs):
+    @property
+    def bc_deflection(self):
+    @bc_deflection.setter
+    def bc_deflection(self, d_bcs):
+    def join(self, beam, via="fixed"):
+    def apply_support(self, loc, type="fixed"):
+    def apply_load(self, value, start, order, end=None):
+    def remove_load(self, value, start, order, end=None):
+    @property
+    def load(self):
+    @property
+    def applied_loads(self):
+    def _solve_hinge_beams(self, *reactions):
+    def solve_for_reaction_loads(self, *reactions):
+    def shear_force(self):
+    def max_shear_force(self):
+    def bending_moment(self):
+    def max_bmoment(self):
+    def point_cflexure(self):
+    def slope(self):
+    def deflection(self):
+    def max_deflection(self):
+    def shear_stress(self):
+    def plot_shear_force(self, subs=None):
+    def plot_bending_moment(self, subs=None):
+    def plot_slope(self, subs=None):
+    def plot_deflection(self, subs=None):
+    def plot_loading_results(self, subs=None):
+    @doctest_depends_on(modules=('numpy',))
+    def draw(self, pictorial=True):
+    def _draw_load(self, pictorial, length, l):
+    def _draw_supports(self, length, l):
+
+
+【源码片段 2】
+文件路径：sympy/physics/continuum_mechanics/beam.py
+对象名称：apply_load
+节点类型：class_function
+父节点：Beam
+行号范围：401-476
+代码：
+    def apply_load(self, value, start, order, end=None):
+        """
+        This method adds up the loads given to a particular beam object.
+
+        Parameters
+        ==========
+        value : Sympifyable
+            The value inserted should have the units [Force/(Distance**(n+1)]
+            where n is the order of applied load.
+            Units for applied loads:
+
+               - For moments, unit = kN*m
+               - For point loads, unit = kN
+               - For constant distributed load, unit = kN/m
+               - For ramp loads, unit = kN/m/m
+               - For parabolic ramp loads, unit = kN/m/m/m
+               - ... so on.
+
+        start : Sympifyable
+            The starting point of the applied load. For point moments and
+            point forces this is the location of application.
+        order : Integer
+            The order of the applied load.
+
+               - For moments, order = -2
+               - For point loads, order =-1
+               - For constant distributed load, order = 0
+               - For ramp loads, order = 1
+               - For parabolic ramp loads, order = 2
+               - ... so on.
+
+        end : Sympifyable, optional
+            An optional argument that can be used if the load has an end point
+            within the length of the beam.
+
+        Examples
+        ========
+        There is a beam of length 4 meters. A moment of magnitude 3 Nm is
+        applied in the clockwise direction at the starting point of the beam.
+        A point load of magnitude 4 N is applied from the top of the beam at
+        2 meters from the starting point and a parabolic ramp load of magnitude
+        2 N/m is applied below the beam starting from 2 meters to 3 meters
+        away from the starting point of the beam.
+
+        >>> from sympy.physics.continuum_mechanics.beam import Beam
+        >>> from sympy import symbols
+        >>> E, I = symbols('E, I')
+        >>> b = Beam(4, E, I)
+        >>> b.apply_load(-3, 0, -2)
+        >>> b.apply_load(4, 2, -1)
+        >>> b.apply_load(-2, 2, 2, end=3)
+        >>> b.load
+        -3*SingularityFunction(x, 0, -2) + 4*SingularityFunction(x, 2, -1) - 2*SingularityFunction(x, 2, 2) + 2*SingularityFunction(x, 3, 0) + 4*SingularityFunction(x, 3, 1) + 2*SingularityFunction(x, 3, 2)
+
+        """
+        x = self.variable
+        value = sympify(value)
+        start = sympify(start)
+        order = sympify(order)
+
+        self._applied_loads.append((value, start, order, end))
+        self._load += value*SingularityFunction(x, start, order)
+
+        if end:
+            if order.is_negative:
+                msg = ("If 'end' is provided the 'order' of the load cannot "
+                       "be negative, i.e. 'end' is only valid for distributed "
+                       "loads.")
+                raise ValueError(msg)
+            # NOTE : A Taylor series can be used to define the summation of
+            # singularity functions that subtract from the load past the end
+            # point such that it evaluates to zero past 'end'.
+            f = value*x**order
+            for i in range(0, order + 1):
+                self._load -= (f.diff(x, i).subs(x, end - start) *
+                               SingularityFunction(x, end, i)/factorial(i))
+
+
+【源码片段 3】
+文件路径：sympy/physics/continuum_mechanics/beam.py
+对象名称：apply_support
+节点类型：class_function
+父节点：Beam
+行号范围：340-399
+代码：
+    def apply_support(self, loc, type="fixed"):
+        """
+        This method applies support to a particular beam object.
+
+        Parameters
+        ==========
+        loc : Sympifyable
+            Location of point at which support is applied.
+        type : String
+            Determines type of Beam support applied. To apply support structure
+            with
+            - zero degree of freedom, type = "fixed"
+            - one degree of freedom, type = "pin"
+            - two degrees of freedom, type = "roller"
+
+        Examples
+        ========
+        There is a beam of length 30 meters. A moment of magnitude 120 Nm is
+        applied in the clockwise direction at the end of the beam. A pointload
+        of magnitude 8 N is applied from the top of the beam at the starting
+        point. There are two simple supports below the beam. One at the end
+        and another one at a distance of 10 meters from the start. The
+        deflection is restricted at both the supports.
+
+        Using the sign convention of upward forces and clockwise moment
+        being positive.
+
+        >>> from sympy.physics.continuum_mechanics.beam import Beam
+        >>> from sympy import symbols
+        >>> E, I = symbols('E, I')
+        >>> b = Beam(30, E, I)
+        >>> b.apply_support(10, 'roller')
+        >>> b.apply_support(30, 'roller')
+        >>> b.apply_load(-8, 0, -1)
+        >>> b.apply_load(120, 30, -2)
+        >>> R_10, R_30 = symbols('R_10, R_30')
+        >>> b.solve_for_reaction_loads(R_10, R_30)
+        >>> b.load
+        -8*SingularityFunction(x, 0, -1) + 6*SingularityFunction(x, 10, -1)
+        + 120*SingularityFunction(x, 30, -2) + 2*SingularityFunction(x, 30, -1)
+        >>> b.slope()
+        (-4*SingularityFunction(x, 0, 2) + 3*SingularityFunction(x, 10, 2)
+            + 120*SingularityFunction(x, 30, 1) + SingularityFunction(x, 30, 2) + 4000/3)/(E*I)
+        """
+        loc = sympify(loc)
+        self._applied_supports.append((loc, type))
+        if type == "pin" or type == "roller":
+            reaction_load = Symbol('R_'+str(loc))
+            self.apply_load(reaction_load, loc, -1)
+            self.bc_deflection.append((loc, 0))
+        else:
+            reaction_load = Symbol('R_'+str(loc))
+            reaction_moment = Symbol('M_'+str(loc))
+            self.apply_load(reaction_load, loc, -1)
+            self.apply_load(reaction_moment, loc, -2)
+            self.bc_deflection.append((loc, 0))
+            self.bc_slope.append((loc, 0))
+            self._support_as_loads.append((reaction_moment, loc, -2, None))
+
+        self._support_as_loads.append((reaction_load, loc, -1, None))
+
+
+【源码片段 4】
+文件路径：sympy/physics/continuum_mechanics/beam.py
+对象名称：solve_for_reaction_loads
+节点类型：class_function
+父节点：Beam
+行号范围：744-809
+代码：
+    def solve_for_reaction_loads(self, *reactions):
+        """
+        Solves for the reaction forces.
+
+        Examples
+        ========
+        There is a beam of length 30 meters. A moment of magnitude 120 Nm is
+        applied in the clockwise direction at the end of the beam. A pointload
+        of magnitude 8 N is applied from the top of the beam at the starting
+        point. There are two simple supports below the beam. One at the end
+        and another one at a distance of 10 meters from the start. The
+        deflection is restricted at both the supports.
+
+        Using the sign convention of upward forces and clockwise moment
+        being positive.
+
+        >>> from sympy.physics.continuum_mechanics.beam import Beam
+        >>> from sympy import symbols
+        >>> E, I = symbols('E, I')
+        >>> R1, R2 = symbols('R1, R2')
+        >>> b = Beam(30, E, I)
+        >>> b.apply_load(-8, 0, -1)
+        >>> b.apply_load(R1, 10, -1)  # Reaction force at x = 10
+        >>> b.apply_load(R2, 30, -1)  # Reaction force at x = 30
+        >>> b.apply_load(120, 30, -2)
+        >>> b.bc_deflection = [(10, 0), (30, 0)]
+        >>> b.load
+        R1*SingularityFunction(x, 10, -1) + R2*SingularityFunction(x, 30, -1)
+            - 8*SingularityFunction(x, 0, -1) + 120*SingularityFunction(x, 30, -2)
+        >>> b.solve_for_reaction_loads(R1, R2)
+        >>> b.reaction_loads
+        {R1: 6, R2: 2}
+        >>> b.load
+        -8*SingularityFunction(x, 0, -1) + 6*SingularityFunction(x, 10, -1)
+            + 120*SingularityFunction(x, 30, -2) + 2*SingularityFunction(x, 30, -1)
+        """
+        if self._composite_type == "hinge":
+            return self._solve_hinge_beams(*reactions)
+
+        x = self.variable
+        l = self.length
+        C3 = Symbol('C3')
+        C4 = Symbol('C4')
+
+        shear_curve = limit(self.shear_force(), x, l)
+        moment_curve = limit(self.bending_moment(), x, l)
+
+        slope_eqs = []
+        deflection_eqs = []
+
+        slope_curve = integrate(self.bending_moment(), x) + C3
+        for position, value in self._boundary_conditions['slope']:
+            eqs = slope_curve.subs(x, position) - value
+            slope_eqs.append(eqs)
+
+        deflection_curve = integrate(slope_curve, x) + C4
+        for position, value in self._boundary_conditions['deflection']:
+            eqs = deflection_curve.subs(x, position) - value
+            deflection_eqs.append(eqs)
+
+        solution = list((linsolve([shear_curve, moment_curve] + slope_eqs
+                            + deflection_eqs, (C3, C4) + reactions).args)[0])
+        solution = solution[2:]
+
+        self._reaction_loads = dict(zip(reactions, solution))
+        self._load = self._load.subs(self._reaction_loads)
+
+
+【源码片段 5】
+文件路径：sympy/physics/continuum_mechanics/beam.py
+对象名称：shear_force
+节点类型：class_function
+父节点：Beam
+行号范围：811-843
+代码：
+    def shear_force(self):
+        """
+        Returns a Singularity Function expression which represents
+        the shear force curve of the Beam object.
+
+        Examples
+        ========
+        There is a beam of length 30 meters. A moment of magnitude 120 Nm is
+        applied in the clockwise direction at the end of the beam. A pointload
+        of magnitude 8 N is applied from the top of the beam at the starting
+        point. There are two simple supports below the beam. One at the end
+        and another one at a distance of 10 meters from the start. The
+        deflection is restricted at both the supports.
+
+        Using the sign convention of upward forces and clockwise moment
+        being positive.
+
+        >>> from sympy.physics.continuum_mechanics.beam import Beam
+        >>> from sympy import symbols
+        >>> E, I = symbols('E, I')
+        >>> R1, R2 = symbols('R1, R2')
+        >>> b = Beam(30, E, I)
+        >>> b.apply_load(-8, 0, -1)
+        >>> b.apply_load(R1, 10, -1)
+        >>> b.apply_load(R2, 30, -1)
+        >>> b.apply_load(120, 30, -2)
+        >>> b.bc_deflection = [(10, 0), (30, 0)]
+        >>> b.solve_for_reaction_loads(R1, R2)
+        >>> b.shear_force()
+        8*SingularityFunction(x, 0, 0) - 6*SingularityFunction(x, 10, 0) - 120*SingularityFunction(x, 30, -1) - 2*SingularityFunction(x, 30, 0)
+        """
+        x = self.variable
+        return -integrate(self.load, x)
+
+
+【源码片段 6】
+文件路径：sympy/printing/mathml.py
+对象名称：_print_SingularityFunction
+节点类型：class_function
+父节点：MathMLPresentationPrinter
+行号范围：1659-1669
+代码：
+    def _print_SingularityFunction(self, expr):
+        shift = expr.args[0] - expr.args[1]
+        power = expr.args[2]
+        sup = self.dom.createElement('msup')
+        brac = self.dom.createElement('mfenced')
+        brac.setAttribute('close', '\u27e9')
+        brac.setAttribute('open', '\u27e8')
+        brac.appendChild(self._print(shift))
+        sup.appendChild(brac)
+        sup.appendChild(self._print(power))
+        return sup
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sympy/physics/continuum_mechanics/tests/test_beam.py
+测试名称：test_Beam
+测试代码：
+def test_Beam():
+    E = Symbol('E')
+    E_1 = Symbol('E_1')
+    I = Symbol('I')
+    I_1 = Symbol('I_1')
+    A = Symbol('A')
+
+    b = Beam(1, E, I)
+    assert b.length == 1
+    assert b.elastic_modulus == E
+    assert b.second_moment == I
+    assert b.variable == x
+
+    # Test the length setter
+    b.length = 4
+    assert b.length == 4
+
+    # Test the E setter
+    b.elastic_modulus = E_1
+    assert b.elastic_modulus == E_1
+
+    # Test the I setter
+    b.second_moment = I_1
+    assert b.second_moment is I_1
+
+    # Test the variable setter
+    b.variable = y
+    assert b.variable is y
+
+    # Test for all boundary conditions.
+    b.bc_deflection = [(0, 2)]
+    b.bc_slope = [(0, 1)]
+    assert b.boundary_conditions == {'deflection': [(0, 2)], 'slope': [(0, 1)]}
+
+    # Test for slope boundary condition method
+    b.bc_slope.extend([(4, 3), (5, 0)])
+    s_bcs = b.bc_slope
+    assert s_bcs == [(0, 1), (4, 3), (5, 0)]
+
+    # Test for deflection boundary condition method
+    b.bc_deflection.extend([(4, 3), (5, 0)])
+    d_bcs = b.bc_deflection
+    assert d_bcs == [(0, 2), (4, 3), (5, 0)]
+
+    # Test for updated boundary conditions
+    bcs_new = b.boundary_conditions
+    assert bcs_new == {
+        'deflection': [(0, 2), (4, 3), (5, 0)],
+        'slope': [(0, 1), (4, 3), (5, 0)]}
+
+    b1 = Beam(30, E, I)
+    b1.apply_load(-8, 0, -1)
+    b1.apply_load(R1, 10, -1)
+    b1.apply_load(R2, 30, -1)
+    b1.apply_load(120, 30, -2)
+    b1.bc_deflection = [(10, 0), (30, 0)]
+    b1.solve_for_reaction_loads(R1, R2)
+
+    # Test for finding reaction forces
+    p = b1.reaction_loads
+    q = {R1: 6, R2: 2}
+    assert p == q
+
+    # Test for load distribution function.
+    p = b1.load
+    q = -8*SingularityFunction(x, 0, -1) + 6*SingularityFunction(x, 10, -1) \
+    + 120*SingularityFunction(x, 30, -2) + 2*SingularityFunction(x, 30, -1)
+    assert p == q
+
+    # Test for shear force distribution function
+    p = b1.shear_force()
+    q = 8*SingularityFunction(x, 0, 0) - 6*SingularityFunction(x, 10, 0) \
+    - 120*SingularityFunction(x, 30, -1) - 2*SingularityFunction(x, 30, 0)
+    assert p == q
+
+    # Test for shear stress distribution function
+    p = b1.shear_stress()
+    q = (8*SingularityFunction(x, 0, 0) - 6*SingularityFunction(x, 10, 0) \
+    - 120*SingularityFunction(x, 30, -1) \
+    - 2*SingularityFunction(x, 30, 0))/A
+    assert p==q
+
+    # Test for bending moment distribution function
+    p = b1.bending_moment()
+    q = 8*SingularityFunction(x, 0, 1) - 6*SingularityFunction(x, 10, 1) \
+    - 120*SingularityFunction(x, 30, 0) - 2*SingularityFunction(x, 30, 1)
+    assert p == q
+
+    # Test for slope distribution function
+    p = b1.slope()
+    q = -4*SingularityFunction(x, 0, 2) + 3*SingularityFunction(x, 10, 2) \
+    + 120*SingularityFunction(x, 30, 1) + SingularityFunction(x, 30, 2) \
+    + Rational(4000, 3)
+    assert p == q/(E*I)
+
+    # Test for deflection distribution function
+    p = b1.deflection()
+    q = x*Rational(4000, 3) - 4*SingularityFunction(x, 0, 3)/3 \
+    + SingularityFunction(x, 10, 3) + 60*SingularityFunction(x, 30, 2) \
+    + SingularityFunction(x, 30, 3)/3 - 12000
+    assert p == q/(E*I)
+
+    # Test using symbols
+    l = Symbol('l')
+    w0 = Symbol('w0')
+    w2 = Symbol('w2')
+    a1 = Symbol('a1')
+    c = Symbol('c')
+    c1 = Symbol('c1')
+    d = Symbol('d')
+    e = Symbol('e')
+    f = Symbol('f')
+
+    b2 = Beam(l, E, I)
+
+    b2.apply_load(w0, a1, 1)
+    b2.apply_load(w2, c1, -1)
+
+    b2.bc_deflection = [(c, d)]
+    b2.bc_slope = [(e, f)]
+
+    # Test for load distribution function.
+    p = b2.load
+    q = w0*SingularityFunction(x, a1, 1) + w2*SingularityFunction(x, c1, -1)
+    assert p == q
+
+    # Test for shear force distribution function
+    p = b2.shear_force()
+    q = -w0*SingularityFunction(x, a1, 2)/2 \
+    - w2*SingularityFunction(x, c1, 0)
+    assert p == q
+
+    # Test for shear stress distribution function
+    p = b2.shear_stress()
+    q = (-w0*SingularityFunction(x, a1, 2)/2 \
+    - w2*SingularityFunction(x, c1, 0))/A
+    assert p == q
+
+    # Test for bending moment distribution function
+    p = b2.bending_moment()
+    q = -w0*SingularityFunction(x, a1, 3)/6 - w2*SingularityFunction(x, c1, 1)
+    assert p == q
+
+    # Test for slope distribution function
+    p = b2.slope()
+    q = (w0*SingularityFunction(x, a1, 4)/24 + w2*SingularityFunction(x, c1, 2)/2)/(E*I) + (E*I*f - w0*SingularityFunction(e, a1, 4)/24 - w2*SingularityFunction(e, c1, 2)/2)/(E*I)
+    assert expand(p) == expand(q)
+
+    # Test for deflection distribution function
+    p = b2.deflection()
+    q = x*(E*I*f - w0*SingularityFunction(e, a1, 4)/24 \
+    - w2*SingularityFunction(e, c1, 2)/2)/(E*I) \
+    + (w0*SingularityFunction(x, a1, 5)/120 \
+    + w2*SingularityFunction(x, c1, 3)/6)/(E*I) \
+    + (E*I*(-c*f + d) + c*w0*SingularityFunction(e, a1, 4)/24 \
+    + c*w2*SingularityFunction(e, c1, 2)/2 \
+    - w0*SingularityFunction(c, a1, 5)/120 \
+    - w2*SingularityFunction(c, c1, 3)/6)/(E*I)
+    assert simplify(p - q) == 0
+
+    b3 = Beam(9, E, I, 2)
+    b3.apply_load(value=-2, start=2, order=2, end=3)
+    b3.bc_slope.append((0, 2))
+    C3 = symbols('C3')
+    C4 = symbols('C4')
+
+    p = b3.load
+    q = -2*SingularityFunction(x, 2, 2) + 2*SingularityFunction(x, 3, 0) \
+    + 4*SingularityFunction(x, 3, 1) + 2*SingularityFunction(x, 3, 2)
+    assert p == q
+
+    p = b3.shear_force()
+    q = 2*SingularityFunction(x, 2, 3)/3 - 2*SingularityFunction(x, 3, 1) \
+    - 2*SingularityFunction(x, 3, 2) - 2*SingularityFunction(x, 3, 3)/3
+    assert p == q
+
+    p = b3.shear_stress()
+    q = SingularityFunction(x, 2, 3)/3 - 1*SingularityFunction(x, 3, 1) \
+    - 1*SingularityFunction(x, 3, 2) - 1*SingularityFunction(x, 3, 3)/3
+    assert p == q
+
+    p = b3.slope()
+    q = 2 - (SingularityFunction(x, 2, 5)/30 - SingularityFunction(x, 3, 3)/3 \
+    - SingularityFunction(x, 3, 4)/6 - SingularityFunction(x, 3, 5)/30)/(E*I)
+    assert p == q
+
+    p = b3.deflection()
+    q = 2*x - (SingularityFunction(x, 2, 6)/180 \
+    - SingularityFunction(x, 3, 4)/12 - SingularityFunction(x, 3, 5)/30 \
+    - SingularityFunction(x, 3, 6)/180)/(E*I)
+    assert p == q + C4
+
+    b4 = Beam(4, E, I, 3)
+    b4.apply_load(-3, 0, 0, end=3)
+
+    p = b4.load
+    q = -3*SingularityFunction(x, 0, 0) + 3*SingularityFunction(x, 3, 0)
+    assert p == q
+
+    p = b4.shear_force()
+    q = 3*SingularityFunction(x, 0, 1) \
+    - 3*SingularityFunction(x, 3, 1)
+    assert p == q
+
+    p = b4.shear_stress()
+    q = SingularityFunction(x, 0, 1) - SingularityFunction(x, 3, 1)
+    assert p == q
+
+    p = b4.slope()
+    q = -3*SingularityFunction(x, 0, 3)/6 + 3*SingularityFunction(x, 3, 3)/6
+    assert p == q/(E*I) + C3
+
+    p = b4.deflection()
+    q = -3*SingularityFunction(x, 0, 4)/24 + 3*SingularityFunction(x, 3, 4)/24
+    assert p == q/(E*I) + C3*x + C4
+
+    # can't use end with point loads
+    raises(ValueError, lambda: b4.apply_load(-3, 0, -1, end=3))
+    with raises(TypeError):
+        b4.variable = 1
+
+【相关测试 2】
+测试文件：sympy/physics/continuum_mechanics/tests/test_beam.py
+测试名称：test_max_shear_force
+测试代码：
+def test_max_shear_force():
+    E = Symbol('E')
+    I = Symbol('I')
+
+    b = Beam(3, E, I)
+    R, M = symbols('R, M')
+    b.apply_load(R, 0, -1)
+    b.apply_load(M, 0, -2)
+    b.apply_load(2, 3, -1)
+    b.apply_load(4, 2, -1)
+    b.apply_load(2, 2, 0, end=3)
+    b.solve_for_reaction_loads(R, M)
+    assert b.max_shear_force() == (Interval(0, 2), 8)
+
+    l = symbols('l', positive=True)
+    P = Symbol('P')
+    b = Beam(l, E, I)
+    R1, R2 = symbols('R1, R2')
+    b.apply_load(R1, 0, -1)
+    b.apply_load(R2, l, -1)
+    b.apply_load(P, 0, 0, end=l)
+    b.solve_for_reaction_loads(R1, R2)
+    assert b.max_shear_force() == (0, l*Abs(P)/2)
+
+【相关测试 3】
+测试文件：sympy/physics/continuum_mechanics/tests/test_beam.py
+测试名称：test_composite_beam
+测试代码：
+def test_composite_beam():
+    E = Symbol('E')
+    I = Symbol('I')
+    b1 = Beam(2, E, 1.5*I)
+    b2 = Beam(2, E, I)
+    b = b1.join(b2, "fixed")
+    b.apply_load(-20, 0, -1)
+    b.apply_load(80, 0, -2)
+    b.apply_load(20, 4, -1)
+    b.bc_slope = [(0, 0)]
+    b.bc_deflection = [(0, 0)]
+    assert b.length == 4
+    assert b.second_moment == Piecewise((1.5*I, x <= 2), (I, x <= 4))
+    assert b.slope().subs(x, 4) == 120.0/(E*I)
+    assert b.slope().subs(x, 2) == 80.0/(E*I)
+    assert int(b.deflection().subs(x, 4).args[0]) == -302  # Coefficient of 1/(E*I)
+
+    l = symbols('l', positive=True)
+    R1, M1, R2, R3, P = symbols('R1 M1 R2 R3 P')
+    b1 = Beam(2*l, E, I)
+    b2 = Beam(2*l, E, I)
+    b = b1.join(b2,"hinge")
+    b.apply_load(M1, 0, -2)
+    b.apply_load(R1, 0, -1)
+    b.apply_load(R2, l, -1)
+    b.apply_load(R3, 4*l, -1)
+    b.apply_load(P, 3*l, -1)
+    b.bc_slope = [(0, 0)]
+    b.bc_deflection = [(0, 0), (l, 0), (4*l, 0)]
+    b.solve_for_reaction_loads(M1, R1, R2, R3)
+    assert b.reaction_loads == {R3: -P/2, R2: P*Rational(-5, 4), M1: -P*l/4, R1: P*Rational(3, 4)}
+    assert b.slope().subs(x, 3*l) == -7*P*l**2/(48*E*I)
+    assert b.deflection().subs(x, 2*l) == 7*P*l**3/(24*E*I)
+    assert b.deflection().subs(x, 3*l) == 5*P*l**3/(16*E*I)
+
+    # When beams having same second moment are joined.
+    b1 = Beam(2, 500, 10)
+    b2 = Beam(2, 500, 10)
+    b = b1.join(b2, "fixed")
+    b.apply_load(M1, 0, -2)
+    b.apply_load(R1, 0, -1)
+    b.apply_load(R2, 1, -1)
+    b.apply_load(R3, 4, -1)
+    b.apply_load(10, 3, -1)
+    b.bc_slope = [(0, 0)]
+    b.bc_deflection = [(0, 0), (1, 0), (4, 0)]
+    b.solve_for_reaction_loads(M1, R1, R2, R3)
+    assert b.slope() == -2*SingularityFunction(x, 0, 1)/5625 + SingularityFunction(x, 0, 2)/1875\
+                - 133*SingularityFunction(x, 1, 2)/135000 + SingularityFunction(x, 3, 2)/1000\
+                - 37*SingularityFunction(x, 4, 2)/67500
+    assert b.deflection() == -SingularityFunction(x, 0, 2)/5625 + SingularityFunction(x, 0, 3)/5625\
+                    - 133*SingularityFunction(x, 1, 3)/405000 + SingularityFunction(x, 3, 3)/3000\
+                    - 37*SingularityFunction(x, 4, 3)/202500
+
+【相关测试 4】
+测试文件：sympy/physics/continuum_mechanics/tests/test_beam.py
+测试名称：test_statically_indeterminate
+测试代码：
+def test_statically_indeterminate():
+    E = Symbol('E')
+    I = Symbol('I')
+    M1, M2 = symbols('M1, M2')
+    F = Symbol('F')
+    l = Symbol('l', positive=True)
+
+    b5 = Beam(l, E, I)
+    b5.bc_deflection = [(0, 0),(l, 0)]
+    b5.bc_slope = [(0, 0),(l, 0)]
+
+    b5.apply_load(R1, 0, -1)
+    b5.apply_load(M1, 0, -2)
+    b5.apply_load(R2, l, -1)
+    b5.apply_load(M2, l, -2)
+    b5.apply_load(-F, l/2, -1)
+
+    b5.solve_for_reaction_loads(R1, R2, M1, M2)
+    p = b5.reaction_loads
+    q = {R1: F/2, R2: F/2, M1: -F*l/8, M2: F*l/8}
+    assert p == q
+
+【相关测试 5】
+测试文件：sympy/physics/continuum_mechanics/tests/test_beam.py
+测试名称：test_max_bmoment
+测试代码：
+def test_max_bmoment():
+    E = Symbol('E')
+    I = Symbol('I')
+    l, P = symbols('l, P', positive=True)
+
+    b = Beam(l, E, I)
+    R1, R2 = symbols('R1, R2')
+    b.apply_load(R1, 0, -1)
+    b.apply_load(R2, l, -1)
+    b.apply_load(P, l/2, -1)
+    b.solve_for_reaction_loads(R1, R2)
+    b.reaction_loads
+    assert b.max_bmoment() == (l/2, P*l/4)
+
+    b = Beam(l, E, I)
+    R1, R2 = symbols('R1, R2')
+    b.apply_load(R1, 0, -1)
+    b.apply_load(R2, l, -1)
+    b.apply_load(P, 0, 0, end=l)
+    b.solve_for_reaction_loads(R1, R2)
+    assert b.max_bmoment() == (l/2, P*l**2/8)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

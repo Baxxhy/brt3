@@ -1,0 +1,119 @@
+instance_id: sphinx-doc__sphinx-10451
+
+issue_summary: 在 Sphinx autodoc 扩展的 `autodoc_typehints = "description"` 模式下，为包含 `*args` 和 `**kwargs` 的方法生成文档时，参数条目会重复且类型信息不完整。
+
+trigger_condition:
+{
+  "text": "使用 Sphinx autodoc 扩展，配置 `autodoc_typehints = \"description\"`，为一个包含 `*args` 和 `**kwargs` 参数且有文档字符串的 `__init__` 方法（例如 `def __init__(self, x: int, *args: int, **kwargs: int)`）生成文档（例如通过 `.. autoclass::` 指令）。",
+  "evidence": [
+    "Issue 中给出的示例代码和配置 `autodoc_typehints = \"description\"`。",
+    "Issue 中描述的当前错误输出。",
+    "检索测试中使用了 `confoverrides={'autodoc_typehints': \"description\"}` 和 `.. autoclass::` 指令。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的文档文本中，`*args` 和 `**kwargs` 参数条目出现重复。具体表现为：在 `__init__` 方法的参数部分，`*args` 和 `**kwargs` 各出现了两次，且其中一次缺少类型注解 `(*int*)`。",
+  "symptom_type": "wrong_order",
+  "evidence": [
+    "Issue 中给出的当前输出片段显示 `*args` 和 `**kwargs` 条目重复且部分条目缺少 `(*int*)`。",
+    "Issue 原文描述：\"where the *args and **kwargs are duplicated and incomplete.\""
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "生成的文档文本中，`*args` 和 `**kwargs` 参数条目应各只出现一次，并且应正确显示其类型信息（例如 `(*int*)`）。",
+  "evidence": [
+    "Issue 中给出的期望输出片段显示 `*args` 和 `**kwargs` 条目不重复且带有 `(*int*)` 类型信息。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "sphinx.ext.autodoc",
+    "kind": "module",
+    "source_path": "",
+    "reason": "Issue 明确涉及 autodoc 扩展。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "测试类 `target.typehints._ClassWithDocumentedInit` 的 `__init__` 签名为 `(self, x: int)`。",
+    "target_pattern": "创建一个新的测试类，其 `__init__` 签名为 `(self, x: int, *args: int, **kwargs: int)`，并为所有参数（包括 `*args` 和 `**kwargs`）添加文档字符串（如 `:param *args: Some integer`）。",
+    "reason": "Issue 的触发条件是需要一个包含文档化 `*args` 和 `**kwargs` 的 `__init__` 方法。",
+    "confidence": "high"
+  },
+  {
+    "slot": "config",
+    "current_pattern": "测试使用 `testroot='ext-autodoc'`，该测试根目录可能已包含 `target.typehints` 模块的定义。",
+    "target_pattern": "在 `ext-autodoc` 测试根目录下的 `target/typehints.py` 模块中，添加新的包含 `*args` 和 `**kwargs` 的测试类定义，或在测试代码中动态创建模块。",
+    "reason": "需要让 autodoc 能够导入并处理包含目标签名的类。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "file_output",
+    "expression_hint": "`(app.outdir / 'index.txt').read_text(encoding='utf8')`",
+    "reason": "错误症状直接体现在生成的文本文档内容中。观察完整的输出文件内容可以捕获参数条目的重复和类型信息缺失问题。"
+  },
+  {
+    "kind": "str",
+    "expression_hint": "文档输出字符串中与 `*args` 和 `**kwargs` 相关的子字符串或行",
+    "reason": "可以聚焦检查输出中 `*args` 和 `**kwargs` 出现的次数和格式，而不依赖完整的字符串相等断言。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的文档文本中，子字符串 `\"*args\"` 和 `\"**kwargs\"` 在描述参数的部分各只出现一次（或符合期望的次数）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、多行的文档输出字符串完全相等。避免断言私有属性或内部缓存。",
+    "reason": "Issue 的核心是参数条目重复。检查关键参数名的出现次数比完整字符串断言更稳定，且能直接对准问题。"
+  },
+  {
+    "assertion_goal": "生成的文档文本中，`*args` 和 `**kwargs` 条目应包含类型信息 `(*int*)`。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言类型信息字符串的精确位置或完整的格式化标记。",
+    "reason": "Issue 指出部分条目缺少类型信息 `(*int*)`。检查类型信息是否存在是验证修复的有效且稳定的方法。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "使用 `@pytest.mark.sphinx` 装饰器创建 Sphinx 应用，配置 `testroot='ext-autodoc'` 和 `confoverrides={'autodoc_typehints': \"description\"}`。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 `app` fixture，并通过 `(app.srcdir / 'index.rst').write_text()` 写入 reStructuredText 源文件，使用 `.. autoclass::` 指令。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试运行后，通过 `app.build()` 构建文档，并从输出目录（如 `app.outdir`）读取生成的文本文件进行断言。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "Bug 是否也影响普通的函数（非 `__init__` 方法）的 `*args` 和 `**kwargs`。",
+  "除了 `*args` 和 `**kwargs`，其他复杂参数类型（如 `**kwargs: Dict[str, int]`）是否也有类似问题。",
+  "导致重复和类型信息缺失的具体代码路径和逻辑错误是什么。",
+  "`autodoc_typehints` 设置为其他值（如 `\"signature\"`）时是否也存在此问题。"
+]

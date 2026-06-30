@@ -1,0 +1,106 @@
+instance_id: pylint-dev__pylint-5859
+
+issue_summary: pylint 的 `--notes` 选项无法识别完全由标点符号组成的注释标签，导致相应的 W0511 警告缺失。
+
+trigger_condition:
+{
+  "text": "运行 pylint 检查一个 Python 文件，该文件包含以 `#` 开头的注释，注释内容以完全由标点符号组成的字符串（例如 `???`）开头，后跟冒号和消息。同时使用 `--notes` 命令行选项指定该标点符号字符串作为要检查的标签之一。",
+  "evidence": [
+    "Issue 中的示例命令：`pylint test.py --notes=\"YES,???\"`。",
+    "Issue 中的示例代码：`# ???: no`。",
+    "Issue 描述：\"If a note tag specified with the `--notes` option is entirely punctuation, pylint won't report a fixme warning (W0511).\""
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "对于完全由标点符号组成的注释标签（如 `???`），pylint 没有输出预期的 W0511 (fixme) 警告。",
+  "symptom_type": "warning",
+  "evidence": [
+    "Issue 中的 Pylint output 部分只显示了 `test.py:1:1: W0511: YES: yes (fixme)`，缺少第二行的警告。",
+    "Issue 描述：\"pylint won't report a fixme warning (W0511)\"。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "对于在 `--notes` 选项中指定的所有标签，包括完全由标点符号组成的标签，只要它们出现在源代码的注释中（格式为 `# TAG: message`），pylint 都应报告 W0511 (fixme) 警告。",
+  "evidence": [
+    "Issue 中的 Expected behavior 部分显示了两行警告输出。",
+    "Issue 描述隐含了所有指定标签都应被平等对待的期望。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "process_tokens",
+    "kind": "method",
+    "source_path": "",
+    "reason": "相关测试代码中，`self.checker.process_tokens(_tokenize_str(code))` 是触发 fixme 检查的核心调用。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "config",
+    "current_pattern": "@set_config(notes=[\"CODETAG\"])",
+    "target_pattern": "@set_config(notes=[\"YES\", \"???\"]) 或 @set_config(notes=[\"???\"])",
+    "reason": "Issue 的核心是 `notes` 配置包含纯标点符号标签时行为不正确。将测试中的标签从字母标签改为纯标点符号标签，可以触发缺陷路径。",
+    "confidence": "high"
+  },
+  {
+    "slot": "input",
+    "current_pattern": "code = \"\"\"a = 1\\n                # CODETAG\\n                # FIXME\\n                \"\"\"",
+    "target_pattern": "code = \"\"\"a = 1\\n                # YES: yes\\n                # ???: no\\n                \"\"\"",
+    "reason": "测试代码需要包含与配置的标签匹配的注释行。Issue 示例中的注释格式是 `# TAG: message`。需要将测试代码变异为包含纯标点符号标签 `???` 的注释。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "MessageTest(msg_id=\"fixme\", line=2, args=\"CODETAG\", col_offset=17)",
+    "target_pattern": "MessageTest(msg_id=\"fixme\", line=3, args=\"???: no\", col_offset=17) 或类似格式",
+    "reason": "断言期望的消息参数需要与变异的输入代码和配置相匹配。对于 `# ???: no` 这一行，期望的 `args` 可能是整个注释内容或标签部分。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "warning",
+    "expression_hint": "由 `self.checker.process_tokens` 调用产生的消息列表（例如通过 `self.linter.release_messages()` 或类似方式获取）。",
+    "reason": "Issue 的症状是特定警告（W0511）缺失。直接观察检查器产生的消息列表可以判断是否为目标标签生成了警告。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "验证对于包含纯标点符号标签 `???` 的注释行，检查器产生了 `msg_id` 为 \"fixme\" 的警告消息。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的消息字符串相等，因为消息格式（如行号、列偏移）可能因代码格式微调而变化。避免断言内部状态或私有属性。",
+    "reason": "更稳定的断言是检查产生的消息列表中是否存在与目标标签（如 `???`）相关的 `fixme` 消息。这直接对应了 Issue 的核心：警告是否被触发。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要使用 `CheckerTestCase` 作为基类，并导入 `set_config`、`MessageTest` 等。可能需要 `_tokenize_str` 函数。测试环境应模拟 pylint 检查器的运行。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "`MessageTest` 中 `args` 参数的确切格式和内容（是仅标签 `???`，还是整个注释内容 `???: no`）。",
+  "标签匹配是否对空格敏感（例如 `#???` 与 `# ???`）。",
+  "除了 `--notes` 命令行选项，是否还有其他方式配置 `notes`（如配置文件），以及它们是否共享相同的缺陷逻辑。",
+  "导致纯标点符号标签被忽略的具体代码位置和根本原因。"
+]

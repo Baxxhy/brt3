@@ -1,0 +1,126 @@
+instance_id: sphinx-doc__sphinx-8474
+
+issue_summary: Sphinx 3.3 在构建 singlehtml 或 latex 时，对表格生成了意外的 "no number is assigned for table" 警告。
+
+trigger_condition:
+{
+  "text": "使用 Sphinx 3.3 版本，在 `numfig` 配置可能为 True 或相关的情况下，构建 `singlehtml` 或 `latex` 输出，文档中包含表格（可能涉及 `:numref:` 引用）。",
+  "evidence": [
+    "原始 Issue 提到升级到 3.3 后，构建 `singlehtml` 或 `latex` 时出现警告。",
+    "相关测试 `test_numfig_with_numbered_toctree_warn` 使用了 `confoverrides={'numfig': True}`。",
+    "相关测试 `test_numref` 针对 `latex` 构建器测试 `numfig` 功能。"
+  ],
+  "confidence": "medium"
+}
+
+error_symptom:
+{
+  "text": "构建过程中输出了警告 \"WARNING: no number is assigned for table:\"。",
+  "symptom_type": "warning",
+  "evidence": [
+    "原始 Issue 中直接引用了警告信息。",
+    "相关测试 `test_numfig_with_numbered_toctree_warn` 检查了类似的 \"no number is assigned for section:\" 警告。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "在构建 `singlehtml` 或 `latex` 时，对于符合编号条件的表格，不应生成 \"no number is assigned for table\" 警告；或者，该警告只应在表格确实无法分配编号（例如，`numfig` 禁用或表格不符合编号条件）时出现。",
+  "evidence": [
+    "原始 Issue 暗示这是一个新出现的、意外的警告。",
+    "相关测试 `test_numref` 在 `numfig=True` 时构建 `latex`，其断言未检查此警告，暗示正常情况不应出现。"
+  ],
+  "confidence": "medium"
+}
+
+target_apis:
+[
+  {
+    "name": "Sphinx",
+    "kind": "class",
+    "source_path": "sphinx/application.py",
+    "reason": "Sphinx 主应用类，管理构建过程，可能涉及警告的发出。"
+  },
+  {
+    "name": "build",
+    "kind": "method",
+    "source_path": "sphinx/application.py",
+    "reason": "触发构建过程的方法，是警告产生的入口。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "config",
+    "current_pattern": "相似测试 `test_numref` 使用 `confoverrides={'numfig': True}` 并针对 `latex` 构建器。",
+    "target_pattern": "保持 `numfig=True`，但可能需要调整文档内容，使其包含一个可能触发警告的表格（例如，一个被 `:numref:` 引用但可能未分配编号的表格）。或者，尝试 `numfig=False` 看警告是否消失。",
+    "reason": "警告与表格编号分配有关，`numfig` 配置直接影响编号逻辑。文档内容可能影响编号的分配结果。",
+    "confidence": "medium"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试 `test_numfig_with_numbered_toctree_warn` 使用 `app.build()`。",
+    "target_pattern": "使用 `app.builder.build_all()` 或针对特定文件构建，并确保构建器为 `singlehtml` 或 `latex`。",
+    "reason": "Issue 明确指出警告在构建 `singlehtml` 或 `latex` 时出现，需要切换构建器类型。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "warning",
+    "expression_hint": "`warning.getvalue()` 或构建过程中的标准错误输出。",
+    "reason": "错误症状是产生了特定的警告信息，直接观察警告输出是判断 Issue 是否触发的关键。"
+  },
+  {
+    "kind": "file_output",
+    "expression_hint": "生成的输出文件内容，如 `.tex` 文件或 `.html` 文件。",
+    "reason": "可以观察表格编号是否被正确生成和引用，这可能与警告的产生相关。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "构建过程中不包含 \"WARNING: no number is assigned for table:\" 警告。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的警告字符串（可能包含行号等可变部分），断言私有日志记录器状态。",
+    "reason": "Issue 的核心是意外的警告出现。修复后，该警告不应出现（或只在正确情况下出现）。检查警告输出是直接的公开行为。"
+  },
+  {
+    "assertion_goal": "生成的输出文件（如 LaTeX）中，对表格的引用能够正确解析。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、可能随格式变化的 LaTeX 代码字符串。",
+    "reason": "如果警告是由于编号分配失败导致的，那么成功的编号分配和引用应反映在最终输出中。检查输出片段更稳定。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "使用 `pytest.mark.sphinx` 装饰器来设置 Sphinx 测试应用，指定构建器（`'latex'` 或 `'singlehtml'`）、测试根目录（如 `'numfig'`）和配置覆盖。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "利用 `app`、`status`、`warning` 这几个 fixture。`warning` fixture 用于捕获构建过程中的警告输出。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要准备一个包含表格和 `:numref:` 引用的 `.rst` 测试文档。",
+    "source": "inference",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "触发警告所需的确切文档结构（例如，需要什么样的表格，是否需要 `:numref:` 引用）。",
+  "警告是否只在 `numfig=True` 时出现，还是与 `numfig` 的具体值无关。",
+  "导致警告的代码具体位于哪个文件、哪个函数中。",
+  "这是否是 Sphinx 3.3 中引入的回归错误，还是预期行为的变化。"
+]

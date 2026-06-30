@@ -1,0 +1,460 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+Decoding an invalid session data crashes.
+Description
+	 
+		(last modified by Matt Hegarty)
+	 
+Hi
+I recently upgraded my staging server to 3.1. I think that there was an old session which was still active.
+On browsing to any URL, I get the crash below. It looks similar to ​this issue.
+I cannot login at all with Chrome - each attempt to access the site results in a crash. Login with Firefox works fine.
+This is only happening on my Staging site, which is running Gunicorn behind nginx proxy.
+Internal Server Error: /overview/
+Traceback (most recent call last):
+File "/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py", line 215, in _get_session
+return self._session_cache
+AttributeError: 'SessionStore' object has no attribute '_session_cache'
+During handling of the above exception, another exception occurred:
+Traceback (most recent call last):
+File "/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py", line 118, in decode
+return signing.loads(session_data, salt=self.key_salt, serializer=self.serializer)
+File "/usr/local/lib/python3.8/site-packages/django/core/signing.py", line 135, in loads
+base64d = TimestampSigner(key, salt=salt).unsign(s, max_age=max_age).encode()
+File "/usr/local/lib/python3.8/site-packages/django/core/signing.py", line 201, in unsign
+result = super().unsign(value)
+File "/usr/local/lib/python3.8/site-packages/django/core/signing.py", line 184, in unsign
+raise BadSignature('Signature "%s" does not match' % sig)
+django.core.signing.BadSignature: Signature "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" does not match
+During handling of the above exception, another exception occurred:
+Traceback (most recent call last):
+File "/usr/local/lib/python3.8/site-packages/django/core/handlers/exception.py", line 47, in inner
+response = get_response(request)
+File "/usr/local/lib/python3.8/site-packages/django/core/handlers/base.py", line 179, in _get_response
+response = wrapped_callback(request, *callback_args, **callback_kwargs)
+File "/usr/local/lib/python3.8/site-packages/django/views/generic/base.py", line 73, in view
+return self.dispatch(request, *args, **kwargs)
+File "/usr/local/lib/python3.8/site-packages/django/contrib/auth/mixins.py", line 50, in dispatch
+if not request.user.is_authenticated:
+File "/usr/local/lib/python3.8/site-packages/django/utils/functional.py", line 240, in inner
+self._setup()
+File "/usr/local/lib/python3.8/site-packages/django/utils/functional.py", line 376, in _setup
+self._wrapped = self._setupfunc()
+File "/usr/local/lib/python3.8/site-packages/django_otp/middleware.py", line 38, in _verify_user
+user.otp_device = None
+File "/usr/local/lib/python3.8/site-packages/django/utils/functional.py", line 270, in __setattr__
+self._setup()
+File "/usr/local/lib/python3.8/site-packages/django/utils/functional.py", line 376, in _setup
+self._wrapped = self._setupfunc()
+File "/usr/local/lib/python3.8/site-packages/django/contrib/auth/middleware.py", line 23, in <lambda>
+request.user = SimpleLazyObject(lambda: get_user(request))
+File "/usr/local/lib/python3.8/site-packages/django/contrib/auth/middleware.py", line 11, in get_user
+request._cached_user = auth.get_user(request)
+File "/usr/local/lib/python3.8/site-packages/django/contrib/auth/__init__.py", line 174, in get_user
+user_id = _get_user_session_key(request)
+File "/usr/local/lib/python3.8/site-packages/django/contrib/auth/__init__.py", line 58, in _get_user_session_key
+return get_user_model()._meta.pk.to_python(request.session[SESSION_KEY])
+File "/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py", line 65, in __getitem__
+return self._session[key]
+File "/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py", line 220, in _get_session
+self._session_cache = self.load()
+File "/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/db.py", line 44, in load
+return self.decode(s.session_data) if s else {}
+File "/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py", line 122, in decode
+return self._legacy_decode(session_data)
+File "/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py", line 126, in _legacy_decode
+encoded_data = base64.b64decode(session_data.encode('ascii'))
+File "/usr/local/lib/python3.8/base64.py", line 87, in b64decode
+return binascii.a2b_base64(s)
+binascii.Error: Incorrect padding
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：django/contrib/sessions/backends/file.py
+对象名称：SessionStore
+节点类型：class
+父节点：file
+行号范围：16-202
+代码：
+class SessionStore(SessionBase):
+    """
+    Implement a file based session store.
+    """
+    def __init__(self, session_key=None):
+    @classmethod
+    def _get_storage_path(cls):
+    def _key_to_file(self, session_key=None):
+    def _last_modification(self):
+    def _expiry_date(self, session_data):
+    def load(self):
+    def create(self):
+    def save(self, must_create=False):
+    def exists(self, session_key):
+    def delete(self, session_key=None):
+    def clean(self):
+    @classmethod
+    def clear_expired(cls):
+
+
+【源码片段 2】
+文件路径：django/contrib/sessions/backends/base.py
+对象名称：_get_session
+节点类型：class_function
+父节点：SessionBase
+行号范围：217-230
+代码：
+    def _get_session(self, no_load=False):
+        """
+        Lazily load session from storage (unless "no_load" is True, when only
+        an empty dict is stored) and store it in the current instance.
+        """
+        self.accessed = True
+        try:
+            return self._session_cache
+        except AttributeError:
+            if self.session_key is None or no_load:
+                self._session_cache = {}
+            else:
+                self._session_cache = self.load()
+        return self._session_cache
+
+
+【源码片段 3】
+文件路径：django/contrib/sessions/backends/file.py
+对象名称：load
+节点类型：class_function
+父节点：SessionStore
+行号范围：75-99
+代码：
+    def load(self):
+        session_data = {}
+        try:
+            with open(self._key_to_file(), encoding='ascii') as session_file:
+                file_data = session_file.read()
+            # Don't fail if there is no data in the session file.
+            # We may have opened the empty placeholder file.
+            if file_data:
+                try:
+                    session_data = self.decode(file_data)
+                except (EOFError, SuspiciousOperation) as e:
+                    if isinstance(e, SuspiciousOperation):
+                        logger = logging.getLogger('django.security.%s' % e.__class__.__name__)
+                        logger.warning(str(e))
+                    self.create()
+
+                # Remove expired sessions.
+                expiry_age = self.get_expiry_age(expiry=self._expiry_date(session_data))
+                if expiry_age <= 0:
+                    session_data = {}
+                    self.delete()
+                    self.create()
+        except (OSError, SuspiciousOperation):
+            self._session_key = None
+        return session_data
+
+
+【源码片段 4】
+文件路径：django/contrib/sessions/backends/base.py
+对象名称：decode
+节点类型：class_function
+父节点：SessionBase
+行号范围：119-125
+代码：
+    def decode(self, session_data):
+        try:
+            return signing.loads(session_data, salt=self.key_salt, serializer=self.serializer)
+        # RemovedInDjango40Warning: when the deprecation ends, handle here
+        # exceptions similar to what _legacy_decode() does now.
+        except Exception:
+            return self._legacy_decode(session_data)
+
+
+【源码片段 5】
+文件路径：django/contrib/sessions/backends/base.py
+对象名称：_legacy_decode
+节点类型：class_function
+父节点：SessionBase
+行号范围：133-150
+代码：
+    def _legacy_decode(self, session_data):
+        # RemovedInDjango40Warning: pre-Django 3.1 format will be invalid.
+        encoded_data = base64.b64decode(session_data.encode('ascii'))
+        try:
+            # could produce ValueError if there is no ':'
+            hash, serialized = encoded_data.split(b':', 1)
+            expected_hash = self._hash(serialized)
+            if not constant_time_compare(hash.decode(), expected_hash):
+                raise SuspiciousSession("Session data corrupted")
+            else:
+                return self.serializer().loads(serialized)
+        except Exception as e:
+            # ValueError, SuspiciousOperation, unpickling exceptions. If any of
+            # these happen, just return an empty dictionary (an empty session).
+            if isinstance(e, SuspiciousOperation):
+                logger = logging.getLogger('django.security.%s' % e.__class__.__name__)
+                logger.warning(str(e))
+            return {}
+
+
+【源码片段 6】
+文件路径：django/contrib/sessions/backends/base.py
+对象名称：load
+节点类型：class_function
+父节点：SessionBase
+行号范围：371-375
+代码：
+    def load(self):
+        """
+        Load the session data and return a dictionary.
+        """
+        raise NotImplementedError('subclasses of SessionBase must provide a load() method')
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：tests/sessions_tests/tests.py
+测试名称：test_decode_legacy
+测试代码：
+class SessionTestsMixin:
+    @override_settings(SECRET_KEY='django_tests_secret_key')
+    def test_decode_legacy(self):
+        # RemovedInDjango40Warning: pre-Django 3.1 sessions will be invalid.
+        legacy_encoded = (
+            'OWUzNTNmNWQxNTBjOWExZmM4MmQ3NzNhMDRmMjU4NmYwNDUyNGI2NDp7ImEgdGVzd'
+            'CBrZXkiOiJhIHRlc3QgdmFsdWUifQ=='
+        )
+        self.assertEqual(
+            self.session.decode(legacy_encoded),
+            {'a test key': 'a test value'},
+        )
+
+【相关测试 2】
+测试文件：tests/sessions_tests/tests.py
+测试名称：test_decode_failure_logged_to_security
+测试代码：
+class SessionTestsMixin:
+    def test_decode_failure_logged_to_security(self):
+        bad_encode = base64.b64encode(b'flaskdj:alkdjf').decode('ascii')
+        with self.assertLogs('django.security.SuspiciousSession', 'WARNING') as cm:
+            self.assertEqual({}, self.session.decode(bad_encode))
+        # The failed decode is logged.
+        self.assertIn('corrupted', cm.output[0])
+
+【相关测试 3】
+测试文件：tests/sessions_tests/tests.py
+测试名称：test_default_hashing_algorith_legacy_decode
+测试代码：
+class SessionTestsMixin:
+    @ignore_warnings(category=RemovedInDjango40Warning)
+    def test_default_hashing_algorith_legacy_decode(self):
+        with self.settings(DEFAULT_HASHING_ALGORITHM='sha1'):
+            data = {'a test key': 'a test value'}
+            encoded = self.session.encode(data)
+            self.assertEqual(self.session._legacy_decode(encoded), data)
+
+【相关测试 4】
+测试文件：tests/sessions_tests/tests.py
+测试名称：test_decode
+测试代码：
+class SessionTestsMixin:
+    def test_decode(self):
+        # Ensure we can decode what we encode
+        data = {'a test key': 'a test value'}
+        encoded = self.session.encode(data)
+        self.assertEqual(self.session.decode(encoded), data)
+
+【相关测试 5】
+测试文件：tests/sessions_tests/tests.py
+测试名称：test_invalid_key
+测试代码：
+class SessionTestsMixin:
+    def test_invalid_key(self):
+        # Submitting an invalid session key (either by guessing, or if the db has
+        # removed the key) results in a new key being generated.
+        try:
+            session = self.backend('1')
+            session.save()
+            self.assertNotEqual(session.session_key, '1')
+            self.assertIsNone(session.get('cat'))
+            session.delete()
+        finally:
+            # Some backends leave a stale cache entry for the invalid
+            # session key; make sure that entry is manually deleted
+            session.delete('1')
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

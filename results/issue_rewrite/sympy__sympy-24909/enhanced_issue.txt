@@ -1,0 +1,138 @@
+instance_id: sympy__sympy-24909
+
+issue_summary: `milli` 前缀与单位（如 `W`）相乘时错误地求值为 1，而不是预期的带前缀的单位。
+
+trigger_condition:
+{
+  "text": "从 `sympy.physics.units` 导入 `milli` 前缀和一个单位（如 `W` 或 `V`），然后计算 `milli * unit` 或 `unit * milli`。",
+  "evidence": [
+    "Issue 中提供了 `from sympy.physics.units import milli, W` 和 `milli*W` 的示例。",
+    "Issue 提到也尝试了 `Volts`。",
+    "源码显示 `milli` 是 `Prefix` 对象。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "`milli * unit` 的相等性检查 `== 1` 返回 `True`，而 `unit * milli` 返回一个未简化的 `Mul` 表达式（如 `watt*Prefix(milli, m, -3, 10)`），而不是一个带前缀的单位对象。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue 中 `milli*W == 1` 输出 `True`。",
+    "Issue 中 `W*milli` 输出 `watt*Prefix(milli, m, -3, 10)`。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`milli * unit` 应求值为一个表示带前缀单位的表达式（如 `milli*watt` 或 `mW`），其值不应等于数值 1。乘法应正确处理，可能返回一个 `Mul` 对象，其中前缀和单位正确组合，或者返回一个适当的 `Quantity` 对象。",
+  "evidence": [
+    "Issue 明确期望：\"milli*W should evaluate to milli watts / mW\"。",
+    "`Prefix` 类文档字符串说明：\"A prefix multiplied by something will always return the product of this other object times the factor, except if the other object: ... defines multiplication with prefixes (which is the case for the Unit class).\" 暗示与 `Unit` 相乘应有特殊处理。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "milli",
+    "kind": "global_var",
+    "source_path": "sympy/physics/units/prefixes.py",
+    "reason": "Issue 中直接使用的有问题的前缀对象。"
+  },
+  {
+    "name": "Prefix",
+    "kind": "class",
+    "source_path": "sympy/physics/units/prefixes.py",
+    "reason": "`milli` 的类，定义了乘法行为 `__mul__`，是缺陷可能所在。"
+  },
+  {
+    "name": "W",
+    "kind": "global_var",
+    "source_path": "sympy/physics/units/__init__.py",
+    "reason": "Issue 中使用的单位示例（尽管检索片段不准确，但推断为 `watt` 单位）。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "object_state",
+    "current_pattern": "在 `test_prefix_operations` 中，使用 `Quantity(\"fake_meter\")` 并设置其比例因子为 `S.One`，然后测试 `dodeca * m == 12 * m`（前缀乘以自定义 Quantity）。",
+    "target_pattern": "将 `Quantity` 对象替换为标准单位对象（如从 `sympy.physics.units` 导入的 `watt` 或 `volt`），并测试 `milli * watt`。或者直接使用导入的 `W` 和 `milli`。",
+    "reason": "Issue 的核心是标准单位与前缀的乘法，而现有测试使用自定义 `Quantity`。变异后可能触发缺陷路径，即 `Prefix.__mul__` 错误处理标准单位。",
+    "confidence": "high"
+  },
+  {
+    "slot": "operator",
+    "current_pattern": "测试中多为 `prefix * quantity` 或 `prefix * number`。",
+    "target_pattern": "显式测试 `prefix * unit == 1` 的相等性，并检查 `unit * prefix` 的表达式类型和结构。",
+    "reason": "Issue 中错误表现为 `milli*W == 1` 返回 `True`，需要直接复制此触发条件。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "`milli * unit` 的求值结果，特别是其 `__eq__` 与 `1` 的比较结果，以及结果的 `type` 和 `repr`。",
+    "reason": "直接对应 Issue 中 `milli*W == 1` 返回 `True` 的错误症状。"
+  },
+  {
+    "kind": "repr",
+    "expression_hint": "`unit * milli` 的 `repr()` 输出，观察是否包含 `Prefix` 对象未简化的乘法形式。",
+    "reason": "对应 Issue 中 `W*milli` 输出 `watt*Prefix(milli, m, -3, 10)` 的现象。"
+  },
+  {
+    "kind": "type",
+    "expression_hint": "`milli * unit` 结果的类型，例如是 `int`、`Mul` 还是某种 `Quantity` 子类。",
+    "reason": "帮助判断结果是错误地简化成了数值，还是保持了单位表达式。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`milli * unit` 不应等于数值 1。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的、可能变化的字符串表示或精确的数值比例因子。",
+    "reason": "这是 Issue 的核心错误。使用 `assert not (milli * unit == 1)` 或 `assert milli * unit != 1` 直接且稳定。"
+  },
+  {
+    "assertion_goal": "`milli * unit` 的结果应是一个包含单位和前缀信息的表达式（如 `Mul` 对象），而不是一个纯数字。",
+    "preferred_assertion_style": "isinstance",
+    "avoid": "断言具体的内部属性或私有方法。",
+    "reason": "检查结果类型是公开的、稳定的行为，符合 `Prefix` 与 `Unit` 相乘应返回组合对象的期望。"
+  },
+  {
+    "assertion_goal": "`unit * milli` 的字符串或 `repr` 表示应合理反映单位和前缀的组合，而不是未简化的 `Prefix` 对象乘法。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、可能因格式化而变化的 `repr` 字符串。",
+    "reason": "观察公开的 `repr` 输出中是否出现了不期望的 `Prefix(` 字样，可以捕捉到 Issue 中展示的未简化形式。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要从 `sympy.physics.units` 导入 `milli` 和相关的单位（如 `watt`, `volt`）。可能需要导入 `Prefix` 类用于类型检查。",
+    "source": "issue",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要在 `sympy.physics.units.tests` 的测试环境中运行，该环境可能已经配置了单位系统（如 `SI`）。可以参考 `test_prefixes.py` 中的导入和设置。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "单位 `W` 的确切类型和导入路径（是 `sympy.physics.units.watt` 的别名吗？）。",
+  "除了 `W` 和 `V`，还有哪些单位与 `milli` 或其他前缀组合会触发此问题。",
+  "`Prefix.__mul__` 方法内部在处理 `Unit` 对象时的具体错误逻辑是什么。",
+  "修复后的预期输出具体是什么形式（例如，是 `milli*watt`，一个特殊的 `PrefixedUnit` 对象，还是其他）？"
+]

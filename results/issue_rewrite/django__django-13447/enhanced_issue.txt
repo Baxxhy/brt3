@@ -1,0 +1,136 @@
+instance_id: django__django-13447
+
+issue_summary: 管理员视图的 app_list 上下文中缺少原始模型类对象，且构建该字典的 `_build_app_dict` 方法是私有的。
+
+trigger_condition:
+{
+  "text": "访问 Django 管理员索引页面 (`admin:index`) 或应用索引页面 (`admin:app_list`)，并检查传递给模板的 `app_list` 上下文变量中每个模型条目的内容。",
+  "evidence": [
+    "Issue 提到需要在自定义管理员视图中操作 app_list。",
+    "源码显示 `index` 和 `app_index` 视图都会构建 `app_list` 上下文。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "`app_list` 上下文变量中每个模型条目是一个字典，包含序列化的模型信息（如名称、权限、URL），但缺少对原始模型类对象的引用。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue 描述：\"currently the dictionary is a serialized model\"。",
+    "源码 `_build_app_dict` 返回的 `model_dict` 不包含 `model` 字段。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`app_list` 上下文变量中的每个模型条目应包含一个引用原始 Django 模型类的字段（例如 `'model'`），并且 `_build_app_dict` 方法应被公开（例如重命名为 `build_app_dict`）。",
+  "evidence": [
+    "Issue 明确要求：\"have access to the model class\" 和 \"make the _build_app_dict method public\"。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "AdminSite",
+    "kind": "class",
+    "source_path": "django/contrib/admin/sites.py",
+    "reason": "包含 `_build_app_dict`、`index` 和 `app_index` 方法，是缺陷的核心类。"
+  },
+  {
+    "name": "_build_app_dict",
+    "kind": "method",
+    "source_path": "django/contrib/admin/sites.py",
+    "reason": "Issue 明确提到此方法，它是构建 app_list 字典的核心方法，需要被公开并可能修改以包含模型类。"
+  },
+  {
+    "name": "index",
+    "kind": "method",
+    "source_path": "django/contrib/admin/sites.py",
+    "reason": "使用 `_build_app_dict` 的结果构建上下文，是触发缺陷的视图之一。"
+  },
+  {
+    "name": "app_index",
+    "kind": "method",
+    "source_path": "django/contrib/admin/sites.py",
+    "reason": "直接调用 `_build_app_dict`，是触发缺陷的另一个视图。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试调用 `reverse('admin:app_list', ...)` 并检查响应内容或上下文中的 `title`、`app_label`。",
+    "target_pattern": "在调用视图后，深入检查 `response.context['app_list']` 的结构，特别是每个应用下 `'models'` 列表中的每个字典是否包含 `'model'` 键，且其值为一个 Django 模型类。",
+    "reason": "Issue 的核心是 `app_list` 上下文数据结构不完整，需要从检查表面属性变为检查内部模型引用。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "测试使用默认的 `AdminSite` 实例和已注册的模型。",
+    "target_pattern": "确保测试环境中有至少一个已注册到管理员站点的模型，并且用户有查看权限，以便 `app_list` 非空。",
+    "reason": "需要构造一个具体的 `app_list` 来验证其内容，这依赖于已注册的模型和用户权限。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "`response.context['app_list']` 的结构，特别是 `app_list[0]['models'][0]` 字典的键。",
+    "reason": "这是 Issue 直接关注的上下文变量，观察其是否包含 `'model'` 键能直接判断缺陷是否存在。"
+  },
+  {
+    "kind": "type",
+    "expression_hint": "`type(response.context['app_list'][0]['models'][0].get('model'))` 是否为 `django.db.models.base.ModelBase` 的子类。",
+    "reason": "Issue 要求访问模型类，因此需要确认添加的字段是模型类对象而不是其他类型。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "`app_list` 上下文中的每个模型字典应包含一个 `'model'` 键，其值为一个 Django 模型类。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的字典相等、断言私有属性、断言内部 `_registry` 的状态。",
+    "reason": "检查公开的上下文数据结构中是否存在特定的键，这是稳定且与 Issue 对齐的断言，不依赖于具体的字典值排序或内部实现。"
+  },
+  {
+    "assertion_goal": "`AdminSite` 实例应有一个公开的方法（如 `build_app_dict`）可用于构建应用字典。",
+    "preferred_assertion_style": "hasattr",
+    "avoid": "断言方法名必须是 `build_app_dict`（可能不同）、断言方法的完整签名。",
+    "reason": "Issue 要求将 `_build_app_dict` 公开，检查是否存在一个不以单下划线开头的方法名是合理的公开行为检查。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要使用 Django 的测试 `TestCase`，并可能继承 `AdminViewBasicTestCase` 以复用管理员站点和用户认证设置。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要确保测试数据库中有模型（如 `Article`）并已注册到管理员站点，且测试用户有相应的模块查看权限。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要使用 `override_settings(ROOT_URLCONF='admin_views.urls')` 来配置正确的 URL 映射。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "修复后，模型类在字典中的具体键名是什么（例如 `'model'` 还是 `'model_class'`）。",
+  "`_build_app_dict` 方法公开后的具体新名称是什么。",
+  "`get_app_list` 方法是否需要相应修改以返回包含模型类的列表。",
+  "是否所有模型条目都会添加模型类，还是仅在某些条件下添加。"
+]

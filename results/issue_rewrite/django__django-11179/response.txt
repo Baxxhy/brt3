@@ -1,0 +1,145 @@
+```json
+{
+    "original_issue": {
+        "text": "delete() on instances of models without any dependencies doesn't clear PKs.\nDescription\n\nDeleting any model with no dependencies not updates the PK on the model. It should be set to None after .delete() call.\nSee Django.db.models.deletion:276-281. Should update the model line 280.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当对一个没有任何依赖关系的模型实例调用 delete() 方法后，该实例的主键（PK）没有被设置为 None。根据源码 django/db/models/deletion.py 第 276-281 行（特别是第 280 行）的逻辑，在删除操作后，实例的主键应该被更新为 None。",
+        "facts_from_issue": [
+            "对没有依赖关系的模型实例调用 delete() 后，其主键（PK）没有被清除。",
+            "主键应该在 .delete() 调用后被设置为 None。",
+            "Issue 引用了源码文件 django/db/models/deletion.py 的第 276-281 行，并指出第 280 行应该更新模型。"
+        ],
+        "facts_from_retrieved_context": [
+            "源码文件 django/db/models/deletion.py 中的 Collector.delete 方法包含一个循环，用于在删除后更新收集的实例，其中有一行代码是 `setattr(instance, model._meta.pk.attname, None)`。",
+            "相关测试 tests/delete/tests.py 中的 test_instance_update 方法在删除后对对象断言 `self.assertIsNone(obj.pk)`。"
+        ],
+        "inferences": [
+            "Issue 描述的问题可能发生在 Collector.delete 方法处理“没有依赖关系的模型实例”的特定路径下。",
+            "测试 test_instance_update 表明，在删除后检查 obj.pk 是否为 None 是验证正确行为的常见方式。"
+        ],
+        "do_not_assume": [
+            "具体是哪个模型类或字段类型会触发此问题。",
+            "问题是否只发生在特定的数据库后端或配置下。",
+            "源码第 280 行具体是哪一行代码（因为行号可能随版本变化）。"
+        ]
+    },
+    "issue_summary": "删除没有依赖关系的模型实例后，该实例的主键（PK）属性未被正确置为 None。",
+    "trigger_condition": {
+        "text": "创建一个没有任何外键依赖或其他级联删除依赖的模型实例，然后调用该实例的 .delete() 方法。",
+        "evidence": [
+            "Issue 描述：\"Deleting any model with no dependencies not updates the PK on the model.\"",
+            "源码片段 1 中 Collector.delete 方法包含处理“没有依赖关系的模型实例”的优化路径（第 272-281 行）。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 .delete() 后，被删除的模型实例的 .pk 属性（或对应的主键字段属性）仍然保留着删除前的值，而不是 None。",
+        "symptom_type": "state_not_updated",
+        "evidence": [
+            "Issue 描述：\"doesn't clear PKs\" 和 \"not updates the PK on the model.\"",
+            "测试 test_instance_update 中在删除后对 obj.pk 进行断言，暗示这是需要检查的状态。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "在成功调用模型实例的 .delete() 方法后，该实例的主键属性（.pk）应该被设置为 None。",
+        "evidence": [
+            "Issue 描述：\"It should be set to None after .delete() call.\"",
+            "测试 test_instance_update 中的断言：`self.assertIsNone(obj.pk)`。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "delete",
+            "kind": "method",
+            "source_path": "django/db/models/deletion.py",
+            "reason": "Issue 直接讨论 .delete() 调用后的行为，且源码中 Collector.delete 方法是执行删除逻辑的核心。"
+        },
+        {
+            "name": "DeletionTests",
+            "kind": "class",
+            "source_path": "tests/delete/tests.py",
+            "reason": "相关测试类，提供了测试删除行为的框架和断言模式。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/db/models/deletion.py",
+            "object": "Collector.delete",
+            "lines": "262-327",
+            "reason": "Issue 明确引用该文件第 276-281 行，指出第 280 行应该更新模型。源码显示该方法末尾有更新实例主键为 None 的循环，问题可能出在该逻辑未能覆盖所有情况（例如快速删除路径）。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_instance_update",
+            "test_file": "tests/delete/tests.py",
+            "why_relevant": "该测试直接检查删除后实例的 .pk 属性是否为 None，与 Issue 的核心验证目标完全一致。它使用了 Django 的 TestCase、信号和模型对象构造。",
+            "reusable_parts": [
+                "TestCase 继承",
+                "使用 models.signals.pre_delete 连接信号",
+                "创建模型实例（如 create_a）",
+                "调用 .delete() 方法",
+                "使用 `self.assertIsNone(obj.pk)` 进行断言"
+            ],
+            "possible_gap": "该测试可能涉及具有依赖关系的模型（如 setnull、cascade），而 Issue 描述的是“没有任何依赖关系的模型”。需要变异测试，使其创建一个完全独立、无任何外键依赖的模型实例并删除。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "object_state",
+            "current_pattern": "测试 test_instance_update 创建了具有外键关系（setnull, cascade）的模型实例 A。",
+            "target_pattern": "创建一个简单的、不包含任何外键字段的模型实例。例如，一个只包含主键和普通 CharField 的模型。",
+            "reason": "Issue 强调问题发生在“model with no dependencies”。变异后可能触发 Collector.delete 中不同的代码路径（如快速删除优化），从而暴露缺陷。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "测试中通过 `a.setnull.delete()` 等方式调用 delete，这可能涉及关系管理器。",
+            "target_pattern": "直接对模型实例调用 `.delete()` 方法，例如 `instance.delete()`。",
+            "reason": "Issue 描述的是对“instances of models”调用 delete()。直接调用更符合描述，并可能直接影响 Collector 对实例状态的更新逻辑。",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "state",
+            "expression_hint": "instance.pk 或 instance.id 在调用 instance.delete() 之前和之后的值。",
+            "reason": "这是 Issue 描述的核心错误症状：删除后主键未被清除。观察这个公开属性可以直接验证缺陷。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "delete() 方法的返回值（如果测试中捕获了它）。",
+            "reason": "虽然 Issue 未直接提及返回值，但观察返回值有助于理解删除操作是否成功执行，以及是否进入了预期的代码路径。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "在调用 instance.delete() 后，instance.pk 的值应为 None。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言完整的 repr 字符串或内部私有属性（如 `_state`）。",
+            "reason": "这是对 Issue 期望行为的直接、稳定且公开的验证。使用 `assertIsNone(instance.pk)` 是 Django 测试中的常见模式。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要使用 Django 的 TestCase 并配置数据库。可能需要定义或导入一个简单的、无依赖的测试模型。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试应在事务中运行，以确保数据库状态可预测。",
+            "source": "inference",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "问题是否只发生在 Collector.delete 方法的“快速删除”优化路径（len(self.data) == 1 and len(instances) == 1）中。",
+        "是否所有类型的模型主键（AutoField、UUIDField 等）都会表现出相同的问题。",
+        "在涉及多个实例批量删除时，问题是否仍然存在。"
+    ]
+}
+```

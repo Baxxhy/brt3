@@ -1,0 +1,1143 @@
+{
+  "total": 276,
+  "ok": 1,
+  "skip": 262,
+  "error": 13,
+  "results": [
+    {
+      "instance_id": "astropy__astropy-12907",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "astropy__astropy-14182",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "astropy__astropy-14365",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "astropy__astropy-14995",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "astropy__astropy-6938",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "astropy__astropy-7746",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-10914",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-10924",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11001",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11019",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11039",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11049",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11099",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11133",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11179",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11283",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11422",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11564",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11583",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11620",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11630",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11742",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11797",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11815",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11848",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11905",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11910",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11964",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-11999",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12113",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12125",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12184",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12284",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12286",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12308",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12453",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12470",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12497",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12589",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12700",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12708",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12747",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12856",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12908",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12915",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-12983",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13028",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13033",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13158",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13220",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13230",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13265",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13315",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13321",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13401",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13447",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13448",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 151 column 6 (char 12081)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Unterminated string starting at: line 111 column 29 (char 12403)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 151 column 6 (char 12081)\n"
+    },
+    {
+      "instance_id": "django__django-13551",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13590",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13660",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13710",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13757",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13768",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13925",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13933",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-13964",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14016",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14017",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14155",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14238",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14382",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14411",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14534",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14580",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14608",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14667",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14672",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 114 column 10 (char 12937)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 124 column 10 (char 13180)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 114 column 10 (char 12937)\n"
+    },
+    {
+      "instance_id": "django__django-14730",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14752",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14787",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14855",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14915",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-14997",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 140 column 10 (char 13157)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 134 column 10 (char 12919)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 140 column 10 (char 13157)\n"
+    },
+    {
+      "instance_id": "django__django-14999",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15061",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15202",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15213",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15252",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15320",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15347",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15388",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15400",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15498",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15695",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15738",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15781",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15789",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15790",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15814",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15819",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15851",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15902",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-15996",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16041",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16046",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16139",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16229",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16255",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16379",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16400",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16408",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16527",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16595",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16816",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16820",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16873",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-16910",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-17051",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "django__django-17087",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-18869",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-22711",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-22835",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-23299",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-23314",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-23476",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-23562",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-23563",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 155 column 10 (char 11834)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 158 column 10 (char 11755)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 155 column 10 (char 11834)\n"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-23913",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-23964",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-23987",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-24149",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-24265",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-24334",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-24970",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-25079",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 171 column 10 (char 11789)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 143 column 10 (char 11661)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 171 column 10 (char 11789)\n"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-25311",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-25332",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-25433",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-25442",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-25498",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-26011",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-26020",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)\n"
+    },
+    {
+      "instance_id": "mwaskom__seaborn-2848",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "mwaskom__seaborn-3010",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "mwaskom__seaborn-3190",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "mwaskom__seaborn-3407",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pallets__flask-4992",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pallets__flask-5063",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "psf__requests-3362",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pydata__xarray-3364",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pydata__xarray-4094",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pydata__xarray-4248",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pydata__xarray-4493",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pydata__xarray-5131",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pylint-dev__pylint-5859",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pylint-dev__pylint-6506",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pylint-dev__pylint-7080",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting value: line 1 column 1 (char 0)\n"
+    },
+    {
+      "instance_id": "pylint-dev__pylint-7114",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pylint-dev__pylint-7228",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pylint-dev__pylint-7993",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5221",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5227",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5413",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5495",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5692",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-7168",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 50 column 6 (char 11933)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 48 column 10 (char 12033)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 50 column 6 (char 11933)\n"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-7373",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-7432",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-8365",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-8906",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-9359",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-10297",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-10508",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-10949",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-11040",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-11281",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-12471",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13142",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13241",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13439",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13496",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13497",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13584",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13779",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-14087",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-14092",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-14894",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-14983",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-15512",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-15535",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-25500",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 176 column 10 (char 13387)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 169 column 10 (char 13174)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 176 column 10 (char 13387)\n"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-25570",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 148 column 10 (char 13482)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 155 column 10 (char 13544)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 148 column 10 (char 13482)\n"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-25638",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-25747",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 114 column 10 (char 12158)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 137 column 10 (char 13182)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 114 column 10 (char 12158)\n"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-10325",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-10451",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-11445",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8435",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8474",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8506",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8595",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8627",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8713",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8721",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8801",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-11400",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-12171",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-12236",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-12419",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-12481",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13031",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13043",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13437",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13471",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13480",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13647",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13773",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13895",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-13971",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-14024",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-14308",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-14317",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-14396",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-14774",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-14817",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-15011",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-15308",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-15345",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-15346",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-15609",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-15678",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-16106",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-16281",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-16503",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-16792",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-16988",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-17022",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-17139",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-17630",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-17655",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-18057",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-18087",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-18189",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-18199",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-18532",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-18621",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-18698",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-18835",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-19007",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-19254",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-19487",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-20049",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-20154",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-20212",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-20322",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-20442",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-20590",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-20639",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-21055",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-21171",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 101 column 10 (char 13508)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 116 column 10 (char 13715)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 101 column 10 (char 13508)\n"
+    },
+    {
+      "instance_id": "sympy__sympy-21379",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-21612",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-21614",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-21627",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-21847",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-22005",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-22714",
+      "status": "OK"
+    },
+    {
+      "instance_id": "sympy__sympy-22840",
+      "status": "ERROR",
+      "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 98 column 10 (char 8756)",
+      "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 97 column 10 (char 8972)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/cli/run_issue_rewrite.py\", line 58, in run_one\n    rewrite_issue(context, client, str(out_dir))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 98 column 10 (char 8756)\n"
+    },
+    {
+      "instance_id": "sympy__sympy-23117",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-23191",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-23262",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-24066",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-24102",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-24152",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-24213",
+      "status": "SKIP"
+    },
+    {
+      "instance_id": "sympy__sympy-24909",
+      "status": "SKIP"
+    }
+  ],
+  "defaults": {
+    "max_workers": 6,
+    "top_code": 6,
+    "top_tests": 5
+  }
+}

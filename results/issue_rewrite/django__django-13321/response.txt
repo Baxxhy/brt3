@@ -1,0 +1,175 @@
+```json
+{
+    "original_issue": {
+        "text": "Decoding an invalid session data crashes.\nDescription\n\t \n\t\t(last modified by Matt Hegarty)\n\t \nHi\nI recently upgraded my staging server to 3.1. I think that there was an old session which was still active.\nOn browsing to any URL, I get the crash below. It looks similar to ​this issue.\nI cannot login at all with Chrome - each attempt to access the site results in a crash. Login with Firefox works fine.\nThis is only happening on my Staging site, which is running Gunicorn behind nginx proxy.\nInternal Server Error: /overview/\nTraceback (most recent call last):\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py\", line 215, in _get_session\nreturn self._session_cache\nAttributeError: 'SessionStore' object has no attribute '_session_cache'\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py\", line 118, in decode\nreturn signing.loads(session_data, salt=self.key_salt, serializer=self.serializer)\nFile \"/usr/local/lib/python3.8/site-packages/django/core/signing.py\", line 135, in loads\nbase64d = TimestampSigner(key, salt=salt).unsign(s, max_age=max_age).encode()\nFile \"/usr/local/lib/python3.8/site-packages/django/core/signing.py\", line 201, in unsign\nresult = super().unsign(value)\nFile \"/usr/local/lib/python3.8/site-packages/django/core/signing.py\", line 184, in unsign\nraise BadSignature('Signature \"%s\" does not match' % sig)\ndjango.core.signing.BadSignature: Signature \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\" does not match\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\nFile \"/usr/local/lib/python3.8/site-packages/django/core/handlers/exception.py\", line 47, in inner\nresponse = get_response(request)\nFile \"/usr/local/lib/python3.8/site-packages/django/core/handlers/base.py\", line 179, in _get_response\nresponse = wrapped_callback(request, *callback_args, **callback_kwargs)\nFile \"/usr/local/lib/python3.8/site-packages/django/views/generic/base.py\", line 73, in view\nreturn self.dispatch(request, *args, **kwargs)\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/auth/mixins.py\", line 50, in dispatch\nif not request.user.is_authenticated:\nFile \"/usr/local/lib/python3.8/site-packages/django/utils/functional.py\", line 240, in inner\nself._setup()\nFile \"/usr/local/lib/python3.8/site-packages/django/utils/functional.py\", line 376, in _setup\nself._wrapped = self._setupfunc()\nFile \"/usr/local/lib/python3.8/site-packages/django_otp/middleware.py\", line 38, in _verify_user\nuser.otp_device = None\nFile \"/usr/local/lib/python3.8/site-packages/django/utils/functional.py\", line 270, in __setattr__\nself._setup()\nFile \"/usr/local/lib/python3.8/site-packages/django/utils/functional.py\", line 376, in _setup\nself._wrapped = self._setupfunc()\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/auth/middleware.py\", line 23, in <lambda>\nrequest.user = SimpleLazyObject(lambda: get_user(request))\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/auth/middleware.py\", line 11, in get_user\nrequest._cached_user = auth.get_user(request)\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/auth/__init__.py\", line 174, in get_user\nuser_id = _get_user_session_key(request)\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/auth/__init__.py\", line 58, in _get_user_session_key\nreturn get_user_model()._meta.pk.to_python(request.session[SESSION_KEY])\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py\", line 65, in __getitem__\nreturn self._session[key]\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py\", line 220, in _get_session\nself._session_cache = self.load()\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/db.py\", line 44, in load\nreturn self.decode(s.session_data) if s else {}\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py\", line 122, in decode\nreturn self._legacy_decode(session_data)\nFile \"/usr/local/lib/python3.8/site-packages/django/contrib/sessions/backends/base.py\", line 126, in _legacy_decode\nencoded_data = base64.b64decode(session_data.encode('ascii'))\nFile \"/usr/local/lib/python3.8/base64.py\", line 87, in b64decode\nreturn binascii.a2b_base64(s)\nbinascii.Error: Incorrect padding",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "在 Django 3.1 中，当尝试解码一个无效的会话数据时，系统会崩溃。具体场景是：升级到 Django 3.1 后，服务器上可能残留了旧格式的会话数据。当用户访问任何 URL 时，系统尝试加载此会话数据，在解码过程中，首先因签名不匹配触发 BadSignature 异常，随后在 _legacy_decode 方法中尝试对无效的 base64 数据进行解码时，因填充不正确而抛出 binascii.Error: Incorrect padding 异常，最终导致服务器返回 500 错误。期望行为是：即使遇到无效的会话数据，解码过程也应优雅地处理，返回空字典或记录警告，而不是崩溃。相关 API 可能包括 SessionStore.decode、SessionBase._legacy_decode 以及文件 django/contrib/sessions/backends/base.py 中的相关方法。",
+        "facts_from_issue": [
+            "升级到 Django 3.1 后，访问任何 URL 导致服务器崩溃。",
+            "崩溃堆栈显示，最终异常是 binascii.Error: Incorrect padding。",
+            "异常发生在 django/contrib/sessions/backends/base.py 的 _legacy_decode 方法中。",
+            "崩溃前，先发生了 BadSignature 异常。",
+            "用户怀疑是旧的会话数据仍然活跃导致的。"
+        ],
+        "facts_from_retrieved_context": [
+            "django/contrib/sessions/backends/base.py 中的 decode 方法会调用 signing.loads，失败后会调用 _legacy_decode。",
+            "_legacy_decode 方法会使用 base64.b64decode 解码数据。",
+            "相关测试 test_decode_failure_logged_to_security 表明，解码失败时应返回空字典并记录安全警告。",
+            "相关测试 test_decode_legacy 表明，系统支持解码旧格式的会话数据。"
+        ],
+        "inferences": [
+            "无效的会话数据可能包含不正确的 base64 填充字符。",
+            "当 signing.loads 因签名不匹配失败后，流程会进入 _legacy_decode 路径。",
+            "_legacy_decode 方法中的 base64.b64decode 调用对某些无效输入（如填充错误的字符串）会抛出 binascii.Error。",
+            "当前的错误处理可能没有完全捕获 binascii.Error 异常。"
+        ],
+        "do_not_assume": [
+            "binascii.Error 是唯一需要处理的异常类型。",
+            "只有文件后端会触发此问题。",
+            "崩溃只发生在特定代理配置（Gunicorn + nginx）下。",
+            "旧会话数据的精确格式。"
+        ]
+    },
+    "issue_summary": "Django 3.1 在解码无效的、base64 填充不正确的会话数据时，会抛出未处理的 binascii.Error 异常，导致服务器崩溃。",
+    "trigger_condition": {
+        "text": "使用一个无效的、base64 填充不正确的字符串作为会话数据，调用 SessionStore 实例的 decode 方法。",
+        "evidence": [
+            "Issue 堆栈显示 binascii.Error: Incorrect padding 来自 base64.b64decode。",
+            "源码显示 _legacy_decode 方法调用了 base64.b64decode(session_data.encode('ascii'))。",
+            "相关测试 test_decode_failure_logged_to_security 使用了无效的编码数据进行测试。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 decode 方法处理无效会话数据时，抛出 binascii.Error: Incorrect padding 异常，导致服务器返回 500 错误。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 堆栈末尾显示 binascii.Error: Incorrect padding。",
+            "异常发生在 _legacy_decode 方法中。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当 decode 方法遇到无效的、base64 填充不正确的会话数据时，应优雅地处理异常，返回一个空字典（或记录警告后返回空字典），而不应让未处理的异常传播导致服务器崩溃。",
+        "evidence": [
+            "相关测试 test_decode_failure_logged_to_security 表明解码失败应返回空字典。",
+            "源码 _legacy_decode 的注释提到“just return an empty dictionary (an empty session)”。",
+            "源码 load 方法（file.py）在捕获 SuspiciousOperation 后调用 self.create()，暗示应恢复到一个有效状态。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "SessionBase.decode",
+            "kind": "method",
+            "source_path": "django/contrib/sessions/backends/base.py",
+            "reason": "Issue 堆栈显示崩溃起源于此方法，它是处理会话数据解码的入口点。"
+        },
+        {
+            "name": "SessionBase._legacy_decode",
+            "kind": "method",
+            "source_path": "django/contrib/sessions/backends/base.py",
+            "reason": "异常 binascii.Error 直接从此方法中抛出，是缺陷的核心位置。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/contrib/sessions/backends/base.py",
+            "object": "_legacy_decode",
+            "lines": "133-150",
+            "reason": "该方法中的 base64.b64decode 调用可能对某些无效输入（如填充错误的字符串）抛出 binascii.Error，而当前的异常处理（except Exception as e）可能没有完全捕获或正确处理此特定异常。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_decode_failure_logged_to_security",
+            "test_file": "tests/sessions_tests/tests.py",
+            "why_relevant": "该测试直接测试了 decode 方法对无效编码数据的处理，验证了返回空字典并记录安全警告的行为，与当前 Issue 的场景高度相关。",
+            "reusable_parts": [
+                "测试类继承自 SessionTestsMixin",
+                "使用 self.session.decode() 调用",
+                "使用 assertEqual 验证返回空字典",
+                "使用 assertLogs 检查安全日志"
+            ],
+            "possible_gap": "该测试使用的无效数据是 'flaskdj:alkdjf' 的 base64 编码，这可能不会触发 base64 填充错误（binascii.Error）。需要变异输入数据，使其 base64 解码时产生 'Incorrect padding' 错误。"
+        },
+        {
+            "test_name": "test_decode",
+            "test_file": "tests/sessions_tests/tests.py",
+            "why_relevant": "该测试展示了正常的编解码流程，提供了 SessionStore 对象构造和 decode 方法调用的基础模式。",
+            "reusable_parts": [
+                "数据编码 self.session.encode(data)",
+                "数据解码 self.session.decode(encoded)",
+                "使用 assertEqual 验证解码结果"
+            ],
+            "possible_gap": "该测试使用有效数据，不会触发异常路径。需要将输入数据替换为无效的、会导致 base64 解码失败的字符串。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "test_decode_failure_logged_to_security 中使用的是有效的 base64 编码字符串 'bad_encode = base64.b64encode(b'flaskdj:alkdjf').decode('ascii')'。",
+            "target_pattern": "使用一个 base64 填充不正确的字符串作为输入，例如一个长度不是4的倍数的、无效的 base64 字符串（如 'abc' 或 'abcd='）。",
+            "reason": "根据 Issue，崩溃由 binascii.Error: Incorrect padding 引起，因此需要构造能触发此异常的输入数据。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "测试直接调用 self.session.decode(bad_encode)。",
+            "target_pattern": "可能需要模拟更完整的调用链，例如先通过 load() 方法触发 decode，因为 Issue 中的崩溃是通过请求会话访问触发的。",
+            "reason": "Issue 中的崩溃发生在用户访问 URL 时，通过请求的会话加载路径触发。直接测试 decode 可能足够，但通过 load() 调用可能更接近真实场景。",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "调用 decode 或 load 方法时捕获的异常类型，如 binascii.Error 或 BadSignature。",
+            "reason": "Issue 的核心症状是未处理的 binascii.Error 异常，观测是否抛出此异常是判断缺陷是否触发的直接方式。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "decode 或 load 方法的返回值，预期应为空字典 {}。",
+            "reason": "根据预期行为和现有测试，解码失败时应返回空字典。观测返回值可以验证行为是否正确。"
+        },
+        {
+            "kind": "warning",
+            "expression_hint": "与 'django.security.SuspiciousSession' 相关的日志输出。",
+            "reason": "相关测试表明解码失败应记录安全警告。观测警告日志可以验证错误处理流程是否被执行。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "当使用无效的、base64 填充不正确的字符串调用 decode 方法时，方法应成功返回（不抛出未处理异常），并返回一个空字典。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言完整的异常消息字符串或完整的堆栈跟踪。",
+            "reason": "预期行为是优雅处理并返回空字典。使用 equals 断言返回值是 {} 是稳定且直接的验证方式。"
+        },
+        {
+            "assertion_goal": "解码失败时应记录适当的安全警告。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的日志消息字符串。",
+            "reason": "相关测试已验证此行为。检查日志输出中是否包含关键词（如 'corrupted'）是稳定且与 Issue 相关的断言。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要使用继承自 SessionTestsMixin 的测试类，并设置好 self.session（一个 SessionStore 实例）。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "可能需要使用 @override_settings(SECRET_KEY='...') 来确保签名验证的一致性。",
+            "source": "retrieved_test",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "binascii.Error 是否是目前 _legacy_decode 方法中 except Exception 子句唯一未完全处理的异常类型。",
+        "除了返回空字典，是否还有其他正确的恢复行为（例如调用 self.create()）。",
+        "此缺陷是否在所有会话后端（如 file、db、cache）中都会出现，还是特定于某个后端。"
+    ]
+}
+```

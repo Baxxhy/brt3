@@ -1,0 +1,140 @@
+instance_id: mwaskom__seaborn-2848
+
+issue_summary: 在 seaborn 0.11.1 中，使用 `pairplot` 并指定一个不包含所有 `hue` 列值的 `hue_order` 参数会引发 TypeError 异常，而不是忽略未指定的值。
+
+trigger_condition:
+{
+  "text": "调用 `sns.pairplot(data, hue=\"column_name\", hue_order=subset_list)`，其中 `subset_list` 是数据中 `hue` 列唯一值的真子集（即不包含所有值）。",
+  "evidence": [
+    "原始 Issue 中的示例代码：`sns.pairplot(iris, hue=\"species\", hue_order=[\"setosa\", \"versicolor\"])`，而 `iris` 数据集的 `species` 列有三个值。",
+    "原始 Issue 描述：\"Passing a hue_order list that does not contain some of the values in the hue column raises a long, ugly error traceback.\""
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "程序抛出 TypeError 异常，错误信息包含 \"ufunc 'isnan' not supported for the input types, and the inputs could not be safely coerced to any supported types according to the casting rule 'safe'\"。",
+  "symptom_type": "exception",
+  "evidence": [
+    "原始 Issue 中粘贴的异常信息。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当 `hue_order` 参数不包含数据中 `hue` 列的所有值时，`pairplot` 应成功执行并生成图形，仅绘制 `hue_order` 中指定的类别对应的数据点，忽略其他类别的数据点。",
+  "evidence": [
+    "原始 Issue 描述：\"In seaborn < 0.11, one could plot only a subset of the values in the hue column, by passing a hue_order list containing only the desired values. Points with hue values not in the list were simply not plotted.\"",
+    "相关测试 `test_hue_order_missing_level` 的存在暗示了 `PairGrid` 应能处理 `hue_order` 与数据 `hue` 值不完全匹配的情况（尽管该测试是 `hue_order` 包含数据中不存在的值）。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "pairplot",
+    "kind": "function",
+    "source_path": "",
+    "reason": "Issue 中直接调用的函数，是缺陷的触发点。"
+  },
+  {
+    "name": "PairGrid",
+    "kind": "class",
+    "source_path": "seaborn/axisgrid.py",
+    "reason": "`pairplot` 可能内部使用 `PairGrid`，且相关测试围绕 `PairGrid` 展开。"
+  },
+  {
+    "name": "load_dataset",
+    "kind": "function",
+    "source_path": "seaborn/utils.py",
+    "reason": "Issue 示例中用于获取测试数据。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_hue_order_missing_level` 中，`hue_order=order`，其中 `order` 列表包含数据 `hue` 列（`\"a\"`）的所有唯一值（例如 `['a','b','c','d','e']` 或其排列）。",
+    "target_pattern": "将 `hue_order` 参数设置为数据 `hue` 列唯一值的真子集，例如 `['a', 'c']`（假设数据中有 `'a'`, `'b'`, `'c'`, `'d'`, `'e'`）。",
+    "reason": "Issue 明确指出，当 `hue_order` 不包含所有 `hue` 值时触发错误。相似测试使用了包含所有值的 `hue_order`，因此需要变异此参数以走向缺陷路径。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试中调用 `g.map(plt.plot)` 等。Issue 示例调用的是顶层的 `sns.pairplot`。",
+    "target_pattern": "将测试调用从 `PairGrid` 对象的方法调用（如 `g.map`）改为直接调用 `sns.pairplot`，或确保测试路径覆盖 `pairplot` 到 `PairGrid` 的调用链。",
+    "reason": "Issue 发生在 `pairplot` 调用中，虽然底层是 `PairGrid`，但调用入口可能影响执行路径。使用 `pairplot` 可能更直接地触发问题。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "是否抛出 `TypeError`，异常信息是否包含 `\"isnan\"` 或 `\"could not be safely coerced\"` 等片段。",
+    "reason": "这是 Issue 中描述的直接错误现象，是判断缺陷是否触发的关键。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "`pairplot` 的返回值（一个 `PairGrid` 对象）是否成功创建，其 `axes` 属性是否可访问。",
+    "reason": "如果修复后应正常执行，函数应返回一个有效的对象，而不是在中间崩溃。"
+  },
+  {
+    "kind": "state",
+    "expression_hint": "生成的图形对象（如 `ax.collections` 或 `ax.lines` 的数量）是否仅对应于 `hue_order` 中指定的类别数量。",
+    "reason": "验证是否确实只绘制了子集的数据，这是期望行为的一部分。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "调用 `sns.pairplot(data, hue=..., hue_order=subset)` 应正常完成，不抛出异常。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言完整的异常消息字符串，因为具体措辞可能变化。",
+    "reason": "Issue 的核心是异常 vs 无异常。修复后应无异常。使用 `pytest.raises` 的上下文管理器来验证没有异常抛出是一种稳定方式（但注意：修复后应正常，所以断言应为 `with pytest.raises(...):` 的否定形式，或在测试中直接调用并期望成功）。更直接的方式是调用后无异常即通过。"
+  },
+  {
+    "assertion_goal": "生成的图形中，绘制的数据点应仅属于 `hue_order` 中指定的类别。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言图形中精确的像素坐标或完整的路径顶点数组。",
+    "reason": "验证功能正确性，即过滤行为生效。可以通过检查绘图元素（如 `lines` 或 `collections`）对应的数据是否来自预期的数据子集来实现。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "使用 `sns.load_dataset(\"iris\")` 或类似的测试数据集（如 `self.df`），其中包含一个分类列作为 `hue`。",
+    "source": "issue|retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要导入 `seaborn as sns`、`matplotlib.pyplot as plt`、`numpy as np`、`numpy.testing as npt` 和 `pytest`。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试应在 `TestPairGrid` 类或类似结构中，以便复用现有的 fixture（如 `self.df`）。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  },
+  {
+    "hint": "测试后应调用 `plt.close('all')` 清理图形，避免影响其他测试。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "引发 `isnan` 错误的具体数据是什么（是过滤后剩余的 `hue` 列数据，还是其他中间变量）？",
+  "`seaborn/_core.py` 中哪一行代码是异常的根源？",
+  "除了 `pairplot`，其他使用 `PairGrid` 或类似 `hue_order` 参数的函数（如 `lmplot`, `catplot` 等）是否也存在相同问题？",
+  "修复后，对于被忽略的 `hue` 值，其对应的图例项是否也应被忽略？"
+]

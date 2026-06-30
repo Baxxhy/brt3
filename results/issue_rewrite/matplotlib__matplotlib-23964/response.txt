@@ -1,0 +1,183 @@
+```json
+{
+    "original_issue": {
+        "text": "[Bug]: Text label with empty line causes a \"TypeError: cannot unpack non-iterable NoneType object\" in PostScript backend\n### Bug summary\n\nWhen saving a figure with the PostScript backend, a\n> TypeError: cannot unpack non-iterable NoneType object\n\nhappens if the figure contains a multi-line text label with an empty line (see example).\n\n### Code for reproduction\n\n```python\nfrom matplotlib.figure import Figure\n\nfigure = Figure()\nax = figure.add_subplot(111)\n# ax.set_title('\\nLower title')  # this would cause an error as well\nax.annotate(text='\\nLower label', xy=(0, 0))\nfigure.savefig('figure.eps')\n```\n\n\n### Actual outcome\n\n$ ./venv/Scripts/python save_ps.py\nTraceback (most recent call last):\n  File \"C:\\temp\\matplotlib_save_ps\\save_ps.py\", line 7, in <module>\n    figure.savefig('figure.eps')\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\figure.py\", line 3272, in savefig\n    self.canvas.print_figure(fname, **kwargs)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\backend_bases.py\", line 2338, in print_figure\n    result = print_method(\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\backend_bases.py\", line 2204, in <lambda>\n    print_method = functools.wraps(meth)(lambda *args, **kwargs: meth(\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\_api\\deprecation.py\", line 410, in wrapper\n    return func(*inner_args, **inner_kwargs)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\backends\\backend_ps.py\", line 869, in _print_ps\n    printer(fmt, outfile, dpi=dpi, dsc_comments=dsc_comments,\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\backends\\backend_ps.py\", line 927, in _print_figure\n    self.figure.draw(renderer)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\artist.py\", line 74, in draw_wrapper\n    result = draw(artist, renderer, *args, **kwargs)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\artist.py\", line 51, in draw_wrapper\n    return draw(artist, renderer)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\figure.py\", line 3069, in draw\n    mimage._draw_list_compositing_images(\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\image.py\", line 131, in _draw_list_compositing_images\n    a.draw(renderer)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\artist.py\", line 51, in draw_wrapper\n    return draw(artist, renderer)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\axes\\_base.py\", line 3106, in draw\n    mimage._draw_list_compositing_images(\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\image.py\", line 131, in _draw_list_compositing_images\n    a.draw(renderer)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\artist.py\", line 51, in draw_wrapper\n    return draw(artist, renderer)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\text.py\", line 1995, in draw\n    Text.draw(self, renderer)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\artist.py\", line 51, in draw_wrapper\n    return draw(artist, renderer)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\text.py\", line 736, in draw\n    textrenderer.draw_text(gc, x, y, clean_line,\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\backends\\backend_ps.py\", line 248, in wrapper\n    return meth(self, *args, **kwargs)\n  File \"C:\\temp\\matplotlib_save_ps\\venv\\lib\\site-packages\\matplotlib\\backends\\backend_ps.py\", line 673, in draw_text\n    for ps_name, xs_names in stream:\nTypeError: cannot unpack non-iterable NoneType object\n\n\n### Expected outcome\n\nThe figure can be saved as `figure.eps` without error.\n\n### Additional information\n\n- seems to happen if a text label or title contains a linebreak with an empty line\n- works without error for other backends such as PNG, PDF, SVG, Qt\n- works with matplotlib<=3.5.3\n- adding `if curr_stream:` before line 669 of `backend_ps.py` seems to fix the bug \n\n### Operating system\n\nWindows\n\n### Matplotlib Version\n\n3.6.0\n\n### Matplotlib Backend\n\n_No response_\n\n### Python version\n\n3.9.13\n\n### Jupyter version\n\n_No response_\n\n### Installation\n\npip",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用 PostScript 后端保存包含带有空行的多行文本标签（例如以换行符开头的文本）的图形时，会引发 TypeError: cannot unpack non-iterable NoneType object 异常。该问题在 matplotlib 3.6.0 中引入，在 3.5.3 及更早版本中正常工作。其他后端（如 PNG、PDF、SVG、Qt）不受影响。Issue 中提供的修复建议是在 backend_ps.py 文件第 669 行前添加 `if curr_stream:` 检查。",
+        "facts_from_issue": [
+            "使用 PostScript 后端保存图形时，如果图形包含带有空行的多行文本标签，会引发 TypeError: cannot unpack non-iterable NoneType object。",
+            "示例代码：创建 Figure，添加子图，使用 ax.annotate(text='\\nLower label', xy=(0, 0)) 添加以换行符开头的文本标签，然后调用 figure.savefig('figure.eps')。",
+            "错误堆栈指向 matplotlib/backends/backend_ps.py 第 673 行：for ps_name, xs_names in stream:。",
+            "期望结果：图形应能无错误地保存为 EPS 文件。",
+            "该问题似乎发生在文本标签或标题包含带有空行的换行符时。",
+            "其他后端（PNG、PDF、SVG、Qt）无错误。",
+            "在 matplotlib<=3.5.3 中正常工作。",
+            "在 backend_ps.py 第 669 行前添加 `if curr_stream:` 似乎可以修复该错误。",
+            "报告版本：matplotlib 3.6.0，Python 3.9.13，Windows。"
+        ],
+        "facts_from_retrieved_context": [
+            "Figure 类有 savefig 方法，最终调用 canvas.print_figure。",
+            "Axes.annotate 方法创建 mtext.Annotation 对象并添加到图形中。",
+            "backend_ps.py 文件包含 PostScript 后端实现，其中有 _print_ps 和 _print_figure 方法。",
+            "检索到的测试表明存在针对 PostScript 后端文本和保存功能的测试。"
+        ],
+        "inferences": [
+            "错误发生在 PostScript 后端渲染文本的过程中，具体在 backend_ps.py 的 draw_text 方法内，当处理包含空行的文本时，某个变量 stream 可能变为 None。",
+            "Issue 中提到的第 669 行（添加 `if curr_stream:`）是修复建议，表明问题可能源于对 None 值进行迭代解包。"
+        ],
+        "do_not_assume": [
+            "backend_ps.py 中 stream 变量的确切来源和类型。",
+            "导致 stream 为 None 的文本处理逻辑的完整细节。",
+            "除了添加空行检查外，其他可能的修复方法。",
+            "该问题是否影响所有以换行符开头的文本，还是仅影响特定模式。"
+        ]
+    },
+    "issue_summary": "在 matplotlib 3.6.0 中，使用 PostScript 后端保存包含带有空行的多行文本标签的图形时，会引发 TypeError 异常。",
+    "trigger_condition": {
+        "text": "使用 PostScript 后端（通过指定 .eps 扩展名或 format='eps'）保存一个包含文本标签的图形，该文本标签包含一个空行（例如以换行符 '\\n' 开头或中间有空行的字符串）。",
+        "evidence": [
+            "Issue 代码示例：ax.annotate(text='\\nLower label', xy=(0, 0)); figure.savefig('figure.eps')。",
+            "Issue 描述：\"if the figure contains a multi-line text label with an empty line\"。",
+            "Issue 附加信息：\"seems to happen if a text label or title contains a linebreak with an empty line\"。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 figure.savefig('figure.eps') 时，引发 TypeError: cannot unpack non-iterable NoneType object 异常。堆栈跟踪指向 matplotlib/backends/backend_ps.py 第 673 行：for ps_name, xs_names in stream:。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中的实际结果部分包含完整的堆栈跟踪，最终错误为 TypeError: cannot unpack non-iterable NoneType object。",
+            "堆栈跟踪显示错误发生在 backend_ps.py 第 673 行。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "使用 PostScript 后端保存包含带有空行的文本标签的图形时，应成功保存 EPS 文件，不引发任何异常。",
+        "evidence": [
+            "Issue 中的期望结果：\"The figure can be saved as `figure.eps` without error.\"",
+            "Issue 附加信息：\"works without error for other backends\" 和 \"works with matplotlib<=3.5.3\"，表明这是预期的正常行为。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "Figure.savefig",
+            "kind": "method",
+            "source_path": "lib/matplotlib/figure.py",
+            "reason": "Issue 中触发错误的入口点，用于保存图形。"
+        },
+        {
+            "name": "Axes.annotate",
+            "kind": "method",
+            "source_path": "lib/matplotlib/axes/_axes.py",
+            "reason": "Issue 中用于创建问题文本标签的方法。"
+        },
+        {
+            "name": "FigureCanvasPS._print_ps",
+            "kind": "method",
+            "source_path": "lib/matplotlib/backends/backend_ps.py",
+            "reason": "PostScript 后端打印流程的一部分，堆栈跟踪中涉及。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "lib/matplotlib/backends/backend_ps.py",
+            "object": "draw_text 方法或相关文本渲染逻辑",
+            "lines": "673",
+            "reason": "错误堆栈指向第 673 行：for ps_name, xs_names in stream:，Issue 建议在第 669 行前添加检查。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_savefig_to_stringio",
+            "test_file": "lib/matplotlib/tests/test_backend_ps.py",
+            "why_relevant": "该测试使用 PostScript 后端保存图形到内存缓冲区，并检查输出。它涵盖了 EPS 格式、文本标题和不同的配置，与 Issue 中触发错误的场景（保存 EPS 文件）高度相关。",
+            "reusable_parts": [
+                "导入 io.BytesIO",
+                "创建 Figure 和 Axes 的 setup",
+                "使用 fig.savefig 并指定 format='eps'",
+                "将输出保存到 BytesIO 缓冲区",
+                "可能处理特定异常的 try-except 结构"
+            ],
+            "possible_gap": "该测试使用的标题文本不包含空行（例如 \"Déjà vu\"），因此不会触发错误。需要将文本内容变异为包含空行（如 '\\nTitle'）。"
+        },
+        {
+            "test_name": "test_multiline",
+            "test_file": "lib/matplotlib/tests/test_text.py",
+            "why_relevant": "该测试专门处理多行文本，使用 '\\n' 分隔符。它演示了如何创建包含换行符的文本标签。",
+            "reusable_parts": [
+                "创建包含多行文本的图形和坐标轴",
+                "使用 plt.text 或 ax.text 添加多行文本",
+                "文本字符串中包含 '\\n'"
+            ],
+            "possible_gap": "该测试是图像比较测试，不涉及 PostScript 后端保存。需要将测试框架改为使用 PostScript 后端保存图形，并检查是否引发异常。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "相似测试中使用的正常文本字符串，如 \"Déjà vu\" 或 \"multiline\\ntext alignment\"。",
+            "target_pattern": "包含空行的文本字符串，如 \"\\nLower label\" 或 \"First line\\n\\nSecond line\"。",
+            "reason": "Issue 明确指出，当文本标签包含空行（如以换行符开头）时触发错误。",
+            "confidence": "high"
+        },
+        {
+            "slot": "config",
+            "current_pattern": "相似测试可能使用默认后端或指定其他格式。",
+            "target_pattern": "使用 PostScript 后端，通过指定文件扩展名 .eps 或 format='eps'。",
+            "reason": "错误仅发生在 PostScript 后端，其他后端不受影响。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "调用 fig.savefig(buf, format='eps') 时是否引发 TypeError，并检查异常消息是否包含 'cannot unpack non-iterable NoneType object'。",
+            "reason": "Issue 的核心错误症状是 TypeError 异常。"
+        },
+        {
+            "kind": "file_output",
+            "expression_hint": "保存后 BytesIO 缓冲区的内容（buf.getvalue()）是否非空且包含有效的 EPS 文件头（如 '%!PS-Adobe'）。",
+            "reason": "修复后，保存操作应成功生成有效的 EPS 文件数据。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "使用包含空行的文本标签和 PostScript 后端保存图形时，不应引发 TypeError 异常。",
+            "preferred_assertion_style": "raises",
+            "avoid": "断言完整的 EPS 文件内容或内部渲染状态。",
+            "reason": "错误症状是明确的异常，修复后该异常应消失。使用 pytest.raises 或 try-except 来验证无异常是直接且稳定的方法。"
+        },
+        {
+            "assertion_goal": "保存操作应成功完成，并生成非空的输出数据。",
+            "preferred_assertion_style": "before_after_relation",
+            "avoid": "断言输出字节的精确匹配或特定私有属性。",
+            "reason": "修复后，savefig 调用应正常返回，并且输出缓冲区应包含数据（与保存前相比）。这验证了功能正常，而不依赖于易变的文件内容细节。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "使用 io.BytesIO() 作为内存缓冲区来捕获 savefig 输出，避免创建物理文件。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "创建基本的 Figure 和 Axes 对象，类似于 Issue 示例和现有测试。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试可能需要处理其他后端相关的异常（如 ExecutableNotFoundError），但目标错误 TypeError 应被单独捕获和断言。",
+            "source": "retrieved_test",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "导致 stream 变量为 None 的文本处理的确切边界条件（是否所有空行情况都会触发？）。",
+        "除了 annotate，其他添加文本的方法（如 set_title, text）是否在相同条件下表现出相同行为。",
+        "backend_ps.py 中 draw_text 方法内部 stream 变量的来源和预期类型。"
+    ]
+}
+```

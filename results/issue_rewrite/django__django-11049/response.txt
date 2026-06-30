@@ -1,0 +1,136 @@
+```json
+{
+    "original_issue": {
+        "text": "Correct expected format in invalid DurationField error message\nDescription\n\nIf you enter a duration \"14:00\" into a duration field, it translates to \"00:14:00\" which is 14 minutes.\nThe current error message for invalid DurationField says that this should be the format of durations: \"[DD] [HH:[MM:]]ss[.uuuuuu]\". But according to the actual behaviour, it should be: \"[DD] [[HH:]MM:]ss[.uuuuuu]\", because seconds are mandatory, minutes are optional, and hours are optional if minutes are provided.\nThis seems to be a mistake in all Django versions that support the DurationField.\nAlso the duration fields could have a default help_text with the requested format, because the syntax is not self-explanatory.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当向 DurationField 输入一个无效的持续时间字符串时，生成的错误消息中描述的预期格式与实际的解析行为不一致。当前错误消息声称格式应为 \"[DD] [HH:[MM:]]ss[.uuuuuu]\"，但根据实际解析逻辑（例如 \"14:00\" 被解析为 14 分钟），正确的格式描述应为 \"[DD] [[HH:]MM:]ss[.uuuuuu]\"，其中秒是必需的，分钟是可选的，如果提供了分钟，小时也是可选的。此问题存在于所有支持 DurationField 的 Django 版本中。可能涉及 DurationField 的验证错误消息生成逻辑。",
+        "facts_from_issue": ["错误消息中描述的持续时间格式为 \"[DD] [HH:[MM:]]ss[.uuuuuu]\"。", "实际解析行为表明 \"14:00\" 被解析为 14 分钟（即 \"00:14:00\"）。", "根据实际行为，正确的格式描述应为 \"[DD] [[HH:]MM:]ss[.uuuuuu]\"，其中秒是必需的，分钟是可选的，如果提供了分钟，小时也是可选的。", "这是一个存在于所有支持 DurationField 的 Django 版本中的错误。"],
+        "facts_from_retrieved_context": ["DurationField 类有一个 'invalid' 默认错误消息键，其值为 'Enter a valid duration.'。", "存在测试验证 DurationField 对无效字符串会抛出 ValidationError，且其消息包含格式描述 \"[DD] [HH:[MM:]]ss[.uuuuuu]\"。", "存在测试验证其他字段（如 DateTimeField, TimeField）的错误消息也包含格式描述。"],
+        "inferences": ["错误消息的完整文本可能是在 ValidationError 被抛出时，通过某种机制（如 message % params）生成的，其中包含了格式字符串。", "错误消息的生成逻辑可能与 DurationField 的验证代码或某个通用的错误消息格式化函数相关。", "Issue 中提到的 \"14:00\" 被解析为 \"00:14:00\" 是实际解析行为的一个例子，用于说明格式描述的歧义。"],
+        "do_not_assume": ["错误消息文本 \"[DD] [HH:[MM:]]ss[.uuuuuu]\" 的确切来源文件位置。", "生成错误消息的具体函数或方法名。", "help_text 的默认值是否应该添加或如何添加。"]
+    },
+    "issue_summary": "DurationField 验证错误消息中描述的持续时间格式与实际解析行为不匹配。",
+    "trigger_condition": {
+        "text": "向 DurationField 输入一个无效的持续时间字符串，例如一个不符合实际解析规则的字符串（如格式正确但值无效，或完全错误的格式），触发验证错误。",
+        "evidence": ["Issue 提到 \"If you enter a duration '14:00' into a duration field...\"，这是一个输入示例。", "相关测试 1 (test_invalid_string) 展示了通过 field.clean('not a datetime', None) 触发验证错误。", "相关测试 4 和 5 展示了其他字段通过输入错误格式字符串触发验证错误。"],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "当 DurationField 验证失败时，抛出的 ValidationError 所包含的错误消息中，对预期格式的描述（\"[DD] [HH:[MM:]]ss[.uuuuuu]\"）与字段的实际解析行为不一致。具体来说，消息暗示分钟是可选的且需要小时前缀，而实际行为是分钟可选且小时在分钟存在时可省略。",
+        "symptom_type": "wrong_return",
+        "evidence": ["Issue 明确指出当前错误消息格式为 \"[DD] [HH:[MM:]]ss[.uuuuuu]\"，而应为 \"[DD] [[HH:]MM:]ss[.uuuuuu]\"。", "相关测试 1 中验证的错误消息包含格式描述 \"[DD] [HH:[MM:]]ss[.uuuuuu]\"，这证实了当前错误消息的内容。"],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "修复后，当 DurationField 验证失败并抛出 ValidationError 时，其错误消息中对预期持续时间的格式描述应准确反映实际的解析规则，即应为 \"[DD] [[HH:]MM:]ss[.uuuuuu]\"（或语义等价的描述），表明秒是必需的，分钟是可选的，且如果提供了分钟，小时也是可选的。",
+        "evidence": ["Issue 明确给出了正确的格式描述：\"[DD] [[HH:]MM:]ss[.uuuuuu]\"。", "Issue 解释了为何此格式正确：\"because seconds are mandatory, minutes are optional, and hours are optional if minutes are provided.\""],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "DurationField",
+            "kind": "class",
+            "source_path": "django/forms/fields.py",
+            "reason": "Issue 直接关于 DurationField 的错误消息。源码片段 1 显示了 DurationField 类及其 default_error_messages。"
+        },
+        {
+            "name": "ValidationError",
+            "kind": "class",
+            "source_path": "",
+            "reason": "相关测试显示验证失败时抛出 ValidationError，且需要检查其消息。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/forms/fields.py",
+            "object": "DurationField 类或其基类中生成 'invalid' 错误消息完整文本的逻辑",
+            "lines": "",
+            "reason": "源码片段 1 显示 DurationField 定义了 'invalid' 错误消息键，但完整格式字符串可能在其他地方生成或拼接。"
+        },
+        {
+            "path": "可能存在于定义 DurationField 验证逻辑或通用字段验证错误消息格式化的其他文件中",
+            "object": "生成包含格式字符串的完整错误消息的函数或方法",
+            "lines": "",
+            "reason": "相关测试 1 显示错误消息包含格式描述，这暗示存在一个地方将格式模板与输入值组合成最终消息。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_invalid_string",
+            "test_file": "tests/model_fields/test_durationfield.py",
+            "why_relevant": "该测试直接验证 DurationField 对无效字符串的验证行为，包括检查抛出的 ValidationError 及其消息，这与 Issue 的核心（错误消息内容）高度相关。",
+            "reusable_parts": ["导入 models 和 exceptions。", "使用 models.DurationField() 构造字段对象。", "使用 self.assertRaises(exceptions.ValidationError) 捕获异常。", "使用 cm.exception.code 和 cm.exception.message % cm.exception.params 检查错误消息。", "断言消息包含格式字符串的模式。"],
+            "possible_gap": "该测试使用的无效输入是 'not a datetime'，而 Issue 更关注格式描述本身的正确性，而非特定输入。测试中断言的消息格式是当前错误的格式，需要变异输入和/或期望的消息格式来触发和验证 Issue。"
+        },
+        {
+            "test_name": "test_datetime_field_raises_error_message",
+            "test_file": "tests/validation/test_error_messages.py",
+            "why_relevant": "该测试展示了如何测试字段验证错误消息，包括检查消息中是否包含预期的格式描述片段。它使用了 _test_validation_messages 辅助方法，这可能是一种可复用的测试模式。",
+            "reusable_parts": ["测试错误消息的通用模式：提供无效输入，断言输出消息列表。", "关注消息中包含格式描述片段（如 \"It must be in ... format.\"）。"],
+            "possible_gap": "该测试针对 DateTimeField，而非 DurationField。需要将测试对象改为 DurationField，并调整预期的格式字符串。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "相关测试 1 中使用完全无关的字符串 'not a datetime' 作为无效输入。",
+            "target_pattern": "使用一个能更微妙地暴露格式描述歧义的无效持续时间字符串。例如，一个符合当前错误消息描述但不符合实际解析行为的字符串，或者一个符合实际解析行为但不符合当前错误消息描述的字符串。Issue 中的 \"14:00\" 是有效输入，因此可能需要类似但无效的变体，如 \"14:xx\"（分钟部分无效）或 \"14:00:xx\"（秒部分无效）。",
+            "reason": "使用一个与持续时间格式更相关的无效输入，可能使测试更直接地触及格式解析逻辑和错误消息生成逻辑。",
+            "confidence": "medium"
+        },
+        {
+            "slot": "argument",
+            "current_pattern": "相关测试 1 中断言错误消息等于一个包含当前错误格式字符串的完整消息。",
+            "target_pattern": "将断言的目标消息片段改为包含 Issue 建议的正确格式字符串 \"[DD] [[HH:]MM:]ss[.uuuuuu]\"（或关键差异部分，如 \"[[HH:]MM:]\"）。",
+            "reason": "这是验证 Issue 是否被修复的直接方式：检查错误消息中的格式描述是否已更正。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "捕获 ValidationError 异常后，访问其 message 属性（或通过 cm.exception.message % cm.exception.params 获取格式化后的消息字符串）。",
+            "reason": "错误消息的内容是 Issue 的核心观察点。需要检查消息中是否包含正确的持续时间格式描述。"
+        },
+        {
+            "kind": "str",
+            "expression_hint": "格式化后的错误消息字符串（str(cm.exception) 或类似方式）。",
+            "reason": "错误消息最终以字符串形式呈现给用户，这是最公开的输出。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "验证 ValidationError 的错误消息字符串中包含正确的持续时间格式描述片段 \"[[HH:]MM:]\"（或完整的 \"[DD] [[HH:]MM:]ss[.uuuuuu]\"）。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的错误消息字符串完全相等，因为消息前缀（如输入值）可能变化。避免断言私有属性。",
+            "reason": "Issue 的核心是格式描述字符串的更正。使用 contains_fragment 可以稳定地检查格式描述部分，而不受消息其他部分（如具体输入值）的影响。"
+        },
+        {
+            "assertion_goal": "验证错误消息中不包含旧的、不正确的格式描述片段 \"[HH:[MM:]]\"。",
+            "preferred_assertion_style": "not_contains_fragment",
+            "avoid": "同上，避免完整字符串比较。",
+            "reason": "这是从另一个角度确保错误消息已更新。极性符合 expected_behavior（应包含新格式，不应包含旧格式）。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要使用 Django 的测试框架（如 SimpleTestCase 或 TestCase）。可能需要导入 forms 和 models 模块中的 DurationField，以及 exceptions.ValidationError。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试可能不需要数据库，因为只测试字段验证逻辑。可以使用 SimpleTestCase。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "错误消息的完整模板字符串具体存储在代码库的哪个位置（可能在 DurationField 的某个父类、mixin 或单独的消息文件中）。",
+        "生成最终错误消息的确切调用链和格式化函数是什么。",
+        "除了 'invalid' 错误，是否还有其他错误消息（如 'overflow'）也存在格式描述问题。",
+        "帮助文本（help_text）的添加是否属于同一修复范围，还是独立的增强请求。"
+    ]
+}
+```

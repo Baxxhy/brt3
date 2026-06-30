@@ -1,0 +1,329 @@
+{
+  "instance_id": "matplotlib__matplotlib-24265",
+  "issue_summary": "在 matplotlib 3.6.1 中，通过 `plt.style.library[\"seaborn-colorblind\"]` 访问样式时抛出 KeyError，而该访问在 3.4.3 版本中正常。",
+  "trigger_condition": {
+    "text": "在 matplotlib 3.6.1 环境下，执行 `plt.style.library[\"seaborn-colorblind\"]`。",
+    "evidence": [
+      "原始 Issue 中的复现代码：`import matplotlib.pyplot as plt; the_rc = plt.style.library[\"seaborn-colorblind\"]`。",
+      "原始 Issue 中明确说明该代码在 3.6.1 版本触发错误。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "执行 `plt.style.library[\"seaborn-colorblind\"]` 时抛出 KeyError 异常，提示 'seaborn-colorblind' 是无效键。",
+    "symptom_type": "exception",
+    "evidence": [
+      "原始 Issue 中的实际结果：`Traceback (most recent call last): KeyError: 'seaborn-colorblind'`。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "执行 `plt.style.library[\"seaborn-colorblind\"]` 应成功返回对应的样式配置字典，而不抛出 KeyError。",
+    "evidence": [
+      "原始 Issue 中的期望结果：\"seaborn-colorblind should be set as the matplotlib library style and I should be able to continue plotting with that style.\"",
+      "原始 Issue 说明该代码在 3.4.3 版本中工作正常。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "plt.style.library",
+      "kind": "attribute",
+      "source_path": "lib/matplotlib/pyplot.py",
+      "reason": "Issue 中触发错误的直接访问对象。"
+    },
+    {
+      "name": "matplotlib.style.core.library",
+      "kind": "global_var",
+      "source_path": "lib/matplotlib/style/core.py",
+      "reason": "检索到的源码片段显示这是样式库的底层变量，可能与缺陷相关。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "lib/matplotlib/style/core.py",
+      "object": "library 变量的初始化或更新逻辑",
+      "lines": "",
+      "reason": "检索到的源码片段显示 `library = None`，其初始化或内容填充可能存在问题，导致 'seaborn-colorblind' 键缺失。"
+    },
+    {
+      "path": "lib/matplotlib/style/__init__.py",
+      "object": "样式库的加载或名称映射逻辑",
+      "lines": "",
+      "reason": "样式名称 'seaborn-colorblind' 的可用性可能由该模块控制，涉及样式文件的发现、加载或弃用处理。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_deprecated_seaborn_styles",
+      "test_file": "lib/matplotlib/tests/test_style.py",
+      "why_relevant": "该测试直接涉及 'seaborn' 相关样式的使用和弃用警告，与 Issue 中涉及的样式名称高度相关。",
+      "reusable_parts": [
+        "imports: `import matplotlib as mpl`, `import pytest`",
+        "使用 `mpl.style.context` 和 `mpl.style.use` 的 API 调用模式",
+        "使用 `pytest.warns` 检查弃用警告的断言风格",
+        "通过 `mpl.rcParams.copy()` 和比较来验证样式应用效果的断言方法"
+      ],
+      "possible_gap": "该测试使用 `mpl.style.use(\"seaborn-bright\")` 和 `mpl.style.context`，而 Issue 是直接通过 `plt.style.library[\"seaborn-colorblind\"]` 字典访问。需要变异为直接访问 `library` 属性。"
+    },
+    {
+      "test_name": "test_context_with_badparam",
+      "test_file": "lib/matplotlib/tests/test_style.py",
+      "why_relevant": "该测试展示了当传入无效参数（badparam）时，`style.context` 会抛出 KeyError，这与 Issue 中因无效键抛出 KeyError 的错误现象类似。",
+      "reusable_parts": [
+        "使用 `pytest.raises(KeyError)` 来断言预期异常的测试模式",
+        "在上下文管理器中使用 `style.context` 的调用方式",
+        "在异常断言前后检查 `mpl.rcParams` 状态是否恢复的验证方法"
+      ],
+      "possible_gap": "该测试触发 KeyError 的路径是通过 `style.context` 传入无效参数字典，而 Issue 是通过字典键访问。需要变异触发条件。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "相似测试 `test_deprecated_seaborn_styles` 中使用 `mpl.style.use(\"seaborn-bright\")` 或 `mpl.style.context(\"seaborn-v0_8-bright\")`。",
+      "target_pattern": "直接通过属性访问 `plt.style.library[\"seaborn-colorblind\"]`。",
+      "reason": "Issue 的触发路径是直接字典键访问，而非通过 `use` 或 `context` 方法。变异后可能直接暴露底层 `library` 字典的键缺失问题。",
+      "confidence": "high"
+    },
+    {
+      "slot": "argument",
+      "current_pattern": "相似测试 `test_context_with_badparam` 中通过 `style.context({PARAM: other_value})` 触发异常。",
+      "target_pattern": "将参数从上下文管理器调用替换为 `plt.style.library` 的键访问。",
+      "reason": "Issue 的错误症状是字典键访问异常，而非上下文管理器参数异常。变异后能更直接地复现 KeyError。",
+      "confidence": "medium"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "在 `plt.style.library[\"seaborn-colorblind\"]` 执行时捕获的异常类型和消息。",
+      "reason": "Issue 的核心错误现象是 KeyError，观测异常类型和消息能直接判断缺陷是否被触发。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "`plt.style.library[\"seaborn-colorblind\"]` 成功执行后的返回值类型（应为字典）或其片段。",
+      "reason": "修复后应正常返回样式配置，观测返回值可以验证期望行为是否成立。"
+    },
+    {
+      "kind": "warning",
+      "expression_hint": "执行相关操作时可能产生的弃用警告（`MatplotlibDeprecationWarning`）。",
+      "reason": "相关测试表明 'seaborn' 样式可能涉及弃用，观测警告有助于理解行为变化。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "`plt.style.library[\"seaborn-colorblind\"]` 的执行不应抛出 KeyError。",
+      "preferred_assertion_style": "raises",
+      "avoid": "断言返回的字典内容完全等于某个特定值，因为具体配置可能因版本变化。",
+      "reason": "Issue 的核心是访问成功与否，而非返回值的具体内容。使用 `pytest.raises` 或其否定形式能直接验证异常是否发生。"
+    },
+    {
+      "assertion_goal": "`plt.style.library[\"seaborn-colorblind\"]` 应返回一个字典。",
+      "preferred_assertion_style": "isinstance",
+      "avoid": "断言返回字典的完整键列表或深层嵌套结构。",
+      "reason": "修复后应能访问到样式配置，其通常以字典形式返回。检查返回类型是稳定且公开的行为。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "测试可能需要导入 `matplotlib.pyplot as plt` 和 `matplotlib as mpl`。",
+      "source": "issue|retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要使用 `pytest` 的 `raises` 和 `warns` 来管理异常和警告断言。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "测试环境应确保使用 matplotlib 3.6.1 版本以触发缺陷。",
+      "source": "issue",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "`plt.style.library` 在 3.6.1 中的完整键列表是什么，是否包含其他 'seaborn-*' 变体。",
+    "修复后 `plt.style.library[\"seaborn-colorblind\"]` 返回的字典具体包含哪些键值对。",
+    "除了直接字典访问，通过 `plt.style.use('seaborn-colorblind')` 是否也会失败。",
+    "缺陷是否仅影响 'seaborn-colorblind'，还是影响所有 'seaborn-*' 样式。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "[Bug]: Setting matplotlib.pyplot.style.library['seaborn-colorblind'] result in key error on matplotlib v3.6.1\n### Bug summary\n\nI have code that executes:\n```\nimport matplotlib.pyplot as plt\nthe_rc = plt.style.library[\"seaborn-colorblind\"]\n```\n\nUsing version 3.4.3 of matplotlib, this works fine. I recently installed my code on a machine with matplotlib version 3.6.1 and upon importing my code, this generated a key error for line `the_rc = plt.style.library[\"seaborn-colorblind\"]` saying \"seaborn-colorblind\" was a bad key.\n\n### Code for reproduction\n\n```python\nimport matplotlib.pyplot as plt\nthe_rc = plt.style.library[\"seaborn-colorblind\"]\n```\n\n\n### Actual outcome\n\nTraceback (most recent call last):\nKeyError: 'seaborn-colorblind'\n\n### Expected outcome\n\nseaborn-colorblind should be set as the matplotlib library style and I should be able to continue plotting with that style.\n\n### Additional information\n\n- Bug occurs with matplotlib version 3.6.1\n- Bug does not occur with matplotlib version 3.4.3\n- Tested on MacOSX and Ubuntu (same behavior on both)\n\n### Operating system\n\nOS/X\n\n### Matplotlib Version\n\n3.6.1\n\n### Matplotlib Backend\n\nMacOSX\n\n### Python version\n\n3.9.7\n\n### Jupyter version\n\n_No response_\n\n### Installation\n\npip",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 matplotlib 3.6.1 版本中，通过 `plt.style.library[\"seaborn-colorblind\"]` 访问样式库时，会抛出 KeyError 异常，提示 'seaborn-colorblind' 是一个无效的键。而在 3.4.3 版本中，相同的代码可以正常工作。期望行为是能够成功访问到名为 'seaborn-colorblind' 的样式配置。可能相关的 API 或文件包括 `matplotlib.pyplot.style.library` 和 `matplotlib.style.core.library`。",
+      "facts_from_issue": [
+        "代码 `plt.style.library[\"seaborn-colorblind\"]` 在 matplotlib 3.6.1 中抛出 KeyError。",
+        "相同的代码在 matplotlib 3.4.3 中工作正常。",
+        "错误信息是 KeyError: 'seaborn-colorblind'。",
+        "期望能够成功设置并使用 'seaborn-colorblind' 样式。"
+      ],
+      "facts_from_retrieved_context": [
+        "检索到的源码片段显示 `matplotlib.style.core` 模块中有一个全局变量 `library = None`。",
+        "检索到的测试 `test_deprecated_seaborn_styles` 表明 'seaborn' 相关的样式名称可能涉及弃用警告。",
+        "检索到的测试 `test_context_with_badparam` 和 `test_rcparams_reset_after_fail` 展示了处理无效键时抛出 KeyError 的模式。"
+      ],
+      "inferences": [
+        "`plt.style.library` 可能是一个字典或类似字典的对象，用于存储样式配置。",
+        "在 matplotlib 3.6.1 中，样式库 `library` 的键集合可能发生了变化，导致 'seaborn-colorblind' 缺失。",
+        "样式名称 'seaborn-colorblind' 可能与弃用或重命名有关。"
+      ],
+      "do_not_assume": [
+        "样式库 `library` 的具体初始化时机和完整内容。",
+        "'seaborn-colorblind' 样式在 3.6.1 中被完全移除还是重命名。",
+        "修复后 `plt.style.library[\"seaborn-colorblind\"]` 返回值的具体数据结构。"
+      ]
+    },
+    "issue_summary": "在 matplotlib 3.6.1 中，通过 `plt.style.library[\"seaborn-colorblind\"]` 访问样式时抛出 KeyError，而该访问在 3.4.3 版本中正常。",
+    "trigger_condition": {
+      "text": "在 matplotlib 3.6.1 环境下，执行 `plt.style.library[\"seaborn-colorblind\"]`。",
+      "evidence": [
+        "原始 Issue 中的复现代码：`import matplotlib.pyplot as plt; the_rc = plt.style.library[\"seaborn-colorblind\"]`。",
+        "原始 Issue 中明确说明该代码在 3.6.1 版本触发错误。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "执行 `plt.style.library[\"seaborn-colorblind\"]` 时抛出 KeyError 异常，提示 'seaborn-colorblind' 是无效键。",
+      "symptom_type": "exception",
+      "evidence": [
+        "原始 Issue 中的实际结果：`Traceback (most recent call last): KeyError: 'seaborn-colorblind'`。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "执行 `plt.style.library[\"seaborn-colorblind\"]` 应成功返回对应的样式配置字典，而不抛出 KeyError。",
+      "evidence": [
+        "原始 Issue 中的期望结果：\"seaborn-colorblind should be set as the matplotlib library style and I should be able to continue plotting with that style.\"",
+        "原始 Issue 说明该代码在 3.4.3 版本中工作正常。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "plt.style.library",
+        "kind": "attribute",
+        "source_path": "lib/matplotlib/pyplot.py",
+        "reason": "Issue 中触发错误的直接访问对象。"
+      },
+      {
+        "name": "matplotlib.style.core.library",
+        "kind": "global_var",
+        "source_path": "lib/matplotlib/style/core.py",
+        "reason": "检索到的源码片段显示这是样式库的底层变量，可能与缺陷相关。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "lib/matplotlib/style/core.py",
+        "object": "library 变量的初始化或更新逻辑",
+        "lines": "",
+        "reason": "检索到的源码片段显示 `library = None`，其初始化或内容填充可能存在问题，导致 'seaborn-colorblind' 键缺失。"
+      },
+      {
+        "path": "lib/matplotlib/style/__init__.py",
+        "object": "样式库的加载或名称映射逻辑",
+        "lines": "",
+        "reason": "样式名称 'seaborn-colorblind' 的可用性可能由该模块控制，涉及样式文件的发现、加载或弃用处理。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_deprecated_seaborn_styles",
+        "test_file": "lib/matplotlib/tests/test_style.py",
+        "why_relevant": "该测试直接涉及 'seaborn' 相关样式的使用和弃用警告，与 Issue 中涉及的样式名称高度相关。",
+        "reusable_parts": [
+          "imports: `import matplotlib as mpl`, `import pytest`",
+          "使用 `mpl.style.context` 和 `mpl.style.use` 的 API 调用模式",
+          "使用 `pytest.warns` 检查弃用警告的断言风格",
+          "通过 `mpl.rcParams.copy()` 和比较来验证样式应用效果的断言方法"
+        ],
+        "possible_gap": "该测试使用 `mpl.style.use(\"seaborn-bright\")` 和 `mpl.style.context`，而 Issue 是直接通过 `plt.style.library[\"seaborn-colorblind\"]` 字典访问。需要变异为直接访问 `library` 属性。"
+      },
+      {
+        "test_name": "test_context_with_badparam",
+        "test_file": "lib/matplotlib/tests/test_style.py",
+        "why_relevant": "该测试展示了当传入无效参数（badparam）时，`style.context` 会抛出 KeyError，这与 Issue 中因无效键抛出 KeyError 的错误现象类似。",
+        "reusable_parts": [
+          "使用 `pytest.raises(KeyError)` 来断言预期异常的测试模式",
+          "在上下文管理器中使用 `style.context` 的调用方式",
+          "在异常断言前后检查 `mpl.rcParams` 状态是否恢复的验证方法"
+        ],
+        "possible_gap": "该测试触发 KeyError 的路径是通过 `style.context` 传入无效参数字典，而 Issue 是通过字典键访问。需要变异触发条件。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "相似测试 `test_deprecated_seaborn_styles` 中使用 `mpl.style.use(\"seaborn-bright\")` 或 `mpl.style.context(\"seaborn-v0_8-bright\")`。",
+        "target_pattern": "直接通过属性访问 `plt.style.library[\"seaborn-colorblind\"]`。",
+        "reason": "Issue 的触发路径是直接字典键访问，而非通过 `use` 或 `context` 方法。变异后可能直接暴露底层 `library` 字典的键缺失问题。",
+        "confidence": "high"
+      },
+      {
+        "slot": "argument",
+        "current_pattern": "相似测试 `test_context_with_badparam` 中通过 `style.context({PARAM: other_value})` 触发异常。",
+        "target_pattern": "将参数从上下文管理器调用替换为 `plt.style.library` 的键访问。",
+        "reason": "Issue 的错误症状是字典键访问异常，而非上下文管理器参数异常。变异后能更直接地复现 KeyError。",
+        "confidence": "medium"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "在 `plt.style.library[\"seaborn-colorblind\"]` 执行时捕获的异常类型和消息。",
+        "reason": "Issue 的核心错误现象是 KeyError，观测异常类型和消息能直接判断缺陷是否被触发。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "`plt.style.library[\"seaborn-colorblind\"]` 成功执行后的返回值类型（应为字典）或其片段。",
+        "reason": "修复后应正常返回样式配置，观测返回值可以验证期望行为是否成立。"
+      },
+      {
+        "kind": "warning",
+        "expression_hint": "执行相关操作时可能产生的弃用警告（`MatplotlibDeprecationWarning`）。",
+        "reason": "相关测试表明 'seaborn' 样式可能涉及弃用，观测警告有助于理解行为变化。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "`plt.style.library[\"seaborn-colorblind\"]` 的执行不应抛出 KeyError。",
+        "preferred_assertion_style": "raises",
+        "avoid": "断言返回的字典内容完全等于某个特定值，因为具体配置可能因版本变化。",
+        "reason": "Issue 的核心是访问成功与否，而非返回值的具体内容。使用 `pytest.raises` 或其否定形式能直接验证异常是否发生。"
+      },
+      {
+        "assertion_goal": "`plt.style.library[\"seaborn-colorblind\"]` 应返回一个字典。",
+        "preferred_assertion_style": "isinstance",
+        "avoid": "断言返回字典的完整键列表或深层嵌套结构。",
+        "reason": "修复后应能访问到样式配置，其通常以字典形式返回。检查返回类型是稳定且公开的行为。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "测试可能需要导入 `matplotlib.pyplot as plt` 和 `matplotlib as mpl`。",
+        "source": "issue|retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要使用 `pytest` 的 `raises` 和 `warns` 来管理异常和警告断言。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "测试环境应确保使用 matplotlib 3.6.1 版本以触发缺陷。",
+        "source": "issue",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "`plt.style.library` 在 3.6.1 中的完整键列表是什么，是否包含其他 'seaborn-*' 变体。",
+      "修复后 `plt.style.library[\"seaborn-colorblind\"]` 返回的字典具体包含哪些键值对。",
+      "除了直接字典访问，通过 `plt.style.use('seaborn-colorblind')` 是否也会失败。",
+      "缺陷是否仅影响 'seaborn-colorblind'，还是影响所有 'seaborn-*' 样式。"
+    ]
+  }
+}

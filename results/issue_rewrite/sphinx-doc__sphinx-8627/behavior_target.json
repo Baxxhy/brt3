@@ -1,0 +1,328 @@
+{
+  "instance_id": "sphinx-doc__sphinx-8627",
+  "issue_summary": "Sphinx autodoc 无法解析函数类型注解中的 `struct.Struct`，导致文档构建失败并报告类引用未找到。",
+  "trigger_condition": {
+    "text": "使用 Sphinx 的 `.. automodule::` 指令（或类似指令）为包含带有 `struct.Struct` 类型注解（如 `def f(_: struct.Struct) -> None` 或 `def f() -> struct.Struct`）的函数的模块生成文档。",
+    "evidence": [
+      "Issue 中的 `helloworld.py` 文件包含 `def consume_struct(_: struct.Struct) -> None` 和 `def make_struct() -> struct.Struct`。",
+      "Issue 中的 `index.rst` 文件包含 `.. automodule:: helloworld.helloworld`。",
+      "Issue 中运行 `python3 -m sphinx -b html docs/ doc-out -nvWT` 命令触发错误。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "运行 `sphinx-build` 时，构建过程失败，并报告警告或错误信息：`class reference target not found: Struct`。生成的文档中可能缺少相关函数的签名或类型信息。",
+    "symptom_type": "exception",
+    "evidence": [
+      "Issue 描述：\"I get `class reference target not found: Struct`\"。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "Sphinx autodoc 应能正确解析 `struct.Struct` 类型注解，文档构建成功，并且在生成的文档中，`struct.Struct` 应被正确呈现为一个可点击的交叉引用链接（或至少是格式正确的文本），就像处理 `pathlib.Path` 一样。",
+    "evidence": [
+      "Issue 中 Expected behavior 部分：\"I'd expect that `Struct` would also resolve correctly.\" 并以 `pathlib.Path` 的正常行为作为对比。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "sphinx.ext.autodoc",
+      "kind": "module",
+      "source_path": "",
+      "reason": "Issue 直接关于 autodoc 扩展无法解析特定类型注解。"
+    },
+    {
+      "name": ".. automodule::",
+      "kind": "unknown",
+      "source_path": "",
+      "reason": "Issue 中用于触发问题的 reStructuredText 指令。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "sphinx/ext/autodoc/__init__.py",
+      "object": "处理类型注解解析和交叉引用生成的函数或方法",
+      "lines": "",
+      "reason": "Issue 核心是 autodoc 在处理 `struct.Struct` 这类类型注解时失败，解析逻辑很可能位于 autodoc 扩展的主模块中。"
+    },
+    {
+      "path": "sphinx/domains/python.py",
+      "object": "Python 域中处理类型字符串和交叉引用的逻辑",
+      "lines": "",
+      "reason": "`class reference target not found` 错误提示与 Sphinx 域的交叉引用解析相关，Python 域负责解析 Python 对象的引用。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_autodoc_process_signature_typehints",
+      "test_file": "tests/test_ext_autodoc.py",
+      "why_relevant": "该测试直接验证 autodoc 处理带类型注解的函数签名，并检查触发的 `autodoc-process-signature` 事件参数。这涉及到 autodoc 解析类型注解的核心流程。",
+      "reusable_parts": [
+        "使用 `make_directive_bridge` 和 `app.registry.documenters['function']` 来创建 autodoc 指令实例的测试模式。",
+        "设置 `inst.object`、`inst.fullname` 等属性并调用 `inst.format_signature()` 来触发签名处理的调用方式。",
+        "对 `autodoc-process-signature` 事件进行监听和断言的方法。"
+      ],
+      "possible_gap": "该测试使用简单的 `int` 类型作为注解，没有测试 `module.Class` 形式的注解（如 `struct.Struct`）。需要将测试对象替换为带有 `struct.Struct` 注解的函数。"
+    },
+    {
+      "test_name": "test_autodoc_type_aliases",
+      "test_file": "tests/test_ext_autodoc_configs.py",
+      "why_relevant": "该测试验证 `autodoc_type_aliases` 配置如何影响类型注解在文档中的呈现。它展示了如何通过 `do_autodoc` 辅助函数获取生成的文档文本并进行断言，这可用于检查 `struct.Struct` 是否被正确渲染。",
+      "reusable_parts": [
+        "使用 `@pytest.mark.sphinx` 装饰器和 `testroot='ext-autodoc'` 来设置 Sphinx 应用和测试数据。",
+        "使用 `do_autodoc` 函数来执行 autodoc 指令并捕获其输出。",
+        "通过 `assert list(actual) == [...]` 来验证生成的 reStructuredText 内容。"
+      ],
+      "possible_gap": "该测试关注类型别名配置，不直接测试标准库类型的解析。需要创建一个包含 `struct.Struct` 注解的测试模块，并检查其输出是否包含正确的交叉引用。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "input",
+      "current_pattern": "相似测试中使用简单的内置类型（如 `int`）或自定义类型别名（如 `myint`）作为函数类型注解。",
+      "target_pattern": "将测试函数的类型注解改为 `struct.Struct`（例如 `def f() -> struct.Struct`）。需要确保在测试模块中 `import struct`。",
+      "reason": "Issue 明确指出当类型注解为 `struct.Struct` 时触发错误。将测试输入变异为此模式应能重现缺陷路径。",
+      "confidence": "high"
+    },
+    {
+      "slot": "object",
+      "current_pattern": "相似测试中 `inst.object` 被设置为一个使用简单类型注解的函数对象。",
+      "target_pattern": "将 `inst.object` 设置为一个使用 `struct.Struct` 作为参数或返回值类型注解的函数对象。",
+      "reason": "autodoc 指令处理的对象（函数）的具体类型注解内容是触发解析逻辑的关键输入。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "warning",
+      "expression_hint": "构建过程中 Sphinx 应用（`app`）产生的警告信息（`app._warning` 或类似机制），特别是包含 `class reference target not found: Struct` 的警告。",
+      "reason": "Issue 中观察到的直接错误现象是报告类引用未找到的警告。捕获此警告可以明确判断缺陷是否被触发。"
+    },
+    {
+      "kind": "file_output",
+      "expression_hint": "运行 `sphinx-build` 后生成的文档输出文件（如 `.txt` 或 `.html`）中，对应函数签名部分的内容。观察是否包含 `struct.Struct` 的文本，以及其格式（是纯文本还是正确的交叉引用标记）。",
+      "reason": "最终期望行为是 `struct.Struct` 在文档中被正确呈现。检查生成的文件内容可以直接验证 autodoc 的输出结果。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "调用 `inst.format_signature()` 或类似方法后返回的签名字符串，或者 `do_autodoc` 函数返回的文档行列表。观察 `struct.Struct` 在其中的表示。",
+      "reason": "这些是 autodoc 处理类型注解后的中间或最终结果，可以揭示解析是否正确，而不必运行完整的构建。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "生成的文档输出中应包含 `struct.Struct` 的文本，并且理想情况下应被格式化为一个正确的交叉引用（例如包含 `:class:` 角色）。",
+      "preferred_assertion_style": "contains_fragment",
+      "avoid": "断言完整的、格式精确的文档输出字符串，因为具体的 RST 标记格式可能因 Sphinx 版本或配置而变化。避免断言内部缓存或私有属性。",
+      "reason": "Issue 的核心是 `struct.Struct` 未被识别为有效的类引用。检查输出中是否包含其文本以及基本的交叉引用标记，可以稳定地验证解析功能是否工作，而不依赖于细微的格式差异。"
+    },
+    {
+      "assertion_goal": "构建过程不应产生 `class reference target not found: Struct` 警告。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言警告列表完全为空，因为构建可能产生其他无关警告。",
+      "reason": "这是 Issue 中报告的直接错误症状。修复后，此特定警告应消失。检查警告信息中不包含该片段是稳定且目标明确的断言。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "使用 `@pytest.mark.sphinx` 装饰器来创建一个 Sphinx 测试应用（`app`），并指定 `testroot='ext-autodoc'` 以利用现有的测试数据目录结构。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "可能需要创建一个临时的测试模块文件（例如在 `app.srcdir` 下），其中包含带有 `struct.Struct` 类型注解的函数，以供 `.. automodule::` 指令引用。",
+      "source": "inference",
+      "confidence": "medium"
+    },
+    {
+      "hint": "使用 `make_directive_bridge` 工具函数（见于相关测试）来模拟 autodoc 指令的调用环境。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "错误是否特定于 `struct` 模块下的 `Struct` 类，还是所有 `module.Class` 形式的注解都有问题？",
+    "`autodoc_type_aliases` 配置是否会影响或绕过此问题？",
+    "导致解析失败的具体代码行和逻辑条件是什么？",
+    "除了警告信息，构建过程是否会以非零退出码终止？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "autodoc isn't able to resolve struct.Struct type annotations\n**Describe the bug**\nIf `struct.Struct` is declared in any type annotations, I get `class reference target not found: Struct`\n\n**To Reproduce**\nSimple `index.rst`\n```\nHello World\n===========\n\ncode docs\n=========\n\n.. automodule:: helloworld.helloworld\n```\n\nSimple `helloworld.py`\n```\nimport struct\nimport pathlib\n\ndef consume_struct(_: struct.Struct) -> None:\n    pass\n\ndef make_struct() -> struct.Struct:\n    mystruct = struct.Struct('HH')\n    return mystruct\n\ndef make_path() -> pathlib.Path:\n    return pathlib.Path()\n```\n\nCommand line:\n```\npython3 -m sphinx -b html docs/ doc-out -nvWT\n```\n\n**Expected behavior**\nIf you comment out the 2 functions that have `Struct` type annotations, you'll see that `pathlib.Path` resolves fine and shows up in the resulting documentation. I'd expect that `Struct` would also resolve correctly.\n\n**Your project**\nn/a\n\n**Screenshots**\nn/a\n\n**Environment info**\n- OS: Ubuntu 18.04, 20.04\n- Python version: 3.8.2\n- Sphinx version: 3.2.1\n- Sphinx extensions:  'sphinx.ext.autodoc',\n              'sphinx.ext.autosectionlabel',\n              'sphinx.ext.intersphinx',\n              'sphinx.ext.doctest',\n              'sphinx.ext.todo'\n- Extra tools: \n\n**Additional context**\n\n\n- [e.g. URL or Ticket]\n",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当使用 Sphinx 的 autodoc 扩展生成文档时，如果模块中的函数包含 `struct.Struct` 类型注解（例如 `def f(_: struct.Struct) -> None` 或 `def f() -> struct.Struct`），构建过程会失败并报告 `class reference target not found: Struct`。相比之下，其他标准库类型如 `pathlib.Path` 可以正常解析并出现在文档中。触发条件：使用 `.. automodule::` 指令包含一个定义了带有 `struct.Struct` 类型注解的函数的模块，并运行 `sphinx-build`。期望行为：`struct.Struct` 应该像 `pathlib.Path` 一样被正确解析，文档构建成功，且类型引用出现在生成的文档中。",
+      "facts_from_issue": [
+        "使用 `struct.Struct` 作为函数参数或返回值的类型注解时，Sphinx autodoc 构建失败。",
+        "错误信息为 `class reference target not found: Struct`。",
+        "使用 `pathlib.Path` 作为类型注解时，构建成功且文档正常显示。",
+        "触发步骤：创建一个包含 `.. automodule:: helloworld.helloworld` 的 `.rst` 文件，对应的模块文件包含带有 `struct.Struct` 注解的函数，然后运行 `sphinx-build`。",
+        "使用的 Sphinx 版本为 3.2.1，启用了 `sphinx.ext.autodoc` 等扩展。"
+      ],
+      "facts_from_retrieved_context": [
+        "检索到的相关测试代码涉及 `test_autodoc_process_signature_typehints`、`test_autodoc_typehints_description`、`test_autodoc_typed_instance_variables`、`test_autodoc_type_aliases` 等，表明 autodoc 有处理类型注解和类型别名的功能。",
+        "检索到的源码片段 1 显示 `sphinx/testing/util.py` 中有一个名为 `Struct` 的类，但这是一个测试工具类，与标准库的 `struct.Struct` 无关。"
+      ],
+      "inferences": [
+        "问题可能出在 autodoc 解析类型注解字符串并生成交叉引用链接的环节，对于 `struct.Struct` 这种形式（模块.类）的引用处理存在缺陷。",
+        "由于 `pathlib.Path` 可以正常工作，说明 autodoc 对某些标准库类型有特殊处理或映射，但对 `struct.Struct` 可能缺失。",
+        "相关测试代码展示了 autodoc 如何验证生成的文档内容（如 `list(actual)` 断言），这可以作为观测生成文档是否正确解析 `struct.Struct` 的参考。"
+      ],
+      "do_not_assume": [
+        "具体的修复代码位置。",
+        "`struct.Struct` 是否被 autodoc 的类型别名（`autodoc_type_aliases`）配置所影响。",
+        "错误是否仅发生在 `struct.Struct` 上，还是其他 `module.Class` 形式的注解也有问题。",
+        "内部解析 `struct.Struct` 时具体在哪一步失败。"
+      ]
+    },
+    "issue_summary": "Sphinx autodoc 无法解析函数类型注解中的 `struct.Struct`，导致文档构建失败并报告类引用未找到。",
+    "trigger_condition": {
+      "text": "使用 Sphinx 的 `.. automodule::` 指令（或类似指令）为包含带有 `struct.Struct` 类型注解（如 `def f(_: struct.Struct) -> None` 或 `def f() -> struct.Struct`）的函数的模块生成文档。",
+      "evidence": [
+        "Issue 中的 `helloworld.py` 文件包含 `def consume_struct(_: struct.Struct) -> None` 和 `def make_struct() -> struct.Struct`。",
+        "Issue 中的 `index.rst` 文件包含 `.. automodule:: helloworld.helloworld`。",
+        "Issue 中运行 `python3 -m sphinx -b html docs/ doc-out -nvWT` 命令触发错误。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "运行 `sphinx-build` 时，构建过程失败，并报告警告或错误信息：`class reference target not found: Struct`。生成的文档中可能缺少相关函数的签名或类型信息。",
+      "symptom_type": "exception",
+      "evidence": [
+        "Issue 描述：\"I get `class reference target not found: Struct`\"。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "Sphinx autodoc 应能正确解析 `struct.Struct` 类型注解，文档构建成功，并且在生成的文档中，`struct.Struct` 应被正确呈现为一个可点击的交叉引用链接（或至少是格式正确的文本），就像处理 `pathlib.Path` 一样。",
+      "evidence": [
+        "Issue 中 Expected behavior 部分：\"I'd expect that `Struct` would also resolve correctly.\" 并以 `pathlib.Path` 的正常行为作为对比。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "sphinx.ext.autodoc",
+        "kind": "module",
+        "source_path": "",
+        "reason": "Issue 直接关于 autodoc 扩展无法解析特定类型注解。"
+      },
+      {
+        "name": ".. automodule::",
+        "kind": "unknown",
+        "source_path": "",
+        "reason": "Issue 中用于触发问题的 reStructuredText 指令。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "sphinx/ext/autodoc/__init__.py",
+        "object": "处理类型注解解析和交叉引用生成的函数或方法",
+        "lines": "",
+        "reason": "Issue 核心是 autodoc 在处理 `struct.Struct` 这类类型注解时失败，解析逻辑很可能位于 autodoc 扩展的主模块中。"
+      },
+      {
+        "path": "sphinx/domains/python.py",
+        "object": "Python 域中处理类型字符串和交叉引用的逻辑",
+        "lines": "",
+        "reason": "`class reference target not found` 错误提示与 Sphinx 域的交叉引用解析相关，Python 域负责解析 Python 对象的引用。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_autodoc_process_signature_typehints",
+        "test_file": "tests/test_ext_autodoc.py",
+        "why_relevant": "该测试直接验证 autodoc 处理带类型注解的函数签名，并检查触发的 `autodoc-process-signature` 事件参数。这涉及到 autodoc 解析类型注解的核心流程。",
+        "reusable_parts": [
+          "使用 `make_directive_bridge` 和 `app.registry.documenters['function']` 来创建 autodoc 指令实例的测试模式。",
+          "设置 `inst.object`、`inst.fullname` 等属性并调用 `inst.format_signature()` 来触发签名处理的调用方式。",
+          "对 `autodoc-process-signature` 事件进行监听和断言的方法。"
+        ],
+        "possible_gap": "该测试使用简单的 `int` 类型作为注解，没有测试 `module.Class` 形式的注解（如 `struct.Struct`）。需要将测试对象替换为带有 `struct.Struct` 注解的函数。"
+      },
+      {
+        "test_name": "test_autodoc_type_aliases",
+        "test_file": "tests/test_ext_autodoc_configs.py",
+        "why_relevant": "该测试验证 `autodoc_type_aliases` 配置如何影响类型注解在文档中的呈现。它展示了如何通过 `do_autodoc` 辅助函数获取生成的文档文本并进行断言，这可用于检查 `struct.Struct` 是否被正确渲染。",
+        "reusable_parts": [
+          "使用 `@pytest.mark.sphinx` 装饰器和 `testroot='ext-autodoc'` 来设置 Sphinx 应用和测试数据。",
+          "使用 `do_autodoc` 函数来执行 autodoc 指令并捕获其输出。",
+          "通过 `assert list(actual) == [...]` 来验证生成的 reStructuredText 内容。"
+        ],
+        "possible_gap": "该测试关注类型别名配置，不直接测试标准库类型的解析。需要创建一个包含 `struct.Struct` 注解的测试模块，并检查其输出是否包含正确的交叉引用。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "input",
+        "current_pattern": "相似测试中使用简单的内置类型（如 `int`）或自定义类型别名（如 `myint`）作为函数类型注解。",
+        "target_pattern": "将测试函数的类型注解改为 `struct.Struct`（例如 `def f() -> struct.Struct`）。需要确保在测试模块中 `import struct`。",
+        "reason": "Issue 明确指出当类型注解为 `struct.Struct` 时触发错误。将测试输入变异为此模式应能重现缺陷路径。",
+        "confidence": "high"
+      },
+      {
+        "slot": "object",
+        "current_pattern": "相似测试中 `inst.object` 被设置为一个使用简单类型注解的函数对象。",
+        "target_pattern": "将 `inst.object` 设置为一个使用 `struct.Struct` 作为参数或返回值类型注解的函数对象。",
+        "reason": "autodoc 指令处理的对象（函数）的具体类型注解内容是触发解析逻辑的关键输入。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "warning",
+        "expression_hint": "构建过程中 Sphinx 应用（`app`）产生的警告信息（`app._warning` 或类似机制），特别是包含 `class reference target not found: Struct` 的警告。",
+        "reason": "Issue 中观察到的直接错误现象是报告类引用未找到的警告。捕获此警告可以明确判断缺陷是否被触发。"
+      },
+      {
+        "kind": "file_output",
+        "expression_hint": "运行 `sphinx-build` 后生成的文档输出文件（如 `.txt` 或 `.html`）中，对应函数签名部分的内容。观察是否包含 `struct.Struct` 的文本，以及其格式（是纯文本还是正确的交叉引用标记）。",
+        "reason": "最终期望行为是 `struct.Struct` 在文档中被正确呈现。检查生成的文件内容可以直接验证 autodoc 的输出结果。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "调用 `inst.format_signature()` 或类似方法后返回的签名字符串，或者 `do_autodoc` 函数返回的文档行列表。观察 `struct.Struct` 在其中的表示。",
+        "reason": "这些是 autodoc 处理类型注解后的中间或最终结果，可以揭示解析是否正确，而不必运行完整的构建。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "生成的文档输出中应包含 `struct.Struct` 的文本，并且理想情况下应被格式化为一个正确的交叉引用（例如包含 `:class:` 角色）。",
+        "preferred_assertion_style": "contains_fragment",
+        "avoid": "断言完整的、格式精确的文档输出字符串，因为具体的 RST 标记格式可能因 Sphinx 版本或配置而变化。避免断言内部缓存或私有属性。",
+        "reason": "Issue 的核心是 `struct.Struct` 未被识别为有效的类引用。检查输出中是否包含其文本以及基本的交叉引用标记，可以稳定地验证解析功能是否工作，而不依赖于细微的格式差异。"
+      },
+      {
+        "assertion_goal": "构建过程不应产生 `class reference target not found: Struct` 警告。",
+        "preferred_assertion_style": "not_contains_fragment",
+        "avoid": "断言警告列表完全为空，因为构建可能产生其他无关警告。",
+        "reason": "这是 Issue 中报告的直接错误症状。修复后，此特定警告应消失。检查警告信息中不包含该片段是稳定且目标明确的断言。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "使用 `@pytest.mark.sphinx` 装饰器来创建一个 Sphinx 测试应用（`app`），并指定 `testroot='ext-autodoc'` 以利用现有的测试数据目录结构。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "可能需要创建一个临时的测试模块文件（例如在 `app.srcdir` 下），其中包含带有 `struct.Struct` 类型注解的函数，以供 `.. automodule::` 指令引用。",
+        "source": "inference",
+        "confidence": "medium"
+      },
+      {
+        "hint": "使用 `make_directive_bridge` 工具函数（见于相关测试）来模拟 autodoc 指令的调用环境。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "错误是否特定于 `struct` 模块下的 `Struct` 类，还是所有 `module.Class` 形式的注解都有问题？",
+      "`autodoc_type_aliases` 配置是否会影响或绕过此问题？",
+      "导致解析失败的具体代码行和逻辑条件是什么？",
+      "除了警告信息，构建过程是否会以非零退出码终止？"
+    ]
+  }
+}

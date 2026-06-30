@@ -1,0 +1,169 @@
+```json
+{
+    "original_issue": {
+        "text": "\"show_save_as_new\" in admin can add without this permission\nDescription\n\t \n\t\t(last modified by Mariusz Felisiak)\n\t \nAt \"django/contrib/admin/templatetags/admin_modify.py\" file, line 102, I think you must put one more verification for this tag: \"and has_add_permission\", because \"save_as_new\" is a add modification.\nI rewrite this for my project:\n\t\t\t\"show_save_as_new\": not is_popup\n\t\t\tand has_add_permission # This line that I put!!!\n\t\t\tand has_change_permission\n\t\t\tand change\n\t\t\tand save_as,",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "在 Django admin 的 change 视图（非弹窗模式）中，当用户只有 change 权限而没有 add 权限时，模板上下文变量 'show_save_as_new' 被错误地设置为 True，导致界面上显示 'Save as new' 按钮。用户点击该按钮并提交表单后，系统应拒绝此操作（例如返回 403 状态码），因为 'Save as new' 本质上是创建一个新对象，需要 add 权限。缺陷位于 django/contrib/admin/templatetags/admin_modify.py 第 102 行附近，在计算 'show_save_as_new' 时缺少对 has_add_permission 的检查。",
+        "facts_from_issue": [
+            "缺陷涉及 'show_save_as_new' 模板上下文变量。",
+            "问题位于 django/contrib/admin/templatetags/admin_modify.py 文件第 102 行附近。",
+            "报告者认为计算 'show_save_as_new' 时缺少 'has_add_permission' 检查。",
+            "'save_as_new' 被描述为一种添加操作（add modification）。"
+        ],
+        "facts_from_retrieved_context": [
+            "相关测试 'test_change_view_save_as_new' 表明：'Save as new' 对于没有 'add' 权限的用户应引发 PermissionDenied（返回 403 状态码）。",
+            "源码中定义了 'has_add_permission' 和 'has_change_permission' 方法，用于检查用户权限。",
+            "测试 'test_save_as_new_with_validation_errors' 和 'test_save_as_new_with_validation_errors_with_inlines' 展示了 'show_save_as_new' 在验证错误场景下的预期行为。"
+        ],
+        "inferences": [
+            "触发条件：用户登录 Django admin，访问某个模型的 change 视图（非弹窗），且该用户对该模型只有 change 权限，没有 add 权限。",
+            "错误现象：界面上显示了 'Save as new' 按钮（因为 'show_save_as_new' 为 True）。",
+            "期望行为：对于没有 add 权限的用户，'show_save_as_new' 应为 False，从而不显示 'Save as new' 按钮；如果用户通过其他方式（如直接构造 POST 请求）尝试 'Save as new' 操作，应被拒绝（例如返回 403）。"
+        ],
+        "do_not_assume": [
+            "具体的模板渲染细节或 HTML 输出格式。",
+            "除了 'show_save_as_new' 之外的其他模板上下文变量是否受影响。",
+            "弹窗（is_popup）模式下的行为是否也需要调整。"
+        ]
+    },
+    "issue_summary": "Django admin 中，缺少 add 权限的用户在 change 视图下，错误地看到了 'Save as new' 按钮，因为权限检查不完整。",
+    "trigger_condition": {
+        "text": "1. 配置一个 Django 模型及其 admin。2. 创建一个用户，仅授予该模型 'change' 权限，不授予 'add' 权限。3. 使用该用户登录 admin。4. 访问该模型某个现有对象的 change 视图（非弹窗模式）。5. 观察界面或检查模板上下文变量 'show_save_as_new' 的值。6. （可选）尝试构造 POST 请求，包含 '_saveasnew' 参数，模拟点击 'Save as new' 按钮。",
+        "evidence": [
+            "Issue 指出 'save_as_new' 是 add 操作，需要 add 权限。",
+            "测试 'test_change_view_save_as_new' 中，'changeuser'（只有 change 权限）执行 'Save as new' POST 时返回 403。",
+            "测试 'test_change_view_save_as_new' 中，'adduser'（有 add 权限）可以成功执行 'Save as new'。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "对于只有 change 权限的用户，在 change 视图的模板上下文中，'show_save_as_new' 的值为 True，导致界面上显示 'Save as new' 按钮。如果用户提交 '_saveasnew' 请求，系统可能允许该操作（根据测试，后端视图已正确返回 403，但前端按钮不应显示）。",
+        "symptom_type": "state_not_updated",
+        "evidence": [
+            "Issue 描述缺少 'has_add_permission' 检查，导致 'show_save_as_new' 计算错误。",
+            "测试 'test_change_view_save_as_new' 验证了后端权限，但未直接测试 'show_save_as_new' 上下文变量对权限的响应。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "对于只有 change 权限而没有 add 权限的用户，在非弹窗的 change 视图下，模板上下文变量 'show_save_as_new' 应为 False。这样，'Save as new' 按钮不会显示给无权执行添加操作的用户。",
+        "evidence": [
+            "Issue 明确指出需要添加 'has_add_permission' 检查。",
+            "测试 'test_change_view_save_as_new' 的文档字符串说明：\"'Save as new' should raise PermissionDenied for users without the 'add' permission.\" 这隐含了前端不应提供该选项。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "has_add_permission",
+            "kind": "method",
+            "source_path": "django/contrib/admin/options.py",
+            "reason": "Issue 指出计算 'show_save_as_new' 时需要检查此权限方法。"
+        },
+        {
+            "name": "has_change_permission",
+            "kind": "method",
+            "source_path": "django/contrib/admin/options.py",
+            "reason": "当前 'show_save_as_new' 的计算已包含此权限检查，是相关权限上下文的一部分。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/contrib/admin/templatetags/admin_modify.py",
+            "object": "计算 'show_save_as_new' 模板变量的代码逻辑",
+            "lines": "102",
+            "reason": "Issue 明确指出该文件第 102 行附近缺少 'has_add_permission' 检查。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "AdminViewPermissionsTest.test_change_view_save_as_new",
+            "test_file": "tests/admin_views/tests.py",
+            "why_relevant": "该测试直接验证了 'Save as new' 操作对不同权限用户（adduser, changeuser, superuser）的后端行为（重定向或 403），并使用了 Article 模型和相应的权限配置。",
+            "reusable_parts": [
+                "测试类 AdminViewPermissionsTest 及其中定义的 self.adduser, self.changeuser, self.superuser 等用户 fixture。",
+                "Article 模型及相关的 admin 配置。",
+                "使用 client.post 提交包含 '_saveasnew' 参数的 POST 请求模式。",
+                "检查 HTTP 状态码（403）、重定向和对象计数的断言风格。"
+            ],
+            "possible_gap": "该测试主要验证后端视图的权限控制（POST 请求返回 403），但没有直接检查前端的模板上下文变量 'show_save_as_new' 是否根据权限正确设置。需要变异以获取或断言模板上下文中的 'show_save_as_new' 值。"
+        },
+        {
+            "test_name": "SaveAsTests.test_save_as_new_with_validation_errors",
+            "test_file": "tests/admin_views/tests.py",
+            "why_relevant": "该测试展示了在验证错误场景下，如何检查 response.context 中的 'show_save_as_new' 等布尔变量。",
+            "reusable_parts": [
+                "通过 response.context 访问模板上下文变量的模式。",
+                "使用 assertTrue/assertFalse 断言 'show_save_as_new' 等布尔值的风格。"
+            ],
+            "possible_gap": "该测试没有涉及用户权限的差异化设置，它假设用户有足够权限，只是测试验证错误时的按钮显示逻辑。需要变异以引入不同权限的用户。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "object_state",
+            "current_pattern": "测试 'test_change_view_save_as_new' 中，依次使用 adduser、changeuser、superuser 登录并 POST，主要断言 HTTP 响应状态和对象计数。",
+            "target_pattern": "在 POST 之前，先使用 changeuser（只有 change 权限）执行 GET 请求获取 change 页面，然后检查 response.context['show_save_as_new'] 的值。",
+            "reason": "当前测试只验证了 POST 操作的后端拦截，没有验证前端按钮是否根据权限被隐藏（即 'show_save_as_new' 上下文变量）。添加 GET 请求和上下文检查可以覆盖 Issue 描述的前端缺陷。",
+            "confidence": "high"
+        },
+        {
+            "slot": "config",
+            "current_pattern": "测试 'test_save_as_new_with_validation_errors' 中，用户权限未明确限制（可能为超级用户或默认有权限）。",
+            "target_pattern": "将测试用户替换为只有 change 权限而没有 add 权限的用户。",
+            "reason": "为了触发 'show_save_as_new' 因缺失 add 权限而应为 False 的场景，需要配置相应用户权限状态。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "state",
+            "expression_hint": "response.context['show_save_as_new']",
+            "reason": "这是 Issue 直接指出的错误变量。观察其布尔值可以判断权限检查逻辑是否正确。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "response.status_code",
+            "reason": "对于 POST 请求，观察是否返回 403 可以验证后端是否阻止了无 add 权限用户的 'Save as new' 操作。"
+        },
+        {
+            "kind": "state",
+            "expression_hint": "Article.objects.count()",
+            "reason": "观察对象数量变化可以确认 'Save as new' 操作是否实际创建了新对象。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "对于只有 change 权限的用户，GET 请求 change 视图返回的上下文中的 'show_save_as_new' 应为 False。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言完整的 HTML 字符串中是否包含 'Save as new' 按钮文本，因为模板渲染可能变化。",
+            "reason": "直接断言模板上下文变量更稳定，且与 Issue 核心（变量计算逻辑）直接对齐。"
+        },
+        {
+            "assertion_goal": "对于只有 change 权限的用户，POST 带有 '_saveasnew' 的请求应被拒绝（例如返回 403 状态码）。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言异常消息的完整字符串。",
+            "reason": "测试 'test_change_view_save_as_new' 已使用此模式，是验证后端权限的稳定方式。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要使用 Django 的 TestCase 和 Client。需要创建具有特定权限（只有 change，没有 add）的用户。需要创建至少一个模型对象用于 change 视图。可能需要使用 override_settings 配置 ROOT_URLCONF 和 TEMPLATES。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "可以参考 AdminViewPermissionsTest 中的用户创建和权限分配方式（如 self.changeuser）。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "除了 'show_save_as_new'，其他相关的模板上下文变量（如 'show_save_and_add_another', 'show_save_and_continue'）是否也受此权限影响？",
+        "在弹窗（is_popup）模式下，'show_save_as_new' 的计算逻辑是否不同？Issue 提到了 'not is_popup'。",
+        "django/contrib/admin/templatetags/admin_modify.py 中计算 'show_save_as_new' 的确切代码行和完整条件表达式是什么？"
+    ]
+}
+```

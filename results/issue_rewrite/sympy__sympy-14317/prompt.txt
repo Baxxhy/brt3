@@ -1,0 +1,834 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+LaTeX printer does not use the same order of monomials as pretty and str 
+When printing a Poly, the str and pretty printers use the logical order of monomials, from highest to lowest degrees. But latex printer does not. 
+```
+>>> var('a b c x')
+>>> p = Poly([a, 1, b, 2, c, 3], x)
+>>> p
+Poly(a*x**5 + x**4 + b*x**3 + 2*x**2 + c*x + 3, x, domain='ZZ[a,b,c]')
+>>> pretty(p)
+"Poly(a*x**5 + x**4 + b*x**3 + 2*x**2 + c*x + 3, x, domain='ZZ[a,b,c]')"
+>>> latex(p)
+'\\operatorname{Poly}{\\left( a x^{5} + b x^{3} + c x + x^{4} + 2 x^{2} + 3, x, domain=\\mathbb{Z}\\left[a, b, c\\right] \\right)}'
+```
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sympy/polys/polytools.py
+对象名称：Poly
+节点类型：class
+父节点：polytools
+行号范围：62-4163
+代码：
+class Poly(Expr):
+    """
+    Generic class for representing and operating on polynomial expressions.
+    Subclasses Expr class.
+
+    Examples
+    ========
+
+    >>> from sympy import Poly
+    >>> from sympy.abc import x, y
+
+    Create a univariate polynomial:
+
+    >>> Poly(x*(x**2 + x - 1)**2)
+    Poly(x**5 + 2*x**4 - x**3 - 2*x**2 + x, x, domain='ZZ')
+
+    Create a univariate polynomial with specific domain:
+
+    >>> from sympy import sqrt
+    >>> Poly(x**2 + 2*x + sqrt(3), domain='R')
+    Poly(1.0*x**2 + 2.0*x + 1.73205080756888, x, domain='RR')
+
+    Create a multivariate polynomial:
+
+    >>> Poly(y*x**2 + x*y + 1)
+    Poly(x**2*y + x*y + 1, x, y, domain='ZZ')
+
+    Create a univariate polynomial, where y is a constant:
+
+    >>> Poly(y*x**2 + x*y + 1,x)
+    Poly(y*x**2 + y*x + 1, x, domain='ZZ[y]')
+
+    You can evaluate the above polynomial as a function of y:
+
+    >>> Poly(y*x**2 + x*y + 1,x).eval(2)
+    6*y + 1
+
+    See Also
+    ========
+    sympy.core.expr.Expr
+
+    """
+    __slots__ = ['rep', 'gens']
+    is_commutative = True
+    is_Poly = True
+    def __new__(cls, rep, *gens, **args):
+    @classmethod
+    def new(cls, rep, *gens):
+    @classmethod
+    def from_dict(cls, rep, *gens, **args):
+    @classmethod
+    def from_list(cls, rep, *gens, **args):
+    @classmethod
+    def from_poly(cls, rep, *gens, **args):
+    @classmethod
+    def from_expr(cls, rep, *gens, **args):
+    @classmethod
+    def _from_dict(cls, rep, opt):
+    @classmethod
+    def _from_list(cls, rep, opt):
+    @classmethod
+    def _from_poly(cls, rep, opt):
+    @classmethod
+    def _from_expr(cls, rep, opt):
+    def _hashable_content(self):
+    def __hash__(self):
+    @property
+    def free_symbols(self):
+    @property
+    def free_symbols_in_domain(self):
+    @property
+    def args(self):
+    @property
+    def gen(self):
+    @property
+    def domain(self):
+    @property
+    def zero(self):
+    @property
+    def one(self):
+    @property
+    def unit(self):
+    def unify(f, g):
+    def _unify(f, g):
+    def per(f, rep, gens=None, remove=None):
+    def set_domain(f, domain):
+    def get_domain(f):
+    def set_modulus(f, modulus):
+    def get_modulus(f):
+    def _eval_subs(f, old, new):
+    def exclude(f):
+    def replace(f, x, y=None):
+    def reorder(f, *gens, **args):
+    def ltrim(f, gen):
+    def has_only_gens(f, *gens):
+    def to_ring(f):
+    def to_field(f):
+    def to_exact(f):
+    def retract(f, field=None):
+    def slice(f, x, m, n=None):
+    def coeffs(f, order=None):
+    def monoms(f, order=None):
+    def terms(f, order=None):
+    def all_coeffs(f):
+    def all_monoms(f):
+    def all_terms(f):
+    def termwise(f, func, *gens, **args):
+    def length(f):
+    def as_dict(f, native=False, zero=False):
+    def as_list(f, native=False):
+    def as_expr(f, *gens):
+    def lift(f):
+    def deflate(f):
+    def inject(f, front=False):
+    def eject(f, *gens):
+    def terms_gcd(f):
+    def add_ground(f, coeff):
+    def sub_ground(f, coeff):
+    def mul_ground(f, coeff):
+    def quo_ground(f, coeff):
+    def exquo_ground(f, coeff):
+    def abs(f):
+    def neg(f):
+    def add(f, g):
+    def sub(f, g):
+    def mul(f, g):
+    def sqr(f):
+    def pow(f, n):
+    def pdiv(f, g):
+    def prem(f, g):
+    def pquo(f, g):
+    def pexquo(f, g):
+    def div(f, g, auto=True):
+    def rem(f, g, auto=True):
+    def quo(f, g, auto=True):
+    def exquo(f, g, auto=True):
+    def _gen_to_level(f, gen):
+    def degree(f, gen=0):
+    def degree_list(f):
+    def total_degree(f):
+    def homogenize(f, s):
+    def homogeneous_order(f):
+    def LC(f, order=None):
+    def TC(f):
+    def EC(f, order=None):
+    def coeff_monomial(f, monom):
+    def nth(f, *N):
+    def coeff(f, x, n=1, right=False):
+    def LM(f, order=None):
+    def EM(f, order=None):
+    def LT(f, order=None):
+    def ET(f, order=None):
+    def max_norm(f):
+    def l1_norm(f):
+    def clear_denoms(self, convert=False):
+    def rat_clear_denoms(self, g):
+    def integrate(self, *specs, **args):
+    def diff(f, *specs, **kwargs):
+    _eval_derivative = diff
+    _eval_diff = diff
+    def eval(self, x, a=None, auto=True):
+    def __call__(f, *values):
+    def half_gcdex(f, g, auto=True):
+    def gcdex(f, g, auto=True):
+    def invert(f, g, auto=True):
+    def revert(f, n):
+    def subresultants(f, g):
+    def resultant(f, g, includePRS=False):
+    def discriminant(f):
+    def dispersionset(f, g=None):
+    def dispersion(f, g=None):
+    def cofactors(f, g):
+    def gcd(f, g):
+    def lcm(f, g):
+    def trunc(f, p):
+    def monic(self, auto=True):
+    def content(f):
+    def primitive(f):
+    def compose(f, g):
+    def decompose(f):
+    def shift(f, a):
+    def transform(f, p, q):
+    def sturm(self, auto=True):
+    def gff_list(f):
+    def norm(f):
+    def sqf_norm(f):
+    def sqf_part(f):
+    def sqf_list(f, all=False):
+    def sqf_list_include(f, all=False):
+    def factor_list(f):
+    def factor_list_include(f):
+    def intervals(f, all=False, eps=None, inf=None, sup=None, fast=False, sqf=False):
+    def refine_root(f, s, t, eps=None, steps=None, fast=False, check_sqf=False):
+    def count_roots(f, inf=None, sup=None):
+    def root(f, index, radicals=True):
+    def real_roots(f, multiple=True, radicals=True):
+    def all_roots(f, multiple=True, radicals=True):
+    def nroots(f, n=15, maxsteps=50, cleanup=True):
+    def ground_roots(f):
+    def nth_power_roots_poly(f, n):
+    def cancel(f, g, include=False):
+    @property
+    def is_zero(f):
+    @property
+    def is_one(f):
+    @property
+    def is_sqf(f):
+    @property
+    def is_monic(f):
+    @property
+    def is_primitive(f):
+    @property
+    def is_ground(f):
+    @property
+    def is_linear(f):
+    @property
+    def is_quadratic(f):
+    @property
+    def is_monomial(f):
+    @property
+    def is_homogeneous(f):
+    @property
+    def is_irreducible(f):
+    @property
+    def is_univariate(f):
+    @property
+    def is_multivariate(f):
+    @property
+    def is_cyclotomic(f):
+    def __abs__(f):
+    def __neg__(f):
+    @_sympifyit('g', NotImplemented)
+    def __add__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __radd__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __sub__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __rsub__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __mul__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __rmul__(f, g):
+    @_sympifyit('n', NotImplemented)
+    def __pow__(f, n):
+    @_sympifyit('g', NotImplemented)
+    def __divmod__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __rdivmod__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __mod__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __rmod__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __floordiv__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __rfloordiv__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __div__(f, g):
+    @_sympifyit('g', NotImplemented)
+    def __rdiv__(f, g):
+    __truediv__ = __div__
+    __rtruediv__ = __rdiv__
+    @_sympifyit('other', NotImplemented)
+    def __eq__(self, other):
+    @_sympifyit('g', NotImplemented)
+    def __ne__(f, g):
+    def __nonzero__(f):
+    __bool__ = __nonzero__
+    def eq(f, g, strict=False):
+    def ne(f, g, strict=False):
+    def _strict_eq(f, g):
+
+
+【源码片段 2】
+文件路径：sympy/core/symbol.py
+对象名称：var
+节点类型：top-level function
+父节点：symbol
+行号范围：702-760
+代码：
+def var(names, **args):
+    """
+    Create symbols and inject them into the global namespace.
+
+    This calls :func:`symbols` with the same arguments and puts the results
+    into the *global* namespace. It's recommended not to use :func:`var` in
+    library code, where :func:`symbols` has to be used::
+
+    Examples
+    ========
+
+    >>> from sympy import var
+
+    >>> var('x')
+    x
+    >>> x
+    x
+
+    >>> var('a,ab,abc')
+    (a, ab, abc)
+    >>> abc
+    abc
+
+    >>> var('x,y', real=True)
+    (x, y)
+    >>> x.is_real and y.is_real
+    True
+
+    See :func:`symbol` documentation for more details on what kinds of
+    arguments can be passed to :func:`var`.
+
+    """
+    def traverse(symbols, frame):
+        """Recursively inject symbols to the global namespace. """
+        for symbol in symbols:
+            if isinstance(symbol, Basic):
+                frame.f_globals[symbol.name] = symbol
+            elif isinstance(symbol, FunctionClass):
+                frame.f_globals[symbol.__name__] = symbol
+            else:
+                traverse(symbol, frame)
+
+    from inspect import currentframe
+    frame = currentframe().f_back
+
+    try:
+        syms = symbols(names, **args)
+
+        if syms is not None:
+            if isinstance(syms, Basic):
+                frame.f_globals[syms.name] = syms
+            elif isinstance(syms, FunctionClass):
+                frame.f_globals[syms.__name__] = syms
+            else:
+                traverse(syms, frame)
+    finally:
+        del frame  # break cyclic dependencies as stated in inspect docs
+
+    return syms
+
+
+【源码片段 3】
+文件路径：sympy/vector/tests/test_printing.py
+对象名称：pretty
+节点类型：top-level function
+父节点：test_printing
+行号范围：10-12
+代码：
+def pretty(expr):
+    """ASCII pretty-printing"""
+    return xpretty(expr, use_unicode=False, wrap_line=False)
+
+
+【源码片段 4】
+文件路径：sympy/printing/latex.py
+对象名称：latex
+节点类型：file
+父节点：repo_root
+行号范围：-1--1
+代码：
+file_content
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sympy/printing/tests/test_latex.py
+测试名称：test_latex_Poly
+测试代码：
+def test_latex_Poly():
+    assert latex(Poly(x**2 + 2 * x, x)) == \
+        r"\operatorname{Poly}{\left( x^{2} + 2 x, x, domain=\mathbb{Z} \right)}"
+    assert latex(Poly(x/y, x)) == \
+        r"\operatorname{Poly}{\left( \frac{x}{y}, x, domain=\mathbb{Z}\left(y\right) \right)}"
+    assert latex(Poly(2.0*x + y)) == \
+        r"\operatorname{Poly}{\left( 2.0 x + 1.0 y, x, y, domain=\mathbb{R} \right)}"
+
+【相关测试 2】
+测试文件：sympy/printing/tests/test_latex.py
+测试名称：test_latex_order
+测试代码：
+def test_latex_order():
+    expr = x**3 + x**2*y + 3*x*y**3 + y**4
+
+    assert latex(expr, order='lex') == "x^{3} + x^{2} y + 3 x y^{3} + y^{4}"
+    assert latex(
+        expr, order='rev-lex') == "y^{4} + 3 x y^{3} + x^{2} y + x^{3}"
+
+【相关测试 3】
+测试文件：sympy/printing/tests/test_latex.py
+测试名称：test_PrettyPoly
+测试代码：
+def test_PrettyPoly():
+    from sympy.polys.domains import QQ
+    F = QQ.frac_field(x, y)
+    R = QQ[x, y]
+
+    assert latex(F.convert(x/(x + y))) == latex(x/(x + y))
+    assert latex(R.convert(x + y)) == latex(x + y)
+
+【相关测试 4】
+测试文件：sympy/printing/tests/test_latex.py
+测试名称：test_latex_PolyElement
+测试代码：
+def test_latex_PolyElement():
+    Ruv, u,v = ring("u,v", ZZ)
+    Rxyz, x,y,z = ring("x,y,z", Ruv)
+
+    assert latex(x - x) == r"0"
+    assert latex(x - 1) == r"x - 1"
+    assert latex(x + 1) == r"x + 1"
+
+    assert latex((u**2 + 3*u*v + 1)*x**2*y + u + 1) == r"\left({u}^{2} + 3 u v + 1\right) {x}^{2} y + u + 1"
+    assert latex((u**2 + 3*u*v + 1)*x**2*y + (u + 1)*x) == r"\left({u}^{2} + 3 u v + 1\right) {x}^{2} y + \left(u + 1\right) x"
+    assert latex((u**2 + 3*u*v + 1)*x**2*y + (u + 1)*x + 1) == r"\left({u}^{2} + 3 u v + 1\right) {x}^{2} y + \left(u + 1\right) x + 1"
+    assert latex((-u**2 + 3*u*v - 1)*x**2*y - (u + 1)*x - 1) == r"-\left({u}^{2} - 3 u v + 1\right) {x}^{2} y - \left(u + 1\right) x - 1"
+
+    assert latex(-(v**2 + v + 1)*x + 3*u*v + 1) == r"-\left({v}^{2} + v + 1\right) x + 3 u v + 1"
+    assert latex(-(v**2 + v + 1)*x - 3*u*v + 1) == r"-\left({v}^{2} + v + 1\right) x - 3 u v + 1"
+
+【相关测试 5】
+测试文件：sympy/printing/tests/test_latex.py
+测试名称：test_latex_functions
+测试代码：
+def test_latex_functions():
+    assert latex(exp(x)) == "e^{x}"
+    assert latex(exp(1) + exp(2)) == "e + e^{2}"
+
+    f = Function('f')
+    assert latex(f(x)) == r'f{\left (x \right )}'
+    assert latex(f) == r'f'
+
+    g = Function('g')
+    assert latex(g(x, y)) == r'g{\left (x,y \right )}'
+    assert latex(g) == r'g'
+
+    h = Function('h')
+    assert latex(h(x, y, z)) == r'h{\left (x,y,z \right )}'
+    assert latex(h) == r'h'
+
+    Li = Function('Li')
+    assert latex(Li) == r'\operatorname{Li}'
+    assert latex(Li(x)) == r'\operatorname{Li}{\left (x \right )}'
+
+    mybeta = Function('beta')
+    # not to be confused with the beta function
+    assert latex(mybeta(x, y, z)) == r"\beta{\left (x,y,z \right )}"
+    assert latex(beta(x, y)) == r'\operatorname{B}\left(x, y\right)'
+    assert latex(mybeta(x)) == r"\beta{\left (x \right )}"
+    assert latex(mybeta) == r"\beta"
+
+    g = Function('gamma')
+    # not to be confused with the gamma function
+    assert latex(g(x, y, z)) == r"\gamma{\left (x,y,z \right )}"
+    assert latex(g(x)) == r"\gamma{\left (x \right )}"
+    assert latex(g) == r"\gamma"
+
+    a1 = Function('a_1')
+
+    assert latex(a1) == r"\operatorname{a_{1}}"
+    assert latex(a1(x)) == r"\operatorname{a_{1}}{\left (x \right )}"
+
+    # issue 5868
+    omega1 = Function('omega1')
+    assert latex(omega1) == r"\omega_{1}"
+    assert latex(omega1(x)) == r"\omega_{1}{\left (x \right )}"
+
+    assert latex(sin(x)) == r"\sin{\left (x \right )}"
+    assert latex(sin(x), fold_func_brackets=True) == r"\sin {x}"
+    assert latex(sin(2*x**2), fold_func_brackets=True) == \
+        r"\sin {2 x^{2}}"
+    assert latex(sin(x**2), fold_func_brackets=True) == \
+        r"\sin {x^{2}}"
+
+    assert latex(asin(x)**2) == r"\operatorname{asin}^{2}{\left (x \right )}"
+    assert latex(asin(x)**2, inv_trig_style="full") == \
+        r"\arcsin^{2}{\left (x \right )}"
+    assert latex(asin(x)**2, inv_trig_style="power") == \
+        r"\sin^{-1}{\left (x \right )}^{2}"
+    assert latex(asin(x**2), inv_trig_style="power",
+                 fold_func_brackets=True) == \
+        r"\sin^{-1} {x^{2}}"
+
+    assert latex(factorial(k)) == r"k!"
+    assert latex(factorial(-k)) == r"\left(- k\right)!"
+
+    assert latex(subfactorial(k)) == r"!k"
+    assert latex(subfactorial(-k)) == r"!\left(- k\right)"
+
+    assert latex(factorial2(k)) == r"k!!"
+    assert latex(factorial2(-k)) == r"\left(- k\right)!!"
+
+    assert latex(binomial(2, k)) == r"{\binom{2}{k}}"
+
+    assert latex(FallingFactorial(3, k)) == r"{\left(3\right)}_{k}"
+    assert latex(RisingFactorial(3, k)) == r"{3}^{\left(k\right)}"
+
+    assert latex(floor(x)) == r"\lfloor{x}\rfloor"
+    assert latex(ceiling(x)) == r"\lceil{x}\rceil"
+    assert latex(Min(x, 2, x**3)) == r"\min\left(2, x, x^{3}\right)"
+    assert latex(Min(x, y)**2) == r"\min\left(x, y\right)^{2}"
+    assert latex(Max(x, 2, x**3)) == r"\max\left(2, x, x^{3}\right)"
+    assert latex(Max(x, y)**2) == r"\max\left(x, y\right)^{2}"
+    assert latex(Abs(x)) == r"\left|{x}\right|"
+    assert latex(re(x)) == r"\Re{\left(x\right)}"
+    assert latex(re(x + y)) == r"\Re{\left(x\right)} + \Re{\left(y\right)}"
+    assert latex(im(x)) == r"\Im{x}"
+    assert latex(conjugate(x)) == r"\overline{x}"
+    assert latex(gamma(x)) == r"\Gamma\left(x\right)"
+    w = Wild('w')
+    assert latex(gamma(w)) == r"\Gamma\left(w\right)"
+    assert latex(Order(x)) == r"O\left(x\right)"
+    assert latex(Order(x, x)) == r"O\left(x\right)"
+    assert latex(Order(x, (x, 0))) == r"O\left(x\right)"
+    assert latex(Order(x, (x, oo))) == r"O\left(x; x\rightarrow \infty\right)"
+    assert latex(Order(x - y, (x, y))) == r"O\left(x - y; x\rightarrow y\right)"
+    assert latex(Order(x, x, y)) == r"O\left(x; \left ( x, \quad y\right )\rightarrow \left ( 0, \quad 0\right )\right)"
+    assert latex(Order(x, x, y)) == r"O\left(x; \left ( x, \quad y\right )\rightarrow \left ( 0, \quad 0\right )\right)"
+    assert latex(Order(x, (x, oo), (y, oo))) == r"O\left(x; \left ( x, \quad y\right )\rightarrow \left ( \infty, \quad \infty\right )\right)"
+    assert latex(lowergamma(x, y)) == r'\gamma\left(x, y\right)'
+    assert latex(uppergamma(x, y)) == r'\Gamma\left(x, y\right)'
+
+    assert latex(cot(x)) == r'\cot{\left (x \right )}'
+    assert latex(coth(x)) == r'\coth{\left (x \right )}'
+    assert latex(re(x)) == r'\Re{\left(x\right)}'
+    assert latex(im(x)) == r'\Im{x}'
+    assert latex(root(x, y)) == r'x^{\frac{1}{y}}'
+    assert latex(arg(x)) == r'\arg{\left (x \right )}'
+    assert latex(zeta(x)) == r'\zeta\left(x\right)'
+
+    assert latex(zeta(x)) == r"\zeta\left(x\right)"
+    assert latex(zeta(x)**2) == r"\zeta^{2}\left(x\right)"
+    assert latex(zeta(x, y)) == r"\zeta\left(x, y\right)"
+    assert latex(zeta(x, y)**2) == r"\zeta^{2}\left(x, y\right)"
+    assert latex(dirichlet_eta(x)) == r"\eta\left(x\right)"
+    assert latex(dirichlet_eta(x)**2) == r"\eta^{2}\left(x\right)"
+    assert latex(polylog(x, y)) == r"\operatorname{Li}_{x}\left(y\right)"
+    assert latex(
+        polylog(x, y)**2) == r"\operatorname{Li}_{x}^{2}\left(y\right)"
+    assert latex(lerchphi(x, y, n)) == r"\Phi\left(x, y, n\right)"
+    assert latex(lerchphi(x, y, n)**2) == r"\Phi^{2}\left(x, y, n\right)"
+
+    assert latex(elliptic_k(z)) == r"K\left(z\right)"
+    assert latex(elliptic_k(z)**2) == r"K^{2}\left(z\right)"
+    assert latex(elliptic_f(x, y)) == r"F\left(x\middle| y\right)"
+    assert latex(elliptic_f(x, y)**2) == r"F^{2}\left(x\middle| y\right)"
+    assert latex(elliptic_e(x, y)) == r"E\left(x\middle| y\right)"
+    assert latex(elliptic_e(x, y)**2) == r"E^{2}\left(x\middle| y\right)"
+    assert latex(elliptic_e(z)) == r"E\left(z\right)"
+    assert latex(elliptic_e(z)**2) == r"E^{2}\left(z\right)"
+    assert latex(elliptic_pi(x, y, z)) == r"\Pi\left(x; y\middle| z\right)"
+    assert latex(elliptic_pi(x, y, z)**2) == \
+        r"\Pi^{2}\left(x; y\middle| z\right)"
+    assert latex(elliptic_pi(x, y)) == r"\Pi\left(x\middle| y\right)"
+    assert latex(elliptic_pi(x, y)**2) == r"\Pi^{2}\left(x\middle| y\right)"
+
+    assert latex(Ei(x)) == r'\operatorname{Ei}{\left (x \right )}'
+    assert latex(Ei(x)**2) == r'\operatorname{Ei}^{2}{\left (x \right )}'
+    assert latex(expint(x, y)**2) == r'\operatorname{E}_{x}^{2}\left(y\right)'
+    assert latex(Shi(x)**2) == r'\operatorname{Shi}^{2}{\left (x \right )}'
+    assert latex(Si(x)**2) == r'\operatorname{Si}^{2}{\left (x \right )}'
+    assert latex(Ci(x)**2) == r'\operatorname{Ci}^{2}{\left (x \right )}'
+    assert latex(Chi(x)**2) == r'\operatorname{Chi}^{2}\left(x\right)'
+    assert latex(Chi(x)) == r'\operatorname{Chi}\left(x\right)'
+    assert latex(
+        jacobi(n, a, b, x)) == r'P_{n}^{\left(a,b\right)}\left(x\right)'
+    assert latex(jacobi(n, a, b, x)**2) == r'\left(P_{n}^{\left(a,b\right)}\left(x\right)\right)^{2}'
+    assert latex(
+        gegenbauer(n, a, x)) == r'C_{n}^{\left(a\right)}\left(x\right)'
+    assert latex(gegenbauer(n, a, x)**2) == r'\left(C_{n}^{\left(a\right)}\left(x\right)\right)^{2}'
+    assert latex(chebyshevt(n, x)) == r'T_{n}\left(x\right)'
+    assert latex(
+        chebyshevt(n, x)**2) == r'\left(T_{n}\left(x\right)\right)^{2}'
+    assert latex(chebyshevu(n, x)) == r'U_{n}\left(x\right)'
+    assert latex(
+        chebyshevu(n, x)**2) == r'\left(U_{n}\left(x\right)\right)^{2}'
+    assert latex(legendre(n, x)) == r'P_{n}\left(x\right)'
+    assert latex(legendre(n, x)**2) == r'\left(P_{n}\left(x\right)\right)^{2}'
+    assert latex(
+        assoc_legendre(n, a, x)) == r'P_{n}^{\left(a\right)}\left(x\right)'
+    assert latex(assoc_legendre(n, a, x)**2) == r'\left(P_{n}^{\left(a\right)}\left(x\right)\right)^{2}'
+    assert latex(laguerre(n, x)) == r'L_{n}\left(x\right)'
+    assert latex(laguerre(n, x)**2) == r'\left(L_{n}\left(x\right)\right)^{2}'
+    assert latex(
+        assoc_laguerre(n, a, x)) == r'L_{n}^{\left(a\right)}\left(x\right)'
+    assert latex(assoc_laguerre(n, a, x)**2) == r'\left(L_{n}^{\left(a\right)}\left(x\right)\right)^{2}'
+    assert latex(hermite(n, x)) == r'H_{n}\left(x\right)'
+    assert latex(hermite(n, x)**2) == r'\left(H_{n}\left(x\right)\right)^{2}'
+
+    theta = Symbol("theta", real=True)
+    phi = Symbol("phi", real=True)
+    assert latex(Ynm(n,m,theta,phi)) == r'Y_{n}^{m}\left(\theta,\phi\right)'
+    assert latex(Ynm(n, m, theta, phi)**3) == r'\left(Y_{n}^{m}\left(\theta,\phi\right)\right)^{3}'
+    assert latex(Znm(n,m,theta,phi)) == r'Z_{n}^{m}\left(\theta,\phi\right)'
+    assert latex(Znm(n, m, theta, phi)**3) == r'\left(Z_{n}^{m}\left(\theta,\phi\right)\right)^{3}'
+
+    # Test latex printing of function names with "_"
+    assert latex(
+        polar_lift(0)) == r"\operatorname{polar\_lift}{\left (0 \right )}"
+    assert latex(polar_lift(
+        0)**3) == r"\operatorname{polar\_lift}^{3}{\left (0 \right )}"
+
+    assert latex(totient(n)) == r'\phi\left(n\right)'
+    assert latex(totient(n) ** 2) == r'\left(\phi\left(n\right)\right)^{2}'
+
+    assert latex(reduced_totient(n)) == r'\lambda\left(n\right)'
+    assert latex(reduced_totient(n) ** 2) == r'\left(\lambda\left(n\right)\right)^{2}'
+
+    assert latex(divisor_sigma(x)) == r"\sigma\left(x\right)"
+    assert latex(divisor_sigma(x)**2) == r"\sigma^{2}\left(x\right)"
+    assert latex(divisor_sigma(x, y)) == r"\sigma_y\left(x\right)"
+    assert latex(divisor_sigma(x, y)**2) == r"\sigma^{2}_y\left(x\right)"
+
+    assert latex(udivisor_sigma(x)) == r"\sigma^*\left(x\right)"
+    assert latex(udivisor_sigma(x)**2) == r"\sigma^*^{2}\left(x\right)"
+    assert latex(udivisor_sigma(x, y)) == r"\sigma^*_y\left(x\right)"
+    assert latex(udivisor_sigma(x, y)**2) == r"\sigma^*^{2}_y\left(x\right)"
+
+    assert latex(primenu(n)) == r'\nu\left(n\right)'
+    assert latex(primenu(n) ** 2) == r'\left(\nu\left(n\right)\right)^{2}'
+
+    assert latex(primeomega(n)) == r'\Omega\left(n\right)'
+    assert latex(primeomega(n) ** 2) == r'\left(\Omega\left(n\right)\right)^{2}'
+
+    assert latex(Mod(x, 7)) == r'x\bmod{7}'
+    assert latex(Mod(x + 1, 7)) == r'\left(x + 1\right)\bmod{7}'
+    assert latex(Mod(2 * x, 7)) == r'2 x\bmod{7}'
+    assert latex(Mod(x, 7) + 1) == r'\left(x\bmod{7}\right) + 1'
+    assert latex(2 * Mod(x, 7)) == r'2 \left(x\bmod{7}\right)'
+
+    # some unknown function name should get rendered with \operatorname
+    fjlkd = Function('fjlkd')
+    assert latex(fjlkd(x)) == r'\operatorname{fjlkd}{\left (x \right )}'
+    # even when it is referred to without an argument
+    assert latex(fjlkd) == r'\operatorname{fjlkd}'
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

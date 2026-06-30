@@ -1,0 +1,137 @@
+instance_id: django__django-14855
+
+issue_summary: 在自定义 Django Admin Site 中，只读外键字段生成的链接 URL 错误地指向了默认 Admin Site 而非当前自定义站点。
+
+trigger_condition:
+{
+  "text": "使用自定义 Admin Site（非默认 'admin'）查看或编辑一个模型，该模型包含一个 ForeignKey 字段，且该字段被列在 ModelAdmin 的 readonly_fields 中。",
+  "evidence": [
+    "Issue: 'When a model containing a ForeignKey field is viewed (or edited) in a custom Admin Site, and that ForeignKey field is listed in readonly_fields'",
+    "测试 CustomModelAdminTest.test_custom_admin_site_view 使用了 'admin2' 命名空间。",
+    "测试 ReadonlyTest.test_readonly_foreignkey_links 验证了只读外键字段渲染为链接。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的 HTML 链接中的 href 属性指向了默认 Admin Site 的 URL（如 '/admin/...'），而不是自定义 Admin Site 的 URL（如 '/custom-admin/...' 或 '/admin2/...'）。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue: 'the url generated for the link is /admin/... instead of /custom-admin/....'",
+    "源码 get_admin_url 返回格式化的 HTML 链接。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "在自定义 Admin Site 中，只读外键字段生成的链接 URL 应正确指向同一自定义 Admin Site 内对应对象的更改页面。",
+  "evidence": [
+    "Issue 描述了错误现象是使用了默认前缀，隐含期望是使用自定义前缀。",
+    "其他 admin 部分（如 response_add）使用了 current_app 参数来确保正确的站点。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "django.contrib.admin.helpers.AdminReadonlyField.get_admin_url",
+    "kind": "method",
+    "source_path": "django/contrib/admin/helpers.py",
+    "reason": "这是 Issue 中明确指出生成错误 URL 的函数。"
+  },
+  {
+    "name": "django.urls.reverse",
+    "kind": "function",
+    "source_path": "django/urls/base.py",
+    "reason": "get_admin_url 内部调用 reverse 生成 URL，且 Issue 提到缺少 current_app 参数。"
+  },
+  {
+    "name": "django.contrib.admin.utils.quote",
+    "kind": "function",
+    "source_path": "django/contrib/admin/utils.py",
+    "reason": "在生成 URL 参数时用于处理主键值。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "config",
+    "current_pattern": "在默认 Admin Site（'admin'）下测试只读外键链接。",
+    "target_pattern": "在自定义 Admin Site（如 'admin2'）下测试只读外键链接。这可能需要修改测试中使用的 reverse 命名空间、ModelAdmin 注册的站点，或测试客户端的访问 URL。",
+    "reason": "Issue 明确指出问题发生在自定义 Admin Site 中，而相似测试在默认站点下运行正常。改变 Admin Site 配置是触发缺陷路径的关键。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "测试直接使用 reverse('admin:...') 生成期望 URL 并与响应比较。",
+    "target_pattern": "测试应使用 reverse('admin2:...') 生成期望 URL，但缺陷可能导致 get_admin_url 内部仍生成 'admin:' 的 URL。",
+    "reason": "get_admin_url 内部硬编码了 'admin:' 命名空间或未传递 current_app，导致在自定义站点下仍生成默认站点的 URL。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "str",
+    "expression_hint": "响应内容（response.content）中生成的 <a href=\"...\"> 标签的完整字符串或 href 属性值。",
+    "reason": "错误症状直接体现在生成的 HTML 链接的 URL 中。观察 href 属性可以判断它是指向 'admin/...' 还是 'admin2/...'（或自定义前缀）。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "get_admin_url 方法的返回值（即格式化后的 HTML 字符串）。",
+    "reason": "这是直接产生错误输出的函数。观察其返回值可以确认 URL 生成是否正确。"
+  },
+  {
+    "kind": "config",
+    "expression_hint": "当前请求或上下文所使用的 Admin Site 的 name 属性（如 admin_site.name）。",
+    "reason": "Issue 中建议的修复使用了 self.model_admin.admin_site.name。观察此值有助于理解正确的 current_app 应该是什么。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "响应中包含的链接 URL 应使用自定义 Admin Site 的命名空间（如包含 '/admin2/' 或自定义前缀的路径）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的 HTML 字符串相等，因为其他部分（如主键值、对象字符串表示）可能变化。避免断言私有属性或内部状态。",
+    "reason": "错误核心是 URL 前缀错误。检查响应中是否包含正确的 URL 片段是稳定且与 Issue 对齐的断言方式。"
+  },
+  {
+    "assertion_goal": "响应中不应包含指向默认 Admin Site（'/admin/'）的链接（针对该只读外键字段）。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完全不出现 '/admin/' 字符串，因为其他内容可能包含它。应更精确地针对生成的链接。",
+    "reason": "这是错误症状的反面表述，有助于确认缺陷被触发。结合正向断言使用更稳健。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要使用一个自定义的 Admin Site 类，并将其与特定的 ModelAdmin 关联。可能需要配置 ROOT_URLCONF 以包含自定义站点的 URL。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  },
+  {
+    "hint": "需要一个包含 ForeignKey 字段的 Django 模型，并在对应的 ModelAdmin 的 readonly_fields 中包含该字段。",
+    "source": "issue",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要继承自 django.test.TestCase 并使用 Client 来模拟请求。可能需要超级用户登录。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "自定义 Admin Site 的确切配置方式（如何创建、命名和注册）在测试环境中如何最简单地复现。",
+  "self.model_admin.admin_site 在 get_admin_url 被调用时的上下文是否总是可用且正确。",
+  "除了 current_app，是否还有其他因素（如 urlconf）会影响 reverse 在自定义站点中的行为。",
+  "此问题是否也影响其他类型的只读关系字段（如 ManyToManyField）。"
+]

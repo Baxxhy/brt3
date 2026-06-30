@@ -1,0 +1,136 @@
+instance_id: scikit-learn__scikit-learn-13497
+
+issue_summary: 函数 `_estimate_mi` 中，参数 `discrete_features` 为数组时，与字符串 `'auto'` 进行相等比较，存在类型不安全问题，并可能在未来的 NumPy 版本中引发错误。
+
+trigger_condition:
+{
+  "text": "调用 `_estimate_mi` 或其上层包装函数（如 `mutual_info_regression` 或 `mutual_info_classif`），并将 `discrete_features` 参数设置为一个非字符串的数组（例如索引列表 `[0, 2]` 或布尔掩码数组 `[True, False, True]`）。",
+  "evidence": [
+    "Issue 指出 `discrete_features` 可以是数组。",
+    "源码显示 `discrete_features` 参数类型包含 `array_like`。",
+    "测试 `test_mutual_info_classif_mixed` 使用了 `discrete_features=[2]`。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "当 `discrete_features` 为数组时，执行 `discrete_features == 'auto'` 比较，可能在当前或未来 NumPy 版本中产生非预期的布尔数组、引发 FutureWarning 或直接抛出异常（如 ValueError）。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 明确说 \"This will error in future versions of numpy.\""
+  ],
+  "confidence": "medium"
+}
+
+expected_behavior:
+{
+  "text": "函数 `_estimate_mi` 应能正确处理 `discrete_features` 参数为数组（索引数组或布尔掩码）的情况，并正常执行互信息估计，不因与字符串 `'auto'` 的比较而引发错误。",
+  "evidence": [
+    "Issue 暗示了 `discrete_features` 为数组是合法输入。",
+    "源码文档说明 `discrete_features` 可以是 `array_like`。",
+    "相关测试使用了数组作为 `discrete_features` 参数。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "_estimate_mi",
+    "kind": "function",
+    "source_path": "sklearn/feature_selection/mutual_info_.py",
+    "reason": "Issue 直接指出的问题函数。"
+  },
+  {
+    "name": "mutual_info_regression",
+    "kind": "function",
+    "source_path": "",
+    "reason": "检索到的测试中调用了此函数，它可能内部调用 `_estimate_mi`。"
+  },
+  {
+    "name": "mutual_info_classif",
+    "kind": "function",
+    "source_path": "",
+    "reason": "检索到的测试中调用了此函数，它可能内部调用 `_estimate_mi`。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_mutual_info_classif_mixed` 中，`discrete_features=[2]`（一个整数列表）。",
+    "target_pattern": "将 `discrete_features` 参数改为更复杂的数组形式，例如一个较长的索引列表 `[0, 2]`，或一个布尔掩码数组 `[True, False, True]`，并确保在调用 `_estimate_mi` 或其包装函数时，该参数会经过 `discrete_features == 'auto'` 这一行代码。",
+    "reason": "Issue 指出当 `discrete_features` 是数组时，与字符串 `'auto'` 的比较会出问题。当前测试使用的 `[2]` 可能已被正常处理，但需要确保比较操作被执行。变异旨在强化数组输入的场景。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "测试中直接调用上层函数如 `mutual_info_classif(X, y, discrete_features=[2], ...)`。",
+    "target_pattern": "尝试直接调用底层函数 `_estimate_mi(X, y, discrete_features=bool_mask_array, ...)`，以绕过上层函数可能进行的任何预处理，确保参数直接传递到有问题的比较语句。",
+    "reason": "问题位于 `_estimate_mi` 内部。直接调用它可以更精确地控制输入并观察比较行为。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "warning",
+    "expression_hint": "观察运行测试时是否产生 `FutureWarning`、`DeprecationWarning` 或任何与数组和字符串比较相关的警告。",
+    "reason": "Issue 提到错误将在未来 NumPy 版本中出现，当前版本可能以警告形式提示。"
+  },
+  {
+    "kind": "exception",
+    "expression_hint": "观察调用 `_estimate_mi` 时是否抛出 `ValueError`、`TypeError` 或其他异常，特别是在执行 `discrete_features == 'auto'` 这行代码附近。",
+    "reason": "Issue 预测未来会 \"error\"，观察当前是否已出错是验证问题存在的方式。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "观察函数 `_estimate_mi` 或 `mutual_info_classif/regression` 的返回值（互信息估计数组）是否有效（非 NaN，形状正确），即使比较操作可能有问题。",
+    "reason": "即使比较有问题，函数可能仍会继续执行并产生一个结果。观察结果是否合理有助于判断逻辑是否正确绕过或处理了有问题的比较。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "当 `discrete_features` 为数组时，函数调用应成功完成，不抛出异常。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言返回的互信息数组的具体数值，因为这依赖于随机种子和估计算法，不够稳定。",
+    "reason": "Issue 的核心是避免因类型不安全的比较而引发错误。因此，首要断言是调用不应崩溃。使用 `pytest.raises` 配合 `None` 来验证无异常。"
+  },
+  {
+    "assertion_goal": "函数调用不应产生与数组和字符串比较相关的 FutureWarning。",
+    "preferred_assertion_style": "warns",
+    "avoid": "断言警告消息的完整字符串，因为可能因 NumPy 版本而异。",
+    "reason": "Issue 明确指出未来版本会出错，当前可能以警告形式出现。检查是否有相关警告是验证问题严重性的方式。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要导入 `sklearn.feature_selection.mutual_info_` 模块中的 `_estimate_mi`, `mutual_info_regression`, `mutual_info_classif`，以及 `sklearn.utils.check_random_state`。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要准备合适的输入数据 `X`（特征矩阵）和 `y`（目标向量），可以参考现有测试中的构造方法（如使用 `check_random_state` 生成或手动定义小数组）。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要使用 `pytest` 的 `warns` 和 `raises` 上下文管理器来捕获警告和异常。",
+    "source": "inference",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "在当前使用的 NumPy 版本下，`np.asarray([0, 2]) == 'auto'` 具体会产生什么行为（是返回 `False`、引发警告，还是返回一个布尔数组 `[False, False]`）？",
+  "上层函数 `mutual_info_regression` 或 `mutual_info_classif` 在调用 `_estimate_mi` 之前，是否对 `discrete_features` 参数进行了预处理，从而避免了有问题的比较？",
+  "除了 `discrete_features == 'auto'` 这一行，函数中是否还有其他地方存在类似的类型不安全比较？"
+]

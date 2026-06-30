@@ -1,0 +1,163 @@
+```json
+{
+    "original_issue": {
+        "text": "ColumnTransformer with pandas output can't handle transformers with no features\n### Describe the bug\n\nHi,\n\nColumnTransformer doesn't deal well with transformers that apply to 0 features (categorical_features in the example below) when using \"pandas\" as output. It seems steps with 0 features are not fitted, hence don't appear in `self._iter(fitted=True)` (_column_transformer.py l.856) and hence break the input to the `_add_prefix_for_feature_names_out` function (l.859).\n\n\n### Steps/Code to Reproduce\n\nHere is some code to reproduce the error. If you remove .set_output(transform=\"pandas\") on the line before last, all works fine. If you remove the (\"categorical\", ...) step, it works fine too.\n\n```python\nimport numpy as np\nimport pandas as pd\nfrom lightgbm import LGBMClassifier\nfrom sklearn.compose import ColumnTransformer\nfrom sklearn.impute import SimpleImputer\nfrom sklearn.pipeline import Pipeline\nfrom sklearn.preprocessing import RobustScaler\n\nX = pd.DataFrame(data=[[1.0, 2.0, 3.0, 4.0], [4, 2, 2, 5]],\n                 columns=[\"a\", \"b\", \"c\", \"d\"])\ny = np.array([0, 1])\ncategorical_features = []\nnumerical_features = [\"a\", \"b\", \"c\"]\nmodel_preprocessing = (\"preprocessing\",\n                       ColumnTransformer([\n                           ('categorical', 'passthrough', categorical_features),\n                           ('numerical', Pipeline([(\"scaler\", RobustScaler()),\n                                                   (\"imputer\", SimpleImputer(strategy=\"median\"))\n                                                   ]), numerical_features),\n                       ], remainder='drop'))\npipeline = Pipeline([model_preprocessing, (\"classifier\", LGBMClassifier())]).set_output(transform=\"pandas\")\npipeline.fit(X, y)\n```\n\n### Expected Results\n\nThe step with no features should be ignored.\n\n### Actual Results\n\nHere is the error message:\n```pytb\nTraceback (most recent call last):\n  File \"/home/philippe/workspace/script.py\", line 22, in <module>\n    pipeline.fit(X, y)\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/sklearn/pipeline.py\", line 402, in fit\n    Xt = self._fit(X, y, **fit_params_steps)\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/sklearn/pipeline.py\", line 360, in _fit\n    X, fitted_transformer = fit_transform_one_cached(\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/joblib/memory.py\", line 349, in __call__\n    return self.func(*args, **kwargs)\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/sklearn/pipeline.py\", line 894, in _fit_transform_one\n    res = transformer.fit_transform(X, y, **fit_params)\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/sklearn/utils/_set_output.py\", line 142, in wrapped\n    data_to_wrap = f(self, X, *args, **kwargs)\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/sklearn/compose/_column_transformer.py\", line 750, in fit_transform\n    return self._hstack(list(Xs))\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/sklearn/compose/_column_transformer.py\", line 862, in _hstack\n    output.columns = names_out\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/pandas/core/generic.py\", line 5596, in __setattr__\n    return object.__setattr__(self, name, value)\n  File \"pandas/_libs/properties.pyx\", line 70, in pandas._libs.properties.AxisProperty.__set__\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/pandas/core/generic.py\", line 769, in _set_axis\n    self._mgr.set_axis(axis, labels)\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/pandas/core/internals/managers.py\", line 214, in set_axis\n    self._validate_set_axis(axis, new_labels)\n  File \"/home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/pandas/core/internals/base.py\", line 69, in _validate_set_axis\n    raise ValueError(\nValueError: Length mismatch: Expected axis has 3 elements, new values have 0 elements\n\nProcess finished with exit code 1\n```\n\n### Versions\n\n```shell\nSystem:\n    python: 3.9.15 (main, Nov 24 2022, 14:31:59)  [GCC 11.2.0]\nexecutable: /home/philippe/.anaconda3/envs/strategy-training/bin/python\n   machine: Linux-5.15.0-57-generic-x86_64-with-glibc2.31\n\nPython dependencies:\n      sklearn: 1.2.0\n          pip: 22.2.2\n   setuptools: 62.3.2\n        numpy: 1.23.5\n        scipy: 1.9.3\n       Cython: None\n       pandas: 1.4.1\n   matplotlib: 3.6.3\n       joblib: 1.2.0\nthreadpoolctl: 3.1.0\n\nBuilt with OpenMP: True\n\nthreadpoolctl info:\n       user_api: openmp\n   internal_api: openmp\n         prefix: libgomp\n       filepath: /home/philippe/.anaconda3/envs/strategy-training/lib/python3.9/site-packages/scikit_learn.libs/libgomp-a34b3233.so.1.0.0\n        version: None\n    num_threads: 12\n\n       user_api: blas\n   internal_api: openblas\n         prefix: libopenblas\n       filepath: /home/philippe/.anaconda3/envs/strategy-training/lib/python3.9/site-packages/numpy.libs/libopenblas64_p-r0-742d56dc.3.20.so\n        version: 0.3.20\nthreading_layer: pthreads\n   architecture: Haswell\n    num_threads: 12\n\n       user_api: blas\n   internal_api: openblas\n         prefix: libopenblas\n       filepath: /home/philippe/.anaconda3/envs/deleteme/lib/python3.9/site-packages/scipy.libs/libopenblasp-r0-41284840.3.18.so\n        version: 0.3.18\nthreading_layer: pthreads\n   architecture: Haswell\n    num_threads: 12\n```",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当 ColumnTransformer 配置了 set_output(transform=\"pandas\") 时，如果某个 transformer 的 columns 参数为空列表（即该 transformer 不处理任何特征），则在 fit 过程中会引发 ValueError。错误发生在 _hstack 方法中，因为为 pandas DataFrame 设置列名时，列名列表长度与 DataFrame 列数不匹配。期望行为是：空列 transformer 应被忽略，fit 过程应正常完成。",
+        "facts_from_issue": [
+            "ColumnTransformer 在输出模式设为 \"pandas\" 时，无法处理 columns 为空的 transformer。",
+            "错误触发条件：ColumnTransformer 中包含一个 columns 为空列表的 transformer，且整个 Pipeline 调用了 set_output(transform=\"pandas\")。",
+            "错误现象：fit 时抛出 ValueError: Length mismatch: Expected axis has 3 elements, new values have 0 elements。",
+            "错误位置：_column_transformer.py 的 _hstack 方法（第 862 行附近）。",
+            "期望行为：columns 为空的 transformer 应被忽略。"
+        ],
+        "facts_from_retrieved_context": [
+            "ColumnTransformer 类位于 sklearn/compose/_column_transformer.py。",
+            "Pipeline 类有 set_output 方法，可以配置输出为 \"pandas\"。",
+            "存在相关测试 test_column_transformer_empty_columns，测试了 ColumnTransformer 处理空列 transformer 的情况，但该测试未涉及 set_output(transform=\"pandas\")。",
+            "存在相关测试 test_column_transformer_set_output，测试了 ColumnTransformer 在 set_output 后的行为，但未涉及空列 transformer。"
+        ],
+        "inferences": [
+            "当 transformer 的 columns 为空时，该 transformer 可能不会被拟合，因此不会出现在 self._iter(fitted=True) 的迭代结果中。",
+            "_hstack 方法在构建 pandas DataFrame 输出时，需要为 DataFrame 设置列名，列名列表来自 _add_prefix_for_feature_names_out 函数。",
+            "当空列 transformer 被排除后，生成的列名列表长度可能与实际转换后的 DataFrame 列数不一致，导致长度不匹配错误。"
+        ],
+        "do_not_assume": [
+            "具体的修复方案或代码修改位置。",
+            "除了 _hstack 和 _add_prefix_for_feature_names_out 之外，是否还有其他相关函数受影响。",
+            "当输出模式不是 \"pandas\" 时，空列 transformer 的处理逻辑是否完全正确。"
+        ]
+    },
+    "issue_summary": "ColumnTransformer 在配置了 pandas 输出时，无法正确处理 columns 为空的 transformer，导致 fit 时因列名长度不匹配而抛出 ValueError。",
+    "trigger_condition": {
+        "text": "构造一个 ColumnTransformer，其中至少一个 transformer 的 columns 参数为空列表（例如 []），并将该 ColumnTransformer 放入一个 Pipeline 中，然后对该 Pipeline 调用 set_output(transform=\"pandas\")，最后调用 fit 方法。",
+        "evidence": [
+            "Issue 中的重现代码：ColumnTransformer 包含 ('categorical', 'passthrough', [])，Pipeline 调用了 .set_output(transform=\"pandas\") 并 fit。",
+            "Issue 描述：\"ColumnTransformer doesn't deal well with transformers that apply to 0 features (categorical_features in the example below) when using 'pandas' as output.\""
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 pipeline.fit(X, y) 时抛出 ValueError，错误信息为 \"Length mismatch: Expected axis has 3 elements, new values have 0 elements\"。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中的错误堆栈：ValueError: Length mismatch: Expected axis has 3 elements, new values have 0 elements。",
+            "错误发生在 _column_transformer.py 的 _hstack 方法中，当尝试设置 output.columns = names_out 时。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当 ColumnTransformer 中包含 columns 为空的 transformer 且输出配置为 pandas 时，fit 方法应成功执行，忽略该空列 transformer，并生成具有正确列数的 pandas DataFrame。",
+        "evidence": [
+            "Issue 中的期望结果：\"The step with no features should be ignored.\"",
+            "相关测试 test_column_transformer_empty_columns 表明，在不使用 pandas 输出时，空列 transformer 可以被正确处理（被忽略或标记为未拟合）。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "ColumnTransformer",
+            "kind": "class",
+            "source_path": "sklearn/compose/_column_transformer.py",
+            "reason": "Issue 的核心是关于 ColumnTransformer 在处理空列 transformer 时的行为。"
+        },
+        {
+            "name": "Pipeline",
+            "kind": "class",
+            "source_path": "sklearn/pipeline.py",
+            "reason": "Issue 的重现代码使用了 Pipeline，并通过其 set_output 方法配置了 pandas 输出。"
+        },
+        {
+            "name": "set_output",
+            "kind": "method",
+            "source_path": "sklearn/pipeline.py",
+            "reason": "触发 bug 的关键操作是调用 set_output(transform=\"pandas\")。"
+        },
+        {
+            "name": "fit",
+            "kind": "method",
+            "source_path": "sklearn/pipeline.py",
+            "reason": "触发错误的最终调用是 pipeline.fit。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "sklearn/compose/_column_transformer.py",
+            "object": "ColumnTransformer._hstack",
+            "lines": "856-862",
+            "reason": "Issue 描述错误发生在 _hstack 方法中，涉及 self._iter(fitted=True) 和 _add_prefix_for_feature_names_out 函数，导致列名列表长度与 DataFrame 列数不匹配。"
+        },
+        {
+            "path": "sklearn/compose/_column_transformer.py",
+            "object": "ColumnTransformer._iter",
+            "lines": "",
+            "reason": "Issue 提到 \"steps with 0 features are not fitted, hence don't appear in self._iter(fitted=True)\"，这可能导致后续逻辑不一致。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_column_transformer_empty_columns",
+            "test_file": "sklearn/compose/tests/test_column_transformer.py",
+            "why_relevant": "该测试专门验证 ColumnTransformer 处理空列 transformer 的能力，构造了 columns 为 [] 的 transformer，并检查 fit_transform 的结果。",
+            "reusable_parts": [
+                "ColumnTransformer 的构造方式，包括空列 transformer 的定义。",
+                "使用 TransRaise 等自定义 transformer 来模拟行为。",
+                "assert_array_equal 断言风格。",
+                "对 transformers_ 属性的检查。"
+            ],
+            "possible_gap": "该测试没有调用 set_output(transform=\"pandas\")，因此不会触发 pandas 输出模式下的错误。需要变异以添加此配置。"
+        },
+        {
+            "test_name": "test_column_transformer_set_output",
+            "test_file": "sklearn/compose/tests/test_column_transformer.py",
+            "why_relevant": "该测试验证了 ColumnTransformer 在 set_output(transform=\"pandas\") 后的行为，检查输出是否为 pandas DataFrame 以及列名是否正确。",
+            "reusable_parts": [
+                "使用 pandas DataFrame 作为输入。",
+                "调用 ct.set_output(transform=\"pandas\") 的步骤。",
+                "检查输出类型 isinstance(X_trans, pd.DataFrame)。",
+                "检查列名与 get_feature_names_out() 的输出是否一致。"
+            ],
+            "possible_gap": "该测试没有包含空列 transformer，因此不会触发长度不匹配错误。需要变异以添加一个 columns 为空的 transformer。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "config",
+            "current_pattern": "相关测试中，ColumnTransformer 构造后未调用 set_output，或调用了但 transformer 都有非空 columns。",
+            "target_pattern": "在 ColumnTransformer 构造后，调用 .set_output(transform=\"pandas\")。同时，确保 ColumnTransformer 中包含一个 columns 为 [] 的 transformer。",
+            "reason": "Issue 表明，只有同时满足空列 transformer 和 pandas 输出配置时，错误才会触发。",
+            "confidence": "high"
+        },
+        {
+            "slot": "input",
+            "current_pattern": "相关测试中，transformer 的 columns 参数为非空列表或数组。",
+            "target_pattern": "将某个 transformer 的 columns 参数设置为空列表 []。",
+            "reason": "空列 transformer 是触发错误的必要条件。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "调用 pipeline.fit(X, y) 时是否抛出 ValueError，并检查错误信息是否包含 \"Length mismatch\" 或 \"Expected axis has ... elements, new values have ... elements\"。",
+            "reason": "Issue 中观察到的直接错误症状是 ValueError 异常。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "如果 fit 成功，检查 pipeline.transform(X) 返回的 pandas DataFrame 的列数（len(df.columns)）是否与预期（非空 transformer 处理的列数）一致。",
+            "reason": "修复后，应能正常返回 DataFrame，且列数正确，不包含空列 transformer 产生的列。"
+        },
+        {
+            "kind": "type",
+            "expression_hint": "检查 pipeline.fit_transform(X) 或 pipeline.transform(X) 的输出类型是否为 pandas.DataFrame。",
+            "reason": "set_output(transform=\"pandas\") 配置应确保输出为 DataFrame。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "当 ColumnTransformer 包含空列 transformer 且配置了 pandas 输出时，fit 方法应正常执行，不抛出 ValueError。",
+            "preferred_assertion_style": "raises",
+            "avoid": "断言具体的内部属性值，如 transformers_ 列表的精确内容或私有缓存。",
+            "reason": "当前 bug 表现为异常，修复后应不再抛出异常。使用 raises 断言可以

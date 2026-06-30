@@ -1,0 +1,179 @@
+```json
+{
+    "original_issue": {
+        "text": "can't simplify sin/cos with Rational?\nlatest cloned sympy, python 3 on windows\nfirstly, cos, sin with symbols can be simplified; rational number can be simplified\n```python\nfrom sympy import *\n\nx, y = symbols('x, y', real=True)\nr = sin(x)*sin(y) + cos(x)*cos(y)\nprint(r)\nprint(r.simplify())\nprint()\n\nr = Rational(1, 50) - Rational(1, 25)\nprint(r)\nprint(r.simplify())\nprint()\n```\nsays\n```cmd\nsin(x)*sin(y) + cos(x)*cos(y)\ncos(x - y)\n\n-1/50\n-1/50\n```\n\nbut\n```python\nt1 = Matrix([sin(Rational(1, 50)), cos(Rational(1, 50)), 0])\nt2 = Matrix([sin(Rational(1, 25)), cos(Rational(1, 25)), 0])\nr = t1.dot(t2)\nprint(r)\nprint(r.simplify())\nprint()\n\nr = sin(Rational(1, 50))*sin(Rational(1, 25)) + cos(Rational(1, 50))*cos(Rational(1, 25))\nprint(r)\nprint(r.simplify())\nprint()\n\nprint(acos(r))\nprint(acos(r).simplify())\nprint()\n```\nsays\n```cmd\nsin(1/50)*sin(1/25) + cos(1/50)*cos(1/25)\nsin(1/50)*sin(1/25) + cos(1/50)*cos(1/25)\n\nsin(1/50)*sin(1/25) + cos(1/50)*cos(1/25)\nsin(1/50)*sin(1/25) + cos(1/50)*cos(1/25)\n\nacos(sin(1/50)*sin(1/25) + cos(1/50)*cos(1/25))\nacos(sin(1/50)*sin(1/25) + cos(1/50)*cos(1/25))\n```",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当使用 Rational 对象作为 sin 和 cos 函数的参数时，包含这些三角函数的表达式无法被 simplify() 方法正确简化。具体表现为：表达式 sin(Rational(1, 50))*sin(Rational(1, 25)) + cos(Rational(1, 50))*cos(Rational(1, 25)) 在调用 simplify() 后保持不变，而期望的结果应该是 cos(Rational(1, 50) - Rational(1, 25)) 或类似的简化形式。该问题在使用 Matrix 点积构造的表达式以及直接构造的表达式上均出现。相比之下，使用符号变量（如 sin(x)*sin(y) + cos(x)*cos(y)）的同类表达式可以被正确简化为 cos(x - y)。",
+        "facts_from_issue": [
+            "使用符号变量 x, y 的表达式 sin(x)*sin(y) + cos(x)*cos(y) 可以被 simplify() 简化为 cos(x - y)。",
+            "Rational 对象的算术运算（如 Rational(1, 50) - Rational(1, 25)）可以被 simplify() 简化（尽管输出相同，但表明 simplify 对 Rational 有效）。",
+            "使用 Rational 作为参数的三角函数表达式 sin(Rational(1, 50))*sin(Rational(1, 25)) + cos(Rational(1, 50))*cos(Rational(1, 25)) 调用 simplify() 后保持不变。",
+            "通过 Matrix([sin(Rational(...)), ...]).dot(...) 构造的相同表达式调用 simplify() 后也保持不变。",
+            "对上述表达式应用 acos() 后，再调用 simplify() 同样没有变化。"
+        ],
+        "facts_from_retrieved_context": [
+            "sin 和 cos 是 sympy.functions.elementary.trigonometric 模块中的类（TrigonometricFunction）。",
+            "Rational 是 sympy.core.numbers 模块中表示有理数的类。",
+            "Matrix 在 sympy.matrices.dense 中定义为 MutableDenseMatrix 的别名。",
+            "dot 方法是 sympy.physics.vector.vector.Vector 类的方法，但 Matrix 对象也有点积操作。",
+            "相关测试文件（test_trigsimp.py）中存在大量测试，验证包含符号、浮点数和非交换符号的三角表达式简化。",
+            "测试 test_trigsimp1 中包含了类似形式的简化断言，如 trigsimp(cos(0.12345)**2 + sin(0.12345)**2) == 1。"
+        ],
+        "inferences": [
+            "simplify() 方法（或 trigsimp）对包含符号参数的三角恒等式（如和差化积）有效。",
+            "simplify() 方法对纯 Rational 算术表达式有效。",
+            "当三角函数的参数是 Rational 对象时，simplify() 可能未能触发相应的简化规则。",
+            "问题可能位于三角函数的 eval 方法、simplify 的调度逻辑、或处理数值有理数参数的特定化简规则中。"
+        ],
+        "do_not_assume": [
+            "simplify() 和 trigsimp() 是同一个函数。",
+            "Matrix.dot() 是导致问题的原因（因为直接构造的表达式也有问题）。",
+            "acos() 的简化是独立的问题。",
+            "具体的修复代码位置或补丁内容。"
+        ]
+    },
+    "issue_summary": "当 sin 和 cos 函数的参数为 Rational 对象时，包含它们的表达式无法被 simplify() 方法利用三角恒等式进行简化。",
+    "trigger_condition": {
+        "text": "构造一个表达式，其中包含以 Rational 对象为参数的 sin 和 cos 函数的乘积之和，例如 sin(Rational(1, 50))*sin(Rational(1, 25)) + cos(Rational(1, 50))*cos(Rational(1, 25))，然后对其调用 .simplify() 方法。",
+        "evidence": [
+            "Issue 中提供的代码示例直接构造了该表达式并调用 r.simplify()。",
+            "Issue 中展示了使用 Matrix 点积构造相同表达式并调用 simplify()。",
+            "相关测试 test_trigsimp1 中测试了类似形式的表达式简化（但使用的是浮点数 0.12345）。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "调用 simplify() 后，表达式没有发生任何变化，仍然保持为 sin(Rational(1, 50))*sin(Rational(1, 25)) + cos(Rational(1, 50))*cos(Rational(1, 25)) 的原始形式，而期望应被简化为更简单的形式（如 cos(Rational(1, 50) - Rational(1, 25))）。",
+        "symptom_type": "wrong_return",
+        "evidence": [
+            "Issue 中打印的输出显示 simplify() 调用前后的字符串表示完全相同。",
+            "与使用符号变量的情况形成对比，后者 simplify() 后返回了不同的表达式 cos(x - y)。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "对于表达式 sin(Rational(1, 50))*sin(Rational(1, 25)) + cos(Rational(1, 50))*cos(Rational(1, 25))，调用 simplify() 方法后，应返回一个经过三角恒等式简化的等价表达式，例如 cos(Rational(1, 50) - Rational(1, 25)) 或数值计算后的近似值。",
+        "evidence": [
+            "Issue 中展示了符号变量版本的类似表达式被成功简化为 cos(x - y)。",
+            "sin 和 cos 类的文档字符串提到在某些有理数情况下会自动求值。",
+            "相关测试 test_trigsimp1 断言 trigsimp(cos(0.12345)**2 + sin(0.12345)**2) == 1，表明对浮点数值参数简化有效。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "simplify",
+            "kind": "method",
+            "source_path": "",
+            "reason": "Issue 中直接调用的方法，用于触发简化操作。"
+        },
+        {
+            "name": "sin",
+            "kind": "class",
+            "source_path": "sympy/functions/elementary/trigonometric.py",
+            "reason": "表达式中的关键函数，其参数为 Rational 对象。"
+        },
+        {
+            "name": "cos",
+            "kind": "class",
+            "source_path": "sympy/functions/elementary/trigonometric.py",
+            "reason": "表达式中的关键函数，其参数为 Rational 对象。"
+        },
+        {
+            "name": "Rational",
+            "kind": "class",
+            "source_path": "sympy/core/numbers.py",
+            "reason": "用作 sin 和 cos 参数的对象类型。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "sympy/functions/elementary/trigonometric.py",
+            "object": "sin.eval 或 cos.eval 方法",
+            "lines": "",
+            "reason": "这些 eval 方法负责处理特定输入时的自动求值或简化，可能对 Rational 参数处理不完整。"
+        },
+        {
+            "path": "sympy/simplify/simplify.py 或 sympy/simplify/trigsimp.py",
+            "object": "简化逻辑中处理三角函数与数值参数的部分",
+            "lines": "",
+            "reason": "simplify 或 trigsimp 的调度逻辑可能未能识别出参数为 Rational 的三角函数表达式适用于某些恒等式简化规则。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_trigsimp1",
+            "test_file": "sympy/simplify/tests/test_trigsimp.py",
+            "why_relevant": "该测试直接测试三角表达式的简化，包含类似形式的断言（如 cos(x)**2 + sin(x)**2 简化为 1），并且测试了浮点数参数的情况（cos(0.12345)**2 + sin(0.12345)**2）。",
+            "reusable_parts": [
+                "from sympy import symbols, sin, cos, simplify (或 trigsimp)",
+                "使用 assert 验证简化结果等于预期表达式",
+                "测试函数的基本结构和导入"
+            ],
+            "possible_gap": "该测试使用符号变量或浮点数作为参数，但没有使用 Rational 对象作为 sin/cos 的参数。需要将输入从符号/浮点数变异为 Rational 对象。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "test_trigsimp1 中使用符号变量（如 x, y）或浮点数（如 0.12345）作为 sin/cos 的参数。",
+            "target_pattern": "将 sin/cos 的参数从符号/浮点数替换为 Rational 对象，例如 sin(Rational(1, 50))。",
+            "reason": "Issue 表明当参数为 Rational 时简化失败，而符号和浮点数参数下简化成功。改变输入类型可能触发缺陷路径。",
+            "confidence": "high"
+        },
+        {
+            "slot": "argument",
+            "current_pattern": "测试中直接调用 trigsimp(expr) 或 expr.simplify()。",
+            "target_pattern": "保持调用方式不变，但 expr 变为 sin(Rational(a, b))*sin(Rational(c, d)) + cos(Rational(a, b))*cos(Rational(c, d)) 的形式。",
+            "reason": "Issue 的核心是特定表达式结构在参数为 Rational 时简化失败，因此需要构造相同结构但参数类型不同的表达式。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "return_value",
+            "expression_hint": "调用 expr.simplify() 后的返回值，观察其字符串表示（str()）或结构是否与原始 expr 相同。",
+            "reason": "错误症状是 simplify() 返回未变化的表达式。直接比较返回对象的字符串表示或结构可以判断简化是否发生。"
+        },
+        {
+            "kind": "type",
+            "expression_hint": "观察 simplify() 返回值的类型，例如是否为 cos 对象或 Add/Mul 对象。",
+            "reason": "如果简化成功，返回值可能变为一个 cos 对象（或其他简化形式）；如果失败，则可能保持为 Add 对象。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "表达式 simplify() 后的结果应不等于原始表达式，且应是一个更简单的等价形式（如一个单独的 cos 对象）。",
+            "preferred_assertion_style": "not_equals",
+            "avoid": "断言完整的字符串相等，因为具体简化后的字符串格式（如 cos(Rational(1,50)-Rational(1,25)) 或 cos(-1/50)）可能不确定。",
+            "reason": "Issue 表明 simplify() 应改变表达式。断言结果不等于原表达式是稳定且与期望行为对齐的。"
+        },
+        {
+            "assertion_goal": "简化后的表达式应等价于原始表达式（例如，对某个数值进行求值，两者应近似相等）。",
+            "preferred_assertion_style": "before_after_relation",
+            "avoid": "断言精确的数值相等，因为浮点计算可能有误差。",
+            "reason": "可以验证简化在数学上是正确的，而不依赖于具体的输出字符串格式。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要从 sympy 导入 sin, cos, Rational, simplify (或 trigsimp)。可能还需要导入 Matrix 和 symbols 用于构造对比用例。",
+            "source": "issue",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试可以放在现有的测试框架中（如 pytest），遵循 sympy 测试文件的模式。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "simplify() 和 trigsimp() 函数在处理此案例时是否有区别。",
+        "是否所有 Rational 参数组合都会导致此问题，还是特定分母/分子。",
+        "除了 sin(a)*sin(b)+cos(a)*cos(b) 形式，其他三角恒等式（如 sin(a)*cos(b)+cos(a)*sin(b)）是否也受影响。",
+        "问题的根本原因是在 sin/cos 的 eval 阶段，还是在 simplify/trigsimp 的规则匹配阶段。"
+    ]
+}
+```

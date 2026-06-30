@@ -1,0 +1,139 @@
+instance_id: django__django-11001
+
+issue_summary: 当使用多行 RawSQL 表达式进行 order_by 时，SQLCompiler.get_order_by() 方法因正则表达式匹配不完整而错误地将不同的子句识别为重复并移除。
+
+trigger_condition:
+{
+  "text": "构建一个 QuerySet，其 order_by() 方法接收多个 RawSQL 表达式作为参数，且这些 RawSQL 表达式包含换行符，并导致编译后的 SQL 字符串的最后一行文本相同。",
+  "evidence": [
+    "Issue 提供了具体的查询示例：MyModel.objects.all().order_by(RawSQL('''...''', []).desc(), RawSQL('''...''', []).asc(), RawSQL('''...''', []).desc())。",
+    "Issue 明确指出当 sql 变量包含多行 SQL 时会发生问题。",
+    "源码显示 get_order_by() 会编译 RawSQL 表达式并生成 sql 字符串。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的 SQL 查询中缺少了部分 order_by 子句。具体来说，某些不同的 RawSQL 排序项被错误地丢弃，导致排序结果不正确或缺少预期的排序条件。",
+  "symptom_type": "wrong_sql",
+  "evidence": [
+    "Issue 描述：'Second RawSQL with a else null end part is removed from query.'",
+    "Issue 指出只有第一个子句被返回。",
+    "源码中 get_order_by() 的 seen 集合逻辑会导致跳过某些项。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，当使用多个不同的多行 RawSQL 表达式进行 order_by 时，所有表达式都应被正确编译并包含在最终的 ORDER BY SQL 子句中，不应有子句被错误丢弃。",
+  "evidence": [
+    "Issue 暗示正确的行为是避免错误的重复识别。",
+    "去重逻辑的本意是防止真正的重复，而不是阻止不同的子句。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "RawSQL",
+    "kind": "class",
+    "source_path": "django/db/models/expressions.py",
+    "reason": "Issue 中用于创建多行 SQL 表达式的类。"
+  },
+  {
+    "name": "order_by",
+    "kind": "method",
+    "source_path": "",
+    "reason": "QuerySet 的方法，用于指定排序，是触发缺陷的入口。"
+  },
+  {
+    "name": "SQLCompiler.get_order_by",
+    "kind": "method",
+    "source_path": "django/db/models/sql/compiler.py",
+    "reason": "Issue 明确指出缺陷位于此方法中，负责生成 ORDER BY 子句。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "使用 F('headline').asc() 和 F('headline').desc() 作为 order_by 参数。",
+    "target_pattern": "使用多个多行 RawSQL 字符串作为 order_by 参数，例如 RawSQL('''\\ncase when ...\\n then ... else ... end''', []).desc()，并确保至少两个表达式的最后一行文本相同。",
+    "reason": "Issue 表明缺陷在 RawSQL 且 SQL 为多行时触发。将输入从 F 表达式改为多行 RawSQL 可以走向缺陷路径。",
+    "confidence": "high"
+  },
+  {
+    "slot": "input",
+    "current_pattern": "单行或简单的 SQL 表达式。",
+    "target_pattern": "在 RawSQL 的 SQL 字符串中故意插入换行符（'\\n'），使编译后的 sql 变量包含多行。",
+    "reason": "Issue 指出 sql 变量包含多行 SQL 是导致正则匹配不完整的原因。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "sql",
+    "expression_hint": "str(qs.query) 或 qs.query.get_compiler(using='default').as_sql()[0] 生成的完整 SQL 字符串。",
+    "reason": "错误症状是 ORDER BY 子句中缺少某些项。直接观察生成的 SQL 字符串可以确认子句是否被错误移除。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "list(qs) 或 qs.count() 的结果，或通过遍历 QuerySet 获取的对象顺序。",
+    "reason": "错误的 ORDER BY 子句可能导致查询返回结果的顺序与预期不符。"
+  },
+  {
+    "kind": "internal_state",
+    "expression_hint": "在测试中调用 get_order_by() 方法并检查其返回的列表长度和内容（例如，通过 qs.query.get_compiler(using='default').get_order_by()）。",
+    "reason": "可以直接观察编译器认为应该包含哪些 order_by 项，与最终 SQL 进行对比。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的 SQL 字符串应包含所有不同的 order_by 子句对应的 SQL 片段。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、格式固定的 SQL 字符串相等，因为空格和换行符可能变化。",
+    "reason": "Issue 的核心是子句缺失，检查关键片段是否存在更稳定。"
+  },
+  {
+    "assertion_goal": "get_order_by() 方法返回的列表应包含与传入的 order_by 参数数量相等的项。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言返回列表的内部结构细节，除非与公开行为相关。",
+    "reason": "这是一个更直接的公开行为检查，可以确认编译器是否识别了所有项。"
+  },
+  {
+    "assertion_goal": "当使用不同的多行 RawSQL 进行排序时，查询结果应反映所有排序条件的效果（如果数据支持区分）。",
+    "preferred_assertion_style": "order_equals",
+    "avoid": "依赖于特定数据库数据的精确顺序，除非测试数据是精心构造的。",
+    "reason": "验证排序功能整体上按预期工作，是最终用户可见的行为。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要使用一个 Django TestCase 并配置数据库。可能需要创建简单的模型（如 Article 或自定义模型）并插入测试数据。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要导入 RawSQL 类、F 表达式以及相关的模型。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "self.ordering_parts 正则表达式的确切模式，以及它期望匹配的 without_ordering 字符串的完整格式。",
+  "是否所有包含换行符的 SQL 表达式都会触发此问题，还是仅特定模式（如最后一行是 'else ... end'）。",
+  "除了 RawSQL，其他可能生成多行 SQL 的表达式类型（如 Func、Case）是否也受影响。",
+  "不同数据库后端对生成 SQL 的格式化是否会影响正则匹配，从而改变 bug 的表现。"
+]

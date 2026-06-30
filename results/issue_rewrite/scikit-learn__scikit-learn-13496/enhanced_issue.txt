@@ -1,0 +1,136 @@
+instance_id: scikit-learn__scikit-learn-13496
+
+issue_summary: IsolationForest 类未在其构造函数中暴露从父类继承的 `warm_start` 参数，导致增量训练功能难以被用户发现和使用。
+
+trigger_condition:
+{
+  "text": "创建一个 IsolationForest 实例，并尝试通过其构造函数直接设置 `warm_start=True` 参数。",
+  "evidence": [
+    "Issue 指出 `warm_start` 参数未在 `__init__()` 中暴露。",
+    "IsolationForest.__init__ 方法签名中不包含 `warm_start` 参数（源码片段5）。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "尝试在 IsolationForest 构造函数中传递 `warm_start=True` 参数会引发 TypeError，因为该参数未被声明。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 提到参数未在 `__init__()` 中暴露。",
+    "IsolationForest.__init__ 方法签名中不包含 `warm_start` 参数（源码片段5）。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "IsolationForest 的构造函数应接受 `warm_start` 参数，并允许用户通过它来启用增量训练模式。",
+  "evidence": [
+    "Issue 建议 \"expose `warm_start` in `IsolationForest.__init__()`\"。",
+    "RandomForestClassifier 的构造函数接受 `warm_start` 参数（源码片段4）。",
+    "BaseBagging（父类）的构造函数接受 `warm_start` 参数（源码片段2）。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "IsolationForest",
+    "kind": "class",
+    "source_path": "sklearn/ensemble/iforest.py",
+    "reason": "这是 Issue 报告的核心类，其 __init__ 方法需要修改以暴露 warm_start 参数。"
+  },
+  {
+    "name": "IsolationForest.__init__",
+    "kind": "method",
+    "source_path": "sklearn/ensemble/iforest.py",
+    "reason": "需要检查其当前签名并验证修复后是否包含 warm_start 参数。"
+  },
+  {
+    "name": "IsolationForest.fit",
+    "kind": "method",
+    "source_path": "sklearn/ensemble/iforest.py",
+    "reason": "warm_start 参数影响 fit 方法的行为（增量添加估计器）。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "BaggingClassifier(n_estimators=5, warm_start=True, random_state=3141)",
+    "target_pattern": "IsolationForest(n_estimators=5, warm_start=True, random_state=3141)",
+    "reason": "将测试对象从 BaggingClassifier 变异为 IsolationForest，以触发当前因参数未暴露而导致的 TypeError。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "使用有标签数据 (y) 进行拟合。",
+    "target_pattern": "使用无标签数据 (X) 进行拟合，因为 IsolationForest 是无监督的。",
+    "reason": "IsolationForest.fit 的签名是 fit(X, y=None, sample_weight=None)，需要调整测试中的数据准备和调用方式。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "在创建 IsolationForest(warm_start=True) 实例时是否引发 TypeError。",
+    "reason": "这是 Issue 描述的直接症状：构造函数不接受 warm_start 参数。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "IsolationForest.__init__ 的签名（通过 inspect.signature 获取）。",
+    "reason": "可以检查修复后构造函数是否包含了 warm_start 参数。"
+  },
+  {
+    "kind": "state",
+    "expression_hint": "在设置 warm_start=True 并多次调用 fit 递增 n_estimators 后，len(clf.estimators_) 的值。",
+    "reason": "验证 warm_start 功能是否实际生效（估计器数量应递增，而非替换）。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "IsolationForest 的构造函数应成功接受 `warm_start=True` 参数，而不引发 TypeError。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的错误消息字符串。",
+    "reason": "修复的核心是 API 可用性。断言不引发特定异常（或成功创建对象）比断言具体的错误消息更稳定。"
+  },
+  {
+    "assertion_goal": "当 warm_start=True 且 n_estimators 递增时，多次调用 fit 应增量添加估计器，而非重新训练整个森林。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言估计器对象的完全相等或内部随机状态。",
+    "reason": "验证 warm_start 的核心语义功能。比较首次拟合后的估计器列表与增量拟合后的列表长度或子集关系是稳定的公开行为检查。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 sklearn.ensemble.IsolationForest 和用于生成测试数据的工具（如 sklearn.datasets.make_blobs）。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "IsolationForest 是无监督模型，测试数据不需要标签 y。",
+    "source": "retrieved_source",
+    "confidence": "high"
+  },
+  {
+    "hint": "可以使用 pytest 的测试框架和断言风格。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "修复后 `warm_start` 参数在 `IsolationForest.__init__` 中的确切位置和默认值（尽管 Issue 建议 default=False）。",
+  "除了暴露参数外，是否需要对 `IsolationForest` 的 `fit` 方法或其他内部逻辑进行修改以确保 `warm_start` 完全正常工作。",
+  "修复后文档字符串的具体内容。"
+]

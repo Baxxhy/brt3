@@ -1,0 +1,130 @@
+instance_id: sympy__sympy-16988
+
+issue_summary: Intersection 构造函数在传入重复的集合参数时，未能正确处理去重，导致求值结果错误。
+
+trigger_condition:
+{
+  "text": "使用 Intersection 构造函数，并传入包含重复集合对象的参数，例如 Intersection(FiniteSet(1), FiniteSet(1), FiniteSet(x))，其中 x 是一个 Symbol。",
+  "evidence": [
+    "原始 Issue 中的代码示例：Intersection({1},{1},{x})。",
+    "相关测试 test_intersection 和 test_finite_set_intersection 中使用了 Intersection 和 FiniteSet。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "Intersection({1}, {1}, {x}) 返回了 EmptySet()，而 Intersection({1}, {x}) 返回了 {1}。当存在重复参数时，结果不一致且错误。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "原始 Issue 中的代码示例和输出。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "Intersection 在传入重复参数时，应该先去除重复项再进行求值，或者返回一个包含条件判断的 Piecewise 表达式（当参数包含符号时），或者保持未求值状态。去除重复项后，Intersection({1}, {1}, {x}) 的结果应该与 Intersection({1}, {x}) 在逻辑上一致（即考虑符号 x 的可能取值）。",
+  "evidence": [
+    "原始 Issue 中描述：\"The routine should give the same answer if duplicates are present; my initial guess is that duplicates should just be removed at the outset of instantiation.\"",
+    "原始 Issue 中给出的期望答案：\"Piecewise(({1}, Eq(x, 1)), (S.EmptySet, True)) or remain unevaluated.\""
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Intersection",
+    "kind": "class",
+    "source_path": "sympy/sets/sets.py",
+    "reason": "Issue 直接报告了 Intersection 构造函数的行为问题。"
+  },
+  {
+    "name": "FiniteSet",
+    "kind": "class",
+    "source_path": "",
+    "reason": "Issue 示例中的 {1} 和 {x} 可能对应 FiniteSet 对象，相关测试中也广泛使用。"
+  },
+  {
+    "name": "Piecewise",
+    "kind": "class",
+    "source_path": "sympy/functions/elementary/piecewise.py",
+    "reason": "期望的输出涉及 Piecewise 表达式。"
+  },
+  {
+    "name": "Eq",
+    "kind": "global_var",
+    "source_path": "sympy/core/relational.py",
+    "reason": "期望的 Piecewise 表达式中使用了 Eq。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "Intersection(FiniteSet(1, 2, x), FiniteSet(2, 3, y)) （来自 test_finite_set_intersection，参数不重复）",
+    "target_pattern": "Intersection(FiniteSet(1), FiniteSet(1), FiniteSet(x)) （参数列表中存在重复的 FiniteSet(1)）",
+    "reason": "根据 Issue，重复的参数是触发错误的关键。将相似测试中的不同集合参数改为相同的集合，可以测试去重逻辑。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "Intersection(FiniteSet(-oo, x), FiniteSet(x)) （两个参数）",
+    "target_pattern": "Intersection(FiniteSet(1), FiniteSet(1), FiniteSet(x)) （三个参数，其中两个相同）",
+    "reason": "增加参数数量并引入重复，可以测试 Intersection 构造函数在处理多个参数时的去重能力。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "result = Intersection(FiniteSet(1), FiniteSet(1), FiniteSet(x)); type(result); str(result) 或 repr(result)",
+    "reason": "直接观察 Intersection 调用的返回值及其字符串表示，可以判断是返回了 EmptySet、FiniteSet、Piecewise 还是其他未求值形式。"
+  },
+  {
+    "kind": "type",
+    "expression_hint": "isinstance(result, Piecewise)",
+    "reason": "期望行为可能返回 Piecewise 对象，检查返回类型有助于判断逻辑是否正确。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "当去除重复参数后，Intersection 的结果在逻辑上应保持一致（例如，对于符号 x，应考虑其所有可能取值）。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的、包含符号的 Piecewise 表达式的字符串完全相等，因为具体形式可能变化。",
+    "reason": "核心问题是重复参数不应改变数学结果。比较去除重复项后的结果与无重复项的结果在数学上是否等价（可能需要简化或代入特定值验证），是稳定且与 Issue 对齐的断言方式。"
+  },
+  {
+    "assertion_goal": "Intersection 在传入重复参数时，不应返回一个明显错误的 EmptySet（当符号 x 可能等于 1 时）。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "直接断言 result == EmptySet()。",
+    "reason": "修复后，结果不应是简单的 EmptySet()，而应是一个考虑条件的表达式或保持未求值。检查返回值不是 EmptySet() 是一个基本的、稳定的公开行为检查。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要从 sympy 导入 Intersection, FiniteSet, Symbol, S, Piecewise, Eq 等类。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 Symbol('x') 创建符号变量，可能不需要指定域（如 real=True），除非测试特定需求。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "去除重复项的确切时机和位置（是在 __new__、eval 还是 _handle_finite_sets 中？）。",
+  "当参数包含符号时，完全正确的期望输出是什么（是 Piecewise 表达式，还是保持未求值的 Intersection 对象）？",
+  "除了 FiniteSet，其他类型的集合（如 Interval）作为重复参数时是否也有同样的问题？"
+]

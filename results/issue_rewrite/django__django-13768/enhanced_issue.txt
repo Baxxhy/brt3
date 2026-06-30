@@ -1,0 +1,107 @@
+instance_id: django__django-13768
+
+issue_summary: Signal.send_robust() 方法在接收器抛出异常时未记录日志，导致异常对监控工具不可见。
+
+trigger_condition:
+{
+  "text": "调用 Signal 实例的 send_robust(sender, **named) 方法，并且至少有一个已连接的接收器（receiver）在执行过程中抛出任何 Exception 子类的异常。",
+  "evidence": [
+    "Issue 指出 'exceptions raised in receivers'。",
+    "源码显示 send_robust 遍历接收器并在 try-except 中调用它们，捕获 Exception。",
+    "测试 test_send_robust_fail 使用了一个抛出 ValueError 的接收器。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "当接收器在 send_robust() 调用中抛出异常时，没有生成任何日志记录。异常被静默处理（仅返回给调用者），不会出现在应用日志或错误收集服务中。",
+  "symptom_type": "warning",
+  "evidence": [
+    "Issue: 'doesn't have any log messages for exceptions raised in receivers'",
+    "Issue: 'Users would then see such exceptions in their error handling tools, e.g. Sentry'"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当 Signal.send_robust() 的接收器抛出异常并被捕获时，应该生成一条日志记录（例如通过 logger.exception()），使得异常信息能够被日志系统和外部错误监控工具捕获。",
+  "evidence": [
+    "Issue: 'I think it would be worth adding a logger.exception() call in the except clause of send_robust()'",
+    "Issue: 'Users would then see such exceptions in their error handling tools'"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Signal.send_robust",
+    "kind": "method",
+    "source_path": "django/dispatch/dispatcher.py",
+    "reason": "这是 Issue 报告存在缺陷（缺少日志记录）的直接方法。"
+  },
+  {
+    "name": "Signal.connect",
+    "kind": "method",
+    "source_path": "django/dispatch/dispatcher.py",
+    "reason": "用于在测试中设置会抛出异常的接收器。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "mock",
+    "current_pattern": "测试直接调用 send_robust 并检查返回值。",
+    "target_pattern": "在调用 send_robust 之前，使用 unittest.mock.patch 或类似工具来模拟或监视相关的 logger（例如 'django.dispatch.dispatcher.logger' 或更通用的 logging.getLogger('django...')），并断言在异常被捕获时 logger.exception 被调用。",
+    "reason": "Issue 的核心是缺失的日志调用。为了检测修复，测试需要能够观测到日志记录是否发生。模拟 logger 是观测这种副作用的标准方法。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "warning",
+    "expression_hint": "通过模拟的 logger 对象的 exception 方法是否被调用，以及调用时的参数（如 exc_info 应包含异常信息）。",
+    "reason": "Issue 期望在 except 子句中添加 logger.exception() 调用。观测对 logger.exception 的调用是验证修复的最直接方式。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "当接收器抛出异常时，一个 logger 的 exception 方法被调用了一次。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言完整的日志消息字符串，因为格式可能变化。避免断言私有日志处理器或内部状态。",
+    "reason": "这直接对应 Issue 中“添加 logger.exception() 调用”的要求。断言方法调用次数和参数（如包含正确的异常）是稳定且与实现细节解耦的方式。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "使用 Django 的 SimpleTestCase 或 TestCase 作为测试基类，因为现有相关测试都继承自 SimpleTestCase。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要导入 unittest.mock 用于模拟 logger。",
+    "source": "inference",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试中使用的 a_signal 可能是一个模块级或类级的 Signal 实例，需要查看测试文件的完整上下文来正确设置。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "具体应该模拟哪个 logger（完整的模块路径和名称）。是 'django.dispatch.dispatcher.logger' 还是通过 logging.getLogger(__name__) 在模块内获取的？",
+  "日志调用是否应该包含特定的消息文本或仅仅是默认的异常信息。",
+  "是否所有 Exception 子类都会被记录，还是只有特定类型。"
+]

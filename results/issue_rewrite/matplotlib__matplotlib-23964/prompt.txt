@@ -1,0 +1,883 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+[Bug]: Text label with empty line causes a "TypeError: cannot unpack non-iterable NoneType object" in PostScript backend
+### Bug summary
+
+When saving a figure with the PostScript backend, a
+> TypeError: cannot unpack non-iterable NoneType object
+
+happens if the figure contains a multi-line text label with an empty line (see example).
+
+### Code for reproduction
+
+```python
+from matplotlib.figure import Figure
+
+figure = Figure()
+ax = figure.add_subplot(111)
+# ax.set_title('\nLower title')  # this would cause an error as well
+ax.annotate(text='\nLower label', xy=(0, 0))
+figure.savefig('figure.eps')
+```
+
+
+### Actual outcome
+
+$ ./venv/Scripts/python save_ps.py
+Traceback (most recent call last):
+  File "C:\temp\matplotlib_save_ps\save_ps.py", line 7, in <module>
+    figure.savefig('figure.eps')
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\figure.py", line 3272, in savefig
+    self.canvas.print_figure(fname, **kwargs)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\backend_bases.py", line 2338, in print_figure
+    result = print_method(
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\backend_bases.py", line 2204, in <lambda>
+    print_method = functools.wraps(meth)(lambda *args, **kwargs: meth(
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\_api\deprecation.py", line 410, in wrapper
+    return func(*inner_args, **inner_kwargs)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\backends\backend_ps.py", line 869, in _print_ps
+    printer(fmt, outfile, dpi=dpi, dsc_comments=dsc_comments,
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\backends\backend_ps.py", line 927, in _print_figure
+    self.figure.draw(renderer)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\artist.py", line 74, in draw_wrapper
+    result = draw(artist, renderer, *args, **kwargs)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\figure.py", line 3069, in draw
+    mimage._draw_list_compositing_images(
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\image.py", line 131, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\axes\_base.py", line 3106, in draw
+    mimage._draw_list_compositing_images(
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\image.py", line 131, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\text.py", line 1995, in draw
+    Text.draw(self, renderer)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\text.py", line 736, in draw
+    textrenderer.draw_text(gc, x, y, clean_line,
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\backends\backend_ps.py", line 248, in wrapper
+    return meth(self, *args, **kwargs)
+  File "C:\temp\matplotlib_save_ps\venv\lib\site-packages\matplotlib\backends\backend_ps.py", line 673, in draw_text
+    for ps_name, xs_names in stream:
+TypeError: cannot unpack non-iterable NoneType object
+
+
+### Expected outcome
+
+The figure can be saved as `figure.eps` without error.
+
+### Additional information
+
+- seems to happen if a text label or title contains a linebreak with an empty line
+- works without error for other backends such as PNG, PDF, SVG, Qt
+- works with matplotlib<=3.5.3
+- adding `if curr_stream:` before line 669 of `backend_ps.py` seems to fix the bug 
+
+### Operating system
+
+Windows
+
+### Matplotlib Version
+
+3.6.0
+
+### Matplotlib Backend
+
+_No response_
+
+### Python version
+
+3.9.13
+
+### Jupyter version
+
+_No response_
+
+### Installation
+
+pip
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：lib/matplotlib/figure.py
+对象名称：Figure
+节点类型：class
+父节点：figure
+行号范围：2280-3448
+代码：
+class Figure(FigureBase):
+    """
+    The top level container for all the plot elements.
+
+    Attributes
+    ----------
+    patch
+        The `.Rectangle` instance representing the figure background patch.
+
+    suppressComposite
+        For multiple images, the figure will make composite images
+        depending on the renderer option_image_nocomposite function.  If
+        *suppressComposite* is a boolean, this will override the renderer.
+    """
+    callbacks = _api.deprecated(
+        "3.6", alternative=("the 'resize_event' signal in "
+                            "Figure.canvas.callbacks")
+        )(property(lambda self: self._fig_callbacks))
+    def __str__(self):
+    def __repr__(self):
+    @_api.make_keyword_only("3.6", "facecolor")
+    def __init__(self,
+                 figsize=None,
+                 dpi=None,
+                 facecolor=None,
+                 edgecolor=None,
+                 linewidth=0.0,
+                 frameon=None,
+                 subplotpars=None,  # rc figure.subplot.*
+                 tight_layout=None,  # rc figure.autolayout
+                 constrained_layout=None,  # rc figure.constrained_layout.use
+                 *,
+                 layout=None,
+                 **kwargs
+                 ):
+    def pick(self, mouseevent):
+    def _check_layout_engines_compat(self, old, new):
+    def set_layout_engine(self, layout=None, **kwargs):
+    def get_layout_engine(self):
+    def _repr_html_(self):
+    def show(self, warn=True):
+    @property
+    def axes(self):
+    get_axes = axes.fget
+    def _get_renderer(self):
+    def _get_dpi(self):
+    def _set_dpi(self, dpi, forward=True):
+    dpi = property(_get_dpi, _set_dpi, doc="The resolution in dots per inch.")
+    def get_tight_layout(self):
+    @_api.deprecated("3.6", alternative="set_layout_engine",
+                     pending=True)
+    def set_tight_layout(self, tight):
+    def get_constrained_layout(self):
+    @_api.deprecated("3.6", alternative="set_layout_engine('constrained')",
+                     pending=True)
+    def set_constrained_layout(self, constrained):
+    @_api.deprecated(
+         "3.6", alternative="figure.get_layout_engine().set()",
+         pending=True)
+    def set_constrained_layout_pads(self, **kwargs):
+    @_api.deprecated("3.6", alternative="fig.get_layout_engine().get()",
+                     pending=True)
+    def get_constrained_layout_pads(self, relative=False):
+    def set_canvas(self, canvas):
+    @_docstring.interpd
+    def figimage(self, X, xo=0, yo=0, alpha=None, norm=None, cmap=None,
+                 vmin=None, vmax=None, origin=None, resize=False, **kwargs):
+    def set_size_inches(self, w, h=None, forward=True):
+    def get_size_inches(self):
+    def get_figwidth(self):
+    def get_figheight(self):
+    def get_dpi(self):
+    def set_dpi(self, val):
+    def set_figwidth(self, val, forward=True):
+    def set_figheight(self, val, forward=True):
+    def clear(self, keep_observers=False):
+    @_finalize_rasterization
+    @allow_rasterization
+    def draw(self, renderer):
+
+    def draw_without_rendering(self):
+    def draw_artist(self, a):
+    def __getstate__(self):
+    def __setstate__(self, state):
+    def add_axobserver(self, func):
+    def savefig(self, fname, *, transparent=None, **kwargs):
+    def ginput(self, n=1, timeout=30, show_clicks=True,
+               mouse_add=MouseButton.LEFT,
+               mouse_pop=MouseButton.RIGHT,
+               mouse_stop=MouseButton.MIDDLE):
+    def waitforbuttonpress(self, timeout=-1):
+    @_api.deprecated("3.6", alternative="figure.get_layout_engine().execute()")
+    def execute_constrained_layout(self, renderer=None):
+    def tight_layout(self, *, pad=1.08, h_pad=None, w_pad=None, rect=None):
+
+
+【源码片段 2】
+文件路径：lib/matplotlib/figure.py
+对象名称：add_subplot
+节点类型：class_function
+父节点：FigureBase
+行号范围：620-747
+代码：
+    def add_subplot(self, *args, **kwargs):
+        """
+        Add an `~.axes.Axes` to the figure as part of a subplot arrangement.
+
+        Call signatures::
+
+           add_subplot(nrows, ncols, index, **kwargs)
+           add_subplot(pos, **kwargs)
+           add_subplot(ax)
+           add_subplot()
+
+        Parameters
+        ----------
+        *args : int, (int, int, *index*), or `.SubplotSpec`, default: (1, 1, 1)
+            The position of the subplot described by one of
+
+            - Three integers (*nrows*, *ncols*, *index*). The subplot will
+              take the *index* position on a grid with *nrows* rows and
+              *ncols* columns. *index* starts at 1 in the upper left corner
+              and increases to the right.  *index* can also be a two-tuple
+              specifying the (*first*, *last*) indices (1-based, and including
+              *last*) of the subplot, e.g., ``fig.add_subplot(3, 1, (1, 2))``
+              makes a subplot that spans the upper 2/3 of the figure.
+            - A 3-digit integer. The digits are interpreted as if given
+              separately as three single-digit integers, i.e.
+              ``fig.add_subplot(235)`` is the same as
+              ``fig.add_subplot(2, 3, 5)``. Note that this can only be used
+              if there are no more than 9 subplots.
+            - A `.SubplotSpec`.
+
+            In rare circumstances, `.add_subplot` may be called with a single
+            argument, a subplot Axes instance already created in the
+            present figure but not in the figure's list of Axes.
+
+        projection : {None, 'aitoff', 'hammer', 'lambert', 'mollweide', \
+'polar', 'rectilinear', str}, optional
+            The projection type of the subplot (`~.axes.Axes`). *str* is the
+            name of a custom projection, see `~matplotlib.projections`. The
+            default None results in a 'rectilinear' projection.
+
+        polar : bool, default: False
+            If True, equivalent to projection='polar'.
+
+        axes_class : subclass type of `~.axes.Axes`, optional
+            The `.axes.Axes` subclass that is instantiated.  This parameter
+            is incompatible with *projection* and *polar*.  See
+            :ref:`axisartist_users-guide-index` for examples.
+
+        sharex, sharey : `~.axes.Axes`, optional
+            Share the x or y `~matplotlib.axis` with sharex and/or sharey.
+            The axis will have the same limits, ticks, and scale as the axis
+            of the shared axes.
+
+        label : str
+            A label for the returned Axes.
+
+        Returns
+        -------
+        `.axes.SubplotBase`, or another subclass of `~.axes.Axes`
+
+            The Axes of the subplot. The returned Axes base class depends on
+            the projection used. It is `~.axes.Axes` if rectilinear projection
+            is used and `.projections.polar.PolarAxes` if polar projection
+            is used. The returned Axes is then a subplot subclass of the
+            base class.
+
+        Other Parameters
+        ----------------
+        **kwargs
+            This method also takes the keyword arguments for the returned Axes
+            base class; except for the *figure* argument. The keyword arguments
+            for the rectilinear base class `~.axes.Axes` can be found in
+            the following table but there might also be other keyword
+            arguments if another projection is used.
+
+            %(Axes:kwdoc)s
+
+        See Also
+        --------
+        .Figure.add_axes
+        .pyplot.subplot
+        .pyplot.axes
+        .Figure.subplots
+        .pyplot.subplots
+
+        Examples
+        --------
+        ::
+
+            fig = plt.figure()
+
+            fig.add_subplot(231)
+            ax1 = fig.add_subplot(2, 3, 1)  # equivalent but more general
+
+            fig.add_subplot(232, frameon=False)  # subplot with no frame
+            fig.add_subplot(233, projection='polar')  # polar subplot
+            fig.add_subplot(234, sharex=ax1)  # subplot sharing x-axis with ax1
+            fig.add_subplot(235, facecolor="red")  # red subplot
+
+            ax1.remove()  # delete ax1 from the figure
+            fig.add_subplot(ax1)  # add ax1 back to the figure
+        """
+        if 'figure' in kwargs:
+            # Axes itself allows for a 'figure' kwarg, but since we want to
+            # bind the created Axes to self, it is not allowed here.
+            raise TypeError(
+                "add_subplot() got an unexpected keyword argument 'figure'")
+
+        if len(args) == 1 and isinstance(args[0], SubplotBase):
+            ax = args[0]
+            key = ax._projection_init
+            if ax.get_figure() is not self:
+                raise ValueError("The Subplot must have been created in "
+                                 "the present figure")
+        else:
+            if not args:
+                args = (1, 1, 1)
+            # Normalize correct ijk values to (i, j, k) here so that
+            # add_subplot(211) == add_subplot(2, 1, 1).  Invalid values will
+            # trigger errors later (via SubplotSpec._from_subplot_args).
+          
+...[TRUNCATED]...
+围：3152-3275
+代码：
+    def savefig(self, fname, *, transparent=None, **kwargs):
+        """
+        Save the current figure.
+
+        Call signature::
+
+          savefig(fname, *, dpi='figure', format=None, metadata=None,
+                  bbox_inches=None, pad_inches=0.1,
+                  facecolor='auto', edgecolor='auto',
+                  backend=None, **kwargs
+                 )
+
+        The available output formats depend on the backend being used.
+
+        Parameters
+        ----------
+        fname : str or path-like or binary file-like
+            A path, or a Python file-like object, or
+            possibly some backend-dependent object such as
+            `matplotlib.backends.backend_pdf.PdfPages`.
+
+            If *format* is set, it determines the output format, and the file
+            is saved as *fname*.  Note that *fname* is used verbatim, and there
+            is no attempt to make the extension, if any, of *fname* match
+            *format*, and no extension is appended.
+
+            If *format* is not set, then the format is inferred from the
+            extension of *fname*, if there is one.  If *format* is not
+            set and *fname* has no extension, then the file is saved with
+            :rc:`savefig.format` and the appropriate extension is appended to
+            *fname*.
+
+        Other Parameters
+        ----------------
+        dpi : float or 'figure', default: :rc:`savefig.dpi`
+            The resolution in dots per inch.  If 'figure', use the figure's
+            dpi value.
+
+        format : str
+            The file format, e.g. 'png', 'pdf', 'svg', ... The behavior when
+            this is unset is documented under *fname*.
+
+        metadata : dict, optional
+            Key/value pairs to store in the image metadata. The supported keys
+            and defaults depend on the image format and backend:
+
+            - 'png' with Agg backend: See the parameter ``metadata`` of
+              `~.FigureCanvasAgg.print_png`.
+            - 'pdf' with pdf backend: See the parameter ``metadata`` of
+              `~.backend_pdf.PdfPages`.
+            - 'svg' with svg backend: See the parameter ``metadata`` of
+              `~.FigureCanvasSVG.print_svg`.
+            - 'eps' and 'ps' with PS backend: Only 'Creator' is supported.
+
+        bbox_inches : str or `.Bbox`, default: :rc:`savefig.bbox`
+            Bounding box in inches: only the given portion of the figure is
+            saved.  If 'tight', try to figure out the tight bbox of the figure.
+
+        pad_inches : float, default: :rc:`savefig.pad_inches`
+            Amount of padding around the figure when bbox_inches is 'tight'.
+
+        facecolor : color or 'auto', default: :rc:`savefig.facecolor`
+            The facecolor of the figure.  If 'auto', use the current figure
+            facecolor.
+
+        edgecolor : color or 'auto', default: :rc:`savefig.edgecolor`
+            The edgecolor of the figure.  If 'auto', use the current figure
+            edgecolor.
+
+        backend : str, optional
+            Use a non-default backend to render the file, e.g. to render a
+            png file with the "cairo" backend rather than the default "agg",
+            or a pdf file with the "pgf" backend rather than the default
+            "pdf".  Note that the default backend is normally sufficient.  See
+            :ref:`the-builtin-backends` for a list of valid backends for each
+            file format.  Custom backends can be referenced as "module://...".
+
+        orientation : {'landscape', 'portrait'}
+            Currently only supported by the postscript backend.
+
+        papertype : str
+            One of 'letter', 'legal', 'executive', 'ledger', 'a0' through
+            'a10', 'b0' through 'b10'. Only supported for postscript
+            output.
+
+        transparent : bool
+            If *True*, the Axes patches will all be transparent; the
+            Figure patch will also be transparent unless *facecolor*
+            and/or *edgecolor* are specified via kwargs.
+
+            If *False* has no effect and the color of the Axes and
+            Figure patches are unchanged (unless the Figure patch
+            is specified via the *facecolor* and/or *edgecolor* keyword
+            arguments in which case those colors are used).
+
+            The transparency of these patches will be restored to their
+            original values upon exit of this function.
+
+            This is useful, for example, for displaying
+            a plot on top of a colored background on a web page.
+
+        bbox_extra_artists : list of `~matplotlib.artist.Artist`, optional
+            A list of extra artists that will be considered when the
+            tight bbox is calculated.
+
+        pil_kwargs : dict, optional
+            Additional keyword arguments that are passed to
+            `PIL.Image.Image.save` when saving the figure.
+
+        """
+
+        kwargs.setdefault('dpi', mpl.rcParams['savefig.dpi'])
+        if transparent is None:
+            transparent = mpl.rcParams['savefig.transparent']
+
+        with ExitStack() as stack:
+            if transparent:
+                kwargs.setdefault('facecolor', 'none')
+                kwargs.setdefault('edgecolor', 'none')
+                for ax in self.axes:
+                    stack.enter_context(
+                        ax.patch._cm_set(facecolor='none', edgecolor='none'))
+
+            self.canvas.print_figure(fname, **kwargs)
+
+
+【源码片段 4】
+文件路径：lib/matplotlib/figure.py
+对象名称：draw
+节点类型：class_function
+父节点：Figure
+行号范围：3054-3082
+代码：
+    def draw(self, renderer):
+        # docstring inherited
+
+        # draw the figure bounding box, perhaps none for white figure
+        if not self.get_visible():
+            return
+
+        artists = self._get_draw_artists(renderer)
+        try:
+            renderer.open_group('figure', gid=self.get_gid())
+            if self.axes and self.get_layout_engine() is not None:
+                try:
+                    self.get_layout_engine().execute(self)
+                except ValueError:
+                    pass
+                    # ValueError can occur when resizing a window.
+
+            self.patch.draw(renderer)
+            mimage._draw_list_compositing_images(
+                renderer, self, artists, self.suppressComposite)
+
+            for sfig in self.subfigs:
+                sfig.draw(renderer)
+
+            renderer.close_group('figure')
+        finally:
+            self.stale = False
+
+        DrawEvent("draw_event", self.canvas, renderer)._process()
+
+
+【源码片段 5】
+文件路径：lib/matplotlib/axes/_axes.py
+对象名称：annotate
+节点类型：class_function
+父节点：Axes
+行号范围：684-695
+代码：
+    def annotate(self, text, xy, xytext=None, xycoords='data', textcoords=None,
+                 arrowprops=None, annotation_clip=None, **kwargs):
+        # Signature must match Annotation. This is verified in
+        # test_annotate_signature().
+        a = mtext.Annotation(text, xy, xytext=xytext, xycoords=xycoords,
+                             textcoords=textcoords, arrowprops=arrowprops,
+                             annotation_clip=annotation_clip, **kwargs)
+        a.set_transform(mtransforms.IdentityTransform())
+        if 'clip_on' in kwargs:
+            a.set_clip_path(self.patch)
+        self._add_text(a)
+        return a
+
+
+【源码片段 6】
+文件路径：lib/matplotlib/backends/backend_ps.py
+对象名称：_print_ps
+节点类型：class_function
+父节点：FigureCanvasPS
+行号范围：832-870
+代码：
+    def _print_ps(
+            self, fmt, outfile, *args,
+            metadata=None, papertype=None, orientation='portrait',
+            **kwargs):
+
+        dpi = self.figure.dpi
+        self.figure.dpi = 72  # Override the dpi kwarg
+
+        dsc_comments = {}
+        if isinstance(outfile, (str, os.PathLike)):
+            filename = pathlib.Path(outfile).name
+            dsc_comments["Title"] = \
+                filename.encode("ascii", "replace").decode("ascii")
+        dsc_comments["Creator"] = (metadata or {}).get(
+            "Creator",
+            f"Matplotlib v{mpl.__version__}, https://matplotlib.org/")
+        # See https://reproducible-builds.org/specs/source-date-epoch/
+        source_date_epoch = os.getenv("SOURCE_DATE_EPOCH")
+        dsc_comments["CreationDate"] = (
+            datetime.datetime.utcfromtimestamp(
+                int(source_date_epoch)).strftime("%a %b %d %H:%M:%S %Y")
+            if source_date_epoch
+            else time.ctime())
+        dsc_comments = "\n".join(
+            f"%%{k}: {v}" for k, v in dsc_comments.items())
+
+        if papertype is None:
+            papertype = mpl.rcParams['ps.papersize']
+        papertype = papertype.lower()
+        _api.check_in_list(['auto', *papersize], papertype=papertype)
+
+        orientation = _api.check_getitem(
+            _Orientation, orientation=orientation.lower())
+
+        printer = (self._print_figure_tex
+                   if mpl.rcParams['text.usetex'] else
+                   self._print_figure)
+        printer(fmt, outfile, dpi=dpi, dsc_comments=dsc_comments,
+                orientation=orientation, papertype=papertype, **kwargs)
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：lib/matplotlib/tests/test_backend_ps.py
+测试名称：test_text_clip
+测试代码：
+@check_figures_equal(extensions=["eps"])
+def test_text_clip(fig_test, fig_ref):
+    ax = fig_test.add_subplot()
+    # Fully clipped-out text should not appear.
+    ax.text(0, 0, "hello", transform=fig_test.transFigure, clip_on=True)
+    fig_ref.add_subplot()
+
+【相关测试 2】
+测试文件：lib/matplotlib/tests/test_text.py
+测试名称：test_multiline
+测试代码：
+@image_comparison(['multiline'])
+def test_multiline():
+    plt.figure()
+    ax = plt.subplot(1, 1, 1)
+    ax.set_title("multiline\ntext alignment")
+
+    plt.text(
+        0.2, 0.5, "TpTpTp\n$M$\nTpTpTp", size=20, ha="center", va="top")
+
+    plt.text(
+        0.5, 0.5, "TpTpTp\n$M^{M^{M^{M}}}$\nTpTpTp", size=20,
+        ha="center", va="top")
+
+    plt.text(
+        0.8, 0.5, "TpTpTp\n$M_{q_{q_{q}}}$\nTpTpTp", size=20,
+        ha="center", va="top")
+
+    plt.xlim(0, 1)
+    plt.ylim(0, 0.8)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+【相关测试 3】
+测试文件：lib/matplotlib/tests/test_backend_ps.py
+测试名称：test_savefig_to_stringio
+测试代码：
+@pytest.mark.flaky(reruns=3)
+@pytest.mark.parametrize('orientation', ['portrait', 'landscape'])
+@pytest.mark.parametrize('format, use_log, rcParams', [
+    ('ps', False, {}),
+    ('ps', False, {'ps.usedistiller': 'ghostscript'}),
+    ('ps', False, {'ps.usedistiller': 'xpdf'}),
+    ('ps', False, {'text.usetex': True}),
+    ('eps', False, {}),
+    ('eps', True, {'ps.useafm': True}),
+    ('eps', False, {'text.usetex': True}),
+], ids=[
+    'ps',
+    'ps with distiller=ghostscript',
+    'ps with distiller=xpdf',
+    'ps with usetex',
+    'eps',
+    'eps afm',
+    'eps with usetex'
+])
+def test_savefig_to_stringio(format, use_log, rcParams, orientation):
+    mpl.rcParams.update(rcParams)
+
+    fig, ax = plt.subplots()
+
+    with io.StringIO() as s_buf, io.BytesIO() as b_buf:
+
+        if use_log:
+            ax.set_yscale('log')
+
+        ax.plot([1, 2], [1, 2])
+        title = "Déjà vu"
+        if not mpl.rcParams["text.usetex"]:
+            title += " \N{MINUS SIGN}\N{EURO SIGN}"
+        ax.set_title(title)
+        allowable_exceptions = []
+        if rcParams.get("ps.usedistiller"):
+            allowable_exceptions.append(mpl.ExecutableNotFoundError)
+        if rcParams.get("text.usetex"):
+            allowable_exceptions.append(RuntimeError)
+        if rcParams.get("ps.useafm"):
+            allowable_exceptions.append(MatplotlibDeprecationWarning)
+        try:
+            fig.savefig(s_buf, format=format, orientation=orientation)
+            fig.savefig(b_buf, format=format, orientation=orientation)
+        except tuple(allowable_exceptions) as exc:
+            pytest.skip(str(exc))
+
+        assert not s_buf.closed
+        assert not b_buf.closed
+        s_val = s_buf.getvalue().encode('ascii')
+        b_val = b_buf.getvalue()
+
+        # Strip out CreationDate: ghostscript and cairo don't obey
+        # SOURCE_DATE_EPOCH, and that environment variable is already tested in
+        # test_determinism.
+        s_val = re.sub(b"(?<=\n%%CreationDate: ).*", b"", s_val)
+        b_val = re.sub(b"(?<=\n%%CreationDate: ).*", b"", b_val)
+
+        assert s_val == b_val.replace(b'\r\n', b'\n')
+
+【相关测试 4】
+测试文件：lib/matplotlib/tests/test_backend_ps.py
+测试名称：test_fonttype
+测试代码：
+@pytest.mark.parametrize('fonttype', ["3", "42"])
+def test_fonttype(fonttype):
+    mpl.rcParams["ps.fonttype"] = fonttype
+    fig, ax = plt.subplots()
+
+    ax.text(0.25, 0.5, "Forty-two is the answer to everything!")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="ps")
+
+    test = b'/FontType ' + bytes(f"{fonttype}", encoding='utf-8') + b' def'
+
+    assert re.search(test, buf.getvalue(), re.MULTILINE)
+
+【相关测试 5】
+测试文件：lib/matplotlib/tests/test_backend_ps.py
+测试名称：test_failing_latex
+测试代码：
+@needs_usetex
+def test_failing_latex():
+    """Test failing latex subprocess call"""
+    mpl.rcParams['text.usetex'] = True
+    # This fails with "Double subscript"
+    plt.xlabel("$22_2_2$")
+    with pytest.raises(RuntimeError):
+        plt.savefig(io.BytesIO(), format="ps")
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

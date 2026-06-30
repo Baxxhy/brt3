@@ -1,0 +1,159 @@
+```json
+{
+    "original_issue": {
+        "text": "Prevent developers from defining a related_name on symmetrical ManyToManyFields\nDescription\n\nIn ManyToManyField, if the symmetrical argument is passed, or if it's a self-referential ManyToMany relationship, the related field on the target model is not created. However, if a developer passes in the related_name not understanding this fact, they may be confused until they find the information about symmetrical relationship. Thus, it is proposed to raise an error when the user defines a ManyToManyField in this condition.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当开发者为一个对称的（symmetrical）或自引用的（self-referential）ManyToManyField 定义 related_name 参数时，Django 当前不会创建反向关联字段，但也不会给出错误或警告，这可能导致开发者困惑。期望的行为是：在这种情况下，Django 应该抛出一个错误（例如在模型检查或字段初始化时），以明确告知开发者 related_name 在此场景下无效或不被允许。相关代码可能位于 django/db/models/fields/related.py 的 ManyToManyField 类中，特别是其 __init__ 或 check 方法。",
+        "facts_from_issue": [
+            "ManyToManyField 在 symmetrical 参数被传递时，或者它是一个自引用关系时，目标模型上的反向关联字段不会被创建。",
+            "如果开发者在上述情况下传递了 related_name 参数，他们可能会感到困惑。",
+            "提议是：当用户在上述条件下定义 ManyToManyField 时，应该引发一个错误。"
+        ],
+        "facts_from_retrieved_context": [
+            "ManyToManyField 类位于 django/db/models/fields/related.py。",
+            "ManyToManyField 的 __init__ 方法接受 symmetrical 和 related_name 参数。",
+            "存在测试检查自引用 ManyToManyField 与显式 related_name 的冲突（SelfReferentialM2MClashTests）。",
+            "存在测试检查 ManyToManyField 的 deconstruct 方法对 related_name 的处理（FieldDeconstructionTests）。"
+        ],
+        "inferences": [
+            "Issue 描述的问题可能发生在模型定义阶段，而不是运行时。",
+            "期望的错误可能是一个 ValidationError 或类似的模型检查错误，类似于测试中展示的 Error 对象。",
+            "错误检查的逻辑可能应该放在 ManyToManyField 的 check 方法或 __init__ 方法中。"
+        ],
+        "do_not_assume": [
+            "错误的具体类型（如 ValueError, TypeError, django.core.exceptions.ValidationError）。",
+            "错误信息的确切措辞。",
+            "错误是在模型保存时、模型检查时，还是在字段初始化时抛出。",
+            "是否只针对 symmetrical=True 的情况，还是也包括自引用且 symmetrical 为默认值（None）的情况。"
+        ]
+    },
+    "issue_summary": "当为对称的或自引用的 ManyToManyField 指定 related_name 时，Django 应抛出错误而非静默忽略。",
+    "trigger_condition": {
+        "text": "定义一个 Django 模型，其中包含一个 ManyToManyField，该字段指向 'self'（自引用）或显式设置 symmetrical=True（或为真值），并且同时为该字段指定了 related_name 参数。",
+        "evidence": [
+            "Issue: 'if the symmetrical argument is passed, or if it's a self-referential ManyToMany relationship' 且 'passes in the related_name'。",
+            "源码: ManyToManyField.__init__ 签名包含 symmetrical 和 related_name 参数。",
+            "测试: SelfReferentialM2MClashTests 测试了自引用、非对称（symmetrical=False）的 ManyToManyField 与 related_name 的冲突，但未测试对称情况。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "当前，在上述触发条件下定义模型时，不会引发错误或警告。反向关联字段不会被创建，但开发者可能直到尝试使用该 related_name 时才会发现，导致困惑。",
+        "symptom_type": "unknown",
+        "evidence": [
+            "Issue: 'the related field on the target model is not created. However, if a developer passes in the related_name not understanding this fact, they may be confused'。",
+            "测试: 检索到的测试中没有展示在对称+related_name 条件下会抛出错误。"
+        ],
+        "confidence": "medium"
+    },
+    "expected_behavior": {
+        "text": "在上述触发条件下定义模型时，Django 应抛出一个明确的错误（例如在运行模型检查 manage.py check 或加载应用时），阻止模型定义成功，并告知开发者 related_name 在对称或自引用的 ManyToManyField 中无效。",
+        "evidence": [
+            "Issue: 'it is proposed to raise an error when the user defines a ManyToManyField in this condition.'"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "ManyToManyField",
+            "kind": "class",
+            "source_path": "django/db/models/fields/related.py",
+            "reason": "Issue 的核心是关于 ManyToManyField 字段类的行为，特别是其 symmetrical 和 related_name 参数的交互。"
+        },
+        {
+            "name": "Model.check",
+            "kind": "method",
+            "source_path": "",
+            "reason": "模型检查是 Django 验证模型定义有效性的标准机制，错误可能通过此方法报告。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/db/models/fields/related.py",
+            "object": "ManyToManyField.__init__ 或 ManyToManyField.check",
+            "lines": "",
+            "reason": "这是处理 symmetrical 和 related_name 参数的入口点，逻辑上应该在这里添加对无效组合的验证。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "SelfReferentialM2MClashTests.test_clash_under_explicit_related_name",
+            "test_file": "tests/invalid_models_tests/test_relative_fields.py",
+            "why_relevant": "它测试了自引用 ManyToManyField 与 related_name 的冲突，但针对的是 symmetrical=False 的情况。它使用了 isolate_apps 装饰器和 Model.check() 来验证错误，这与期望的错误检查协议高度相似。",
+            "reusable_parts": [
+                "isolate_apps 装饰器",
+                "在测试类内动态定义模型",
+                "调用 Model.check() 并检查返回的 Error 列表",
+                "Error 对象的断言风格"
+            ],
+            "possible_gap": "该测试设置 symmetrical=False，而 Issue 关注的是 symmetrical=True 或自引用默认对称的情况。需要将 symmetrical 参数改为 True 或移除（对于自引用默认对称）。同时，冲突检查的是字段名冲突，而 Issue 要求的是对 related_name 参数存在本身进行错误检查。"
+        },
+        {
+            "test_name": "FieldDeconstructionTests.test_many_to_many_field_related_name",
+            "test_file": "tests/field_deconstruction/tests.py",
+            "why_relevant": "它展示了如何定义包含 related_name 的自引用 ManyToManyField，并测试了 deconstruct 方法。可以作为定义触发条件模型的参考。",
+            "reusable_parts": [
+                "在测试类内定义包含 ManyToManyField 的模型",
+                "设置 related_name 和 symmetrical 参数的模式"
+            ],
+            "possible_gap": "该测试没有触发任何错误检查，它测试的是字段反序列化。需要将其模型定义放入一个检查上下文中（如 isolate_apps 并调用 check），并修改 symmetrical 条件。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "argument",
+            "current_pattern": "在 SelfReferentialM2MClashTests 中：models.ManyToManyField(\"self\", symmetrical=False, related_name='clash')",
+            "target_pattern": "models.ManyToManyField(\"self\", symmetrical=True, related_name='friends') 或 models.ManyToManyField(\"self\", related_name='friends')（依赖默认对称行为）",
+            "reason": "将 symmetrical 从 False 改为 True（或依赖默认值），这是 Issue 描述的触发条件。同时，related_name 的值需要存在但不与任何字段冲突，以专注于测试“存在 related_name”本身是否错误。",
+            "confidence": "high"
+        },
+        {
+            "slot": "config",
+            "current_pattern": "在 SelfReferentialM2MClashTests 中，测试检查字段名冲突导致的特定错误（E302, E303）。",
+            "target_pattern": "测试应检查因在对称/自引用 M2M 上设置 related_name 而导致的新的或不同的错误。",
+            "reason": "错误症状从“字段名冲突”变为“无效参数组合”。断言目标需要从检查 E302/E303 错误变为检查一个表明 related_name 在对称关系中无效的错误。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "Model.check() 的返回值，特别是返回的 Error 或 Warning 列表的内容、id 和提示信息。",
+            "reason": "Issue 期望抛出错误，而 Django 模型检查通过返回 Error 对象列表来报告定义错误。这是最直接的公开观测点。"
+        },
+        {
+            "kind": "warning",
+            "expression_hint": "在定义模型或加载应用时，通过 warnings 模块捕获的警告信息。",
+            "reason": "虽然 Issue 提议 raise an error，但实现上也可能先以警告形式出现。观测警告可以覆盖更多可能性。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "Model.check() 应返回一个非空的错误列表，其中至少包含一个与在对称/自引用 ManyToManyField 上使用 related_name 相关的错误。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的错误信息字符串。避免断言具体的、可能变化的行号或内部对象标识。",
+            "reason": "错误信息的具体措辞可能在实现中调整，但错误应该被报告这一事实是稳定的。可以断言错误 id（如 'fields.EXXX'）或错误提示中包含 'symmetrical'、'related_name'、'self' 等关键词片段。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "使用 django.test.isolate_apps 装饰器或 TransactionTestCase/TestCase 来隔离测试模型，避免污染其他测试。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试可能不需要数据库，因为检查发生在模型定义阶段。可以使用 SimpleTestCase。",
+            "source": "retrieved_test",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "对于自引用 ManyToManyField，默认的 symmetrical 值是什么？是 True 还是 False？这会影响触发条件的确切表述。",
+        "错误是在 ManyToManyField.__init__ 时立即抛出，还是在模型类准备完毕后的 check() 阶段抛出？",
+        "错误的具体类型和错误 id 是什么？",
+        "是否只针对显式设置 symmetrical=True 的情况，还是也包括 symmetrical=None（默认）但因为是自引用而隐含对称的情况？"
+    ]
+}
+```

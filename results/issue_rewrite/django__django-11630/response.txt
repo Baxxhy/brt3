@@ -1,0 +1,177 @@
+```json
+{
+    "original_issue": {
+        "text": "Django throws error when different apps with different models have the same name table name.\nDescription\n\nError message:\ntable_name: (models.E028) db_table 'table_name' is used by multiple models: base.ModelName, app2.ModelName.\nWe have a Base app that points to a central database and that has its own tables. We then have multiple Apps that talk to their own databases. Some share the same table names.\nWe have used this setup for a while, but after upgrading to Django 2.2 we're getting an error saying we're not allowed 2 apps, with 2 different models to have the same table names. \nIs this correct behavior? We've had to roll back to Django 2.0 for now.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "在 Django 2.2 中，当不同应用（apps）中的不同模型（models）定义了相同的数据库表名（db_table）时，系统检查（system checks）会抛出错误 E028，提示表名被多个模型使用。用户有一个基础应用（Base app）指向中央数据库，多个其他应用指向各自的数据库，其中一些应用共享相同的表名。这种设置在 Django 2.0 中正常工作，但在升级到 Django 2.2 后触发了此错误。用户质疑这是否是正确的行为。",
+        "facts_from_issue": [
+            "错误发生在 Django 2.2 版本，在 Django 2.0 中未发生。",
+            "错误信息是 models.E028: \"db_table 'table_name' is used by multiple models: base.ModelName, app2.ModelName.\"",
+            "涉及多个应用（apps），每个应用有自己的数据库。",
+            "不同应用中的不同模型（models）定义了相同的数据库表名（db_table）。"
+        ],
+        "facts_from_retrieved_context": [
+            "相关测试表明 Django 的系统检查（checks）包含一个名为 `DuplicateDBTableTests` 的测试类，用于检测重复的 db_table。",
+            "测试 `test_collision_across_apps` 和 `test_collision_in_same_app` 验证了当多个模型使用相同 `db_table` 时会触发错误 E028。",
+            "测试 `test_no_collision_for_unmanaged_models` 表明，如果模型设置了 `managed = False`，则不会触发 E028 错误。",
+            "测试 `test_no_collision_for_proxy_models` 表明，代理模型（proxy models）共享表名不会触发 E028 错误。",
+            "测试中使用了 `checks.run_checks` 和 `checks.model_checks.check_all_models` 来运行模型检查。"
+        ],
+        "inferences": [
+            "Django 2.2 引入或修改了模型检查逻辑，使其对跨应用的重复表名更加严格。",
+            "错误 E028 是 Django 模型检查（model checks）的一部分。",
+            "用户期望的行为是：当不同应用使用不同数据库时，允许它们定义相同的表名。",
+            "可能涉及 `django.core.checks` 模块和模型元数据（`_meta.db_table`）的检查逻辑。"
+        ],
+        "do_not_assume": [
+            "用户具体使用的是哪个版本的 Django 2.2（如 2.2.0, 2.2.1）。",
+            "用户应用的具体名称和模型名称。",
+            "用户数据库配置的具体细节（如 DATABASES 设置）。",
+            "错误检查是在 `runserver`、`migrate` 还是其他命令中触发的。",
+            "Django 2.0 到 2.2 之间确切的代码变更点。"
+        ]
+    },
+    "issue_summary": "Django 2.2 的系统检查错误地禁止了不同应用（指向不同数据库）中的模型使用相同的数据库表名。",
+    "trigger_condition": {
+        "text": "配置多个 Django 应用（INSTALLED_APPS），其中至少两个应用包含模型，这些模型定义了相同的 `Meta.db_table` 值，但可能指向不同的数据库。然后运行 Django 的系统检查（例如通过 `manage.py check` 或启动服务器）。",
+        "evidence": [
+            "Issue 描述：\"different apps with different models have the same name table name.\"",
+            "Issue 描述：\"We have a Base app that points to a central database... multiple Apps that talk to their own databases.\"",
+            "相关测试 1 (`test_collision_across_apps`) 构造了跨应用且 `db_table` 相同的两个模型。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "运行系统检查时，抛出 `Error`，其 `id` 为 `'models.E028'`，消息指出特定的 `db_table` 值被多个模型使用。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中的错误消息：\"(models.E028) db_table 'table_name' is used by multiple models: base.ModelName, app2.ModelName.\"",
+            "相关测试 1 和 2 的断言中明确检查了返回的 `Error` 列表包含 `id='models.E028'`。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当不同应用中的模型指向不同的物理数据库时，即使它们定义了相同的 `db_table` 名称，系统检查也不应抛出 E028 错误。或者，系统检查应能区分表名冲突是否发生在同一数据库内。",
+        "evidence": [
+            "Issue 中用户质疑该行为是否正确，并回滚到 Django 2.0，暗示在 2.0 中此配置是允许的。",
+            "Issue 描述：\"We have used this setup for a while...\" 表明之前版本（如 2.0）支持此行为。"
+        ],
+        "confidence": "medium"
+    },
+    "target_apis": [
+        {
+            "name": "checks.run_checks",
+            "kind": "function",
+            "source_path": "",
+            "reason": "相关测试中用于触发模型检查的 API，是观察 E028 错误的主要入口。"
+        },
+        {
+            "name": "checks.model_checks.check_all_models",
+            "kind": "function",
+            "source_path": "",
+            "reason": "测试中通过 `override_system_checks` 装饰器指定的检查函数，是执行模型检查（包括重复表名检查）的核心。"
+        },
+        {
+            "name": "models.Model",
+            "kind": "class",
+            "source_path": "",
+            "reason": "定义模型的基础类，其 `Meta` 类中的 `db_table` 属性是冲突的源头。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "django/core/checks/model_checks.py",
+            "object": "检查重复数据库表名的函数或逻辑",
+            "lines": "",
+            "reason": "错误 E028 属于模型检查（model_checks），且相关测试导入了 `checks.model_checks`。重复表名检查的逻辑很可能在此文件中。"
+        },
+        {
+            "path": "django/db/models/options.py",
+            "object": "与 `db_table` 和模型元数据（`_meta`）相关的逻辑",
+            "lines": "",
+            "reason": "模型 `Meta` 选项（包括 `db_table`）的处理和存储在此模块中，可能是检查逻辑读取信息的地方。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "DuplicateDBTableTests.test_collision_across_apps",
+            "test_file": "tests/check_framework/test_model_checks.py",
+            "why_relevant": "该测试直接验证了跨应用模型使用相同 `db_table` 时会触发 E028 错误，与 Issue 描述的场景高度相似。它使用了 `isolate_apps` 装饰器来管理应用注册，并调用了 `checks.run_checks`。",
+            "reusable_parts": [
+                "测试类装饰器：`@isolate_apps`, `@override_system_checks`",
+                "动态定义模型类的方式（在测试方法内使用 `class`）",
+                "调用 `checks.run_checks` 并检查返回的 `Error` 列表",
+                "对错误 `id='models.E028'` 和错误消息片段的断言模式"
+            ],
+            "possible_gap": "该测试假设冲突总是不允许的，并断言错误一定会出现。而 Issue 期望在某些配置（如不同数据库）下，冲突应被允许。测试需要变异以模拟不同数据库配置，或验证在特定条件下错误是否不出现。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "config",
+            "current_pattern": "测试中使用 `isolate_apps` 创建隔离的应用环境，但未显式配置多个数据库。模型默认使用 `'default'` 数据库。",
+            "target_pattern": "修改测试配置，使用 `override_settings` 配置 `DATABASES`，让不同应用（或不同模型）的 `using` 属性指向不同的数据库别名。或者，在模型 `Meta` 中设置 `using` 或通过数据库路由（DATABASE_ROUTERS）来区分数据库。",
+            "reason": "Issue 的关键在于模型属于不同应用且指向不同数据库。当前测试未区分数据库，因此总是触发错误。变异后，测试可以验证在数据库不同的情况下错误是否仍被触发。",
+            "confidence": "medium"
+        },
+        {
+            "slot": "object_state",
+            "current_pattern": "测试中定义的模型都是 `managed = True`（默认）。",
+            "target_pattern": "将一个或多个冲突模型的 `Meta` 设置为 `managed = False`。",
+            "reason": "相关测试 `test_no_collision_for_unmanaged_models` 表明，非托管模型不会触发冲突错误。这可能是一个相关的工作区或线索，可以测试在混合托管状态下错误的行为。",
+            "confidence": "low"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "return_value",
+            "expression_hint": "`checks.run_checks(app_configs=...)` 的返回值，特别是其中 `Error` 或 `Warning` 对象的列表。",
+            "reason": "错误 E028 直接体现在 `run_checks` 的返回结果中。观察返回列表的长度和内容可以判断是否触发了该错误。"
+        },
+        {
+            "kind": "warning",
+            "expression_hint": "运行检查时产生的警告（`Warning` 对象），其 `id` 属性。",
+            "reason": "如果行为改变，错误可能降级为警告，或者出现新的警告。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "当冲突模型配置为使用不同数据库时，系统检查不应包含 `id='models.E028'` 的错误。",
+            "preferred_assertion_style": "not_contains_fragment",
+            "avoid": "断言完整的错误消息字符串相等，因为消息中的模型名称可能因动态定义而变化。",
+            "reason": "更稳定地检查错误 ID 而非具体消息。极性符合 `expected_behavior`（不应有错误）。"
+        },
+        {
+            "assertion_goal": "系统检查返回的错误/警告列表为空，或其中没有 `id` 为 `'models.E028'` 的项。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言返回列表的长度为特定值，除非能确定没有其他检查错误。",
+            "reason": "直接验证期望行为（无 E028 错误）是否成立。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "使用 `TestCase`（如 `SimpleTestCase`）和 `isolate_apps` 装饰器来隔离测试应用，防止模型注册污染。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "使用 `override_settings` 来临时修改 `DATABASES` 设置，定义多个数据库连接。",
+            "source": "inference",
+            "confidence": "medium"
+        },
+        {
+            "hint": "可能需要使用 `modify_settings` 或手动将应用添加到 `INSTALLED_APPS` 中。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "Django 2.2 中重复表名检查的确切逻辑：它是仅检查表名字符串，还是会考虑数据库路由（`db_router`）或模型的 `using` 属性？",
+        "用户配置中不同应用指向不同数据库的具体机制（是通过 `DATABASE_ROUTERS` 还是每个应用有独立的设置文件？）。",
+        "修复后的预期行为是彻底允许跨数据库同名，还是需要某种特定配置（如设置 `managed=False` 或使用特定数据库路由）才允许？",
+        "除了 `run_checks`，错误是否也会在 `migrate`、`runserver` 或其他管理命令中触发？"
+    ]
+}
+```

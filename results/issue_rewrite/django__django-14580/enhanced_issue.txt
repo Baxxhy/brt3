@@ -1,0 +1,137 @@
+instance_id: django__django-14580
+
+issue_summary: 当模型继承链中包含自定义基类/混入类时，`makemigrations` 生成的迁移文件缺少对 `django.db.models` 的导入，导致执行时出现 `NameError`。
+
+trigger_condition:
+{
+  "text": "定义一个模型，该模型继承自一个自定义的混入类（非 `models.Model` 子类）和一个自定义的抽象基类（`models.Model` 子类），并且使用一个自定义模型字段。然后对该模型运行 `makemigrations` 命令。",
+  "evidence": [
+    "Issue 中提供了完整的 `models.py` 示例。",
+    "Issue 中描述了运行 `makemigrations` 命令。",
+    "检索到的测试 `test_simple_migration` 展示了如何构造包含 `CreateModel` 操作的迁移对象。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的迁移文件缺少 `from django.db import models` 或等效的导入语句。当尝试导入或执行该迁移文件时，在引用 `models.Model` 的位置抛出 `NameError: name 'models' is not defined`。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中提供了完整的错误堆栈和错误信息。",
+    "Issue 中明确指出“missing an import statement”。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`makemigrations` 命令生成的迁移文件应包含所有必要的导入语句，使得生成的 Python 文件可以被成功导入和执行，而不会引发 `NameError`。具体来说，当迁移操作（如 `CreateModel`）的 `bases` 参数引用了 `models.Model` 时，文件顶部应包含相应的导入（例如 `from django.db import models`）。",
+  "evidence": [
+    "Issue 中明确说明“Expected behavior: Django generates a migration file that is valid Python.”",
+    "检索到的测试 `test_sorted_imports` 展示了当迁移使用 `models.DateTimeField` 时，输出中包含 `from django.db import migrations, models`。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "makemigrations",
+    "kind": "function",
+    "source_path": "",
+    "reason": "Issue 中触发 bug 的命令。"
+  },
+  {
+    "name": "MigrationWriter",
+    "kind": "class",
+    "source_path": "django/db/migrations/writer.py",
+    "reason": "检索到的测试中用于生成迁移文件字符串的类，负责导入语句的生成。"
+  },
+  {
+    "name": "CreateModel",
+    "kind": "class",
+    "source_path": "django/db/migrations/operations/models.py",
+    "reason": "Issue 中生成的迁移操作，其 `bases` 参数导致了导入缺失。检索到的源码片段也包含此类。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "相似测试 `test_simple_migration` 中，`CreateModel` 的 `bases` 参数为 `(models.Model,)`。",
+    "target_pattern": "将 `bases` 参数改为一个元组，其中包含一个从应用模型模块导入的自定义类（如 `app.models.MyMixin`）和 `models.Model`，即 `bases=(app.models.MyMixin, models.Model)`。",
+    "reason": "Issue 表明，当 `bases` 同时包含自定义类和 `models.Model` 时，导入收集逻辑可能只收集了自定义类所在的模块 (`app.models`)，而遗漏了对 `django.db.models` 的导入。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试在全局测试上下文中已经导入了 `models` 模块（`from django.db import models`）。",
+    "target_pattern": "在构造迁移对象时，确保对 `models.Model` 的引用是作为字符串或通过一个未在文件顶部导入 `models` 的上下文传递的，以模拟 `makemigrations` 命令运行时真实的序列化环境。",
+    "reason": "测试中直接使用已导入的 `models.Model` 可能绕过了序列化逻辑中需要生成导入语句的步骤。需要模拟 `makemigrations` 序列化时遇到的原始对象引用。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "file_output",
+    "expression_hint": "`MigrationWriter(migration).as_string()` 返回的完整字符串。特别是文件顶部的导入语句部分。",
+    "reason": "错误直接表现为生成的迁移文件内容缺失导入语句。观察原始输出字符串是判断问题是否存在的直接方式。"
+  },
+  {
+    "kind": "exception",
+    "expression_hint": "尝试执行生成的迁移代码（例如通过 `exec` 或 `self.safe_exec`）时是否抛出 `NameError`，以及错误信息。",
+    "reason": "Issue 中观察到的最终症状是 `NameError`。观测执行结果可以验证生成的代码是否有效。"
+  },
+  {
+    "kind": "serialization",
+    "expression_hint": "`CreateModel` 操作实例的 `deconstruct()` 方法返回的元组，特别是 `bases` 参数的值。",
+    "reason": "序列化过程可能始于 `deconstruct`。观察其输出有助于理解 `models.Model` 是如何被表示的。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的迁移文件字符串应包含对 `django.db.models` 的必要导入（例如子串 `'models'` 出现在 `from django.db import` 之后）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、格式固定的导入语句字符串（如 `'from django.db import models'`），因为具体格式（如是否与 `migrations` 在同一行）可能变化。避免断言私有属性或内部数据结构。",
+    "reason": "导入语句的具体格式可能因 Django 版本或代码风格调整而微调，但核心语义是必须导入 `models` 模块。检查片段更稳定。"
+  },
+  {
+    "assertion_goal": "生成的迁移代码应能成功导入和执行，而不引发 `NameError`。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言执行后返回的字典中包含特定键值等与导入错误无关的细节。",
+    "reason": "这是 Issue 中描述的最终验证目标。使用 `assertNotRaises` 或捕获执行异常是直接的对齐方式。注意：修复后应正常执行，所以此提示用于验证当前缺陷状态，后续生成正向断言时需调整极性。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要一个 Django 项目和应用，其中包含符合 Issue 描述的 `models.py` 文件。可以使用临时目录和 `django.setup()` 进行测试。",
+    "source": "issue",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 `SimpleTestCase` 或类似的 Django 测试基类。复用 `WriterTests` 中的 `safe_exec` 方法来安全地执行生成的迁移代码。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要模拟 `makemigrations` 命令的部分环境，或者直接使用 `MigrationWriter` 来生成迁移内容，而不需要实际运行管理命令。",
+    "source": "inference",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "是否只有在 `bases` 参数同时包含自定义类和 `models.Model` 时才会触发此 bug？仅继承 `models.Model` 或仅使用自定义基类是否正常？",
+  "自定义模型字段 `MyField` 的存在是否是触发 bug 的必要条件，还是只与模型继承结构有关？",
+  "`django.db.migrations.writer` 模块中具体是哪个函数或方法负责收集 `bases` 参数中的导入依赖。",
+  "修复后，导入语句是添加为 `from django.db import models` 还是 `import django.db.models`，或是其他形式？"
+]

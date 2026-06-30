@@ -1,0 +1,125 @@
+instance_id: astropy__astropy-14182
+
+issue_summary: `astropy` 的 `ascii.rst` 格式写入器不支持 `header_rows` 参数，导致调用时抛出 `TypeError`，而 `ascii.fixed_width` 格式支持该参数。
+
+trigger_condition:
+{
+  "text": "调用 `QTable.write()` 或 `ascii.write()` 方法，指定 `format=\"ascii.rst\"` 或 `Writer=ascii.RST`，并传递 `header_rows` 参数（例如 `header_rows=[\"name\", \"unit\"]`）。",
+  "evidence": [
+    "Issue 中代码：`tbl.write(sys.stdout, format=\"ascii.rst\", header_rows=[\"name\", \"unit\"])` 触发错误。",
+    "相关测试 `test_fixed_width_header_rows` 展示了 `ascii.write` 使用 `header_rows` 参数。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "抛出 `TypeError: RST.__init__() got an unexpected keyword argument 'header_rows'` 异常。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中完整的 Traceback 显示该异常。",
+    "相关测试 `test_fixed_width_no_header_header_rows` 展示了类似的 `TypeError` 模式。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "调用 `QTable.write(format=\"ascii.rst\", header_rows=[...])` 或 `ascii.write(..., Writer=ascii.RST, header_rows=[...])` 应成功执行，不抛出异常，并生成包含指定表头行（如列名和单位）的 RestructuredText 格式表格输出。",
+  "evidence": [
+    "Issue 描述期望 `ascii.rst` 格式支持 `header_rows` 参数，与 `ascii.fixed_width` 格式行为一致。",
+    "Issue 中展示了 `ascii.fixed_width` 格式使用 `header_rows` 成功输出包含列名和单位的表格。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "QTable.write",
+    "kind": "method",
+    "source_path": "astropy/table/table.py",
+    "reason": "Issue 中触发缺陷的入口 API。"
+  },
+  {
+    "name": "ascii.write",
+    "kind": "function",
+    "source_path": "astropy/io/ascii/ui.py",
+    "reason": "底层写入函数，相关测试中常用。"
+  },
+  {
+    "name": "ascii.RST",
+    "kind": "class",
+    "source_path": "astropy/io/ascii/rst.py",
+    "reason": "缺陷直接相关的写入器类，其 `__init__` 方法不支持 `header_rows` 参数。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_write_normal` 中，调用 `ascii.write(dat, out, Writer=ascii.RST)` 时不传递 `header_rows` 参数。",
+    "target_pattern": "在调用 `ascii.write` 或 `QTable.write` 时，添加 `header_rows=[\"name\", \"unit\"]` 参数。",
+    "reason": "添加 `header_rows` 参数是触发 `RST.__init__()` 收到意外关键字参数异常的直接原因。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_fixed_width_header_rows` 中，调用 `ascii.write` 时指定 `format=\"fixed_width\"`。",
+    "target_pattern": "将 `format` 参数改为 `\"ascii.rst\"` 或使用 `Writer=ascii.RST`。",
+    "reason": "将格式切换到 `ascii.rst` 会使用 `RST` 写入器，而该写入器当前不支持 `header_rows` 参数。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "调用 `tbl.write(...)` 或 `ascii.write(...)` 时是否抛出 `TypeError`，并检查异常信息是否包含 \"unexpected keyword argument 'header_rows'\"。",
+    "reason": "Issue 中观察到的直接错误现象是 `TypeError` 异常。"
+  },
+  {
+    "kind": "file_output",
+    "expression_hint": "写入操作成功执行后的输出内容（例如 `out.getvalue()`），观察是否包含预期的表头行（如列名 \"wave\"、\"response\" 和单位 \"nm\"、\"ct\"）以及正确的表格格式。",
+    "reason": "修复后应能正常输出包含指定表头行的 RST 格式表格，输出内容是验证功能是否正确的公开行为。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "调用 `write` 方法时不抛出 `TypeError` 异常。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言异常信息完全等于某个特定字符串，因为具体路径可能因环境而异。",
+    "reason": "修复后应能正常执行，不抛出与 `header_rows` 参数相关的 `TypeError`。"
+  },
+  {
+    "assertion_goal": "输出内容包含列名（如 \"wave\"、\"response\"）和单位（如 \"nm\"、\"ct\"）的指示行。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的输出字符串与某个固定模板完全相等，因为具体格式（如空格数量、对齐方式）可能未在 Issue 中精确指定。",
+    "reason": "`header_rows` 参数的主要目的是在输出中包含额外的表头信息，检查输出中是否出现这些关键片段是稳定且与需求对齐的验证方式。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 `astropy.table.QTable`、`astropy.units` 和 `astropy.io.ascii` 模块。使用 `StringIO` 捕获输出。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "构造一个简单的 `QTable` 对象，包含带有单位的列，例如 `{'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count}`。",
+    "source": "issue",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "修复后 `RST` 写入器使用 `header_rows` 参数时，表头行的具体输出格式和位置（例如，是在主标题行之上还是之下，分隔线如何绘制）未在 Issue 中明确说明。",
+  "`RST` 写入器是否还需要支持与 `header_rows` 相关的其他参数（如 `header_start`、`header_end`）来完全实现所需功能。",
+  "除了 `__init__` 方法外，`RST` 类的 `write` 方法或其他内部方法是否也需要修改以处理 `header_rows` 参数。"
+]

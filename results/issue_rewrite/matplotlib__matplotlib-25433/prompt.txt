@@ -1,0 +1,555 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+[Bug]: using clf and pyplot.draw in range slider on_changed callback blocks input to widgets
+### Bug summary
+
+When using clear figure, adding new widgets and then redrawing the current figure in the on_changed callback of a range slider the inputs to all the widgets in the figure are blocked. When doing the same in the button callback on_clicked, everything works fine.
+
+### Code for reproduction
+
+```python
+import matplotlib.pyplot as pyplot
+import matplotlib.widgets as widgets
+
+def onchanged(values):
+    print("on changed")
+    print(values)
+    pyplot.clf()
+    addElements()
+    pyplot.draw()
+
+def onclick(e):
+    print("on click")
+    pyplot.clf()
+    addElements()
+    pyplot.draw()
+
+def addElements():
+    ax = pyplot.axes([0.1, 0.45, 0.8, 0.1])
+    global slider
+    slider = widgets.RangeSlider(ax, "Test", valmin=1, valmax=10, valinit=(1, 10))
+    slider.on_changed(onchanged)
+    ax = pyplot.axes([0.1, 0.30, 0.8, 0.1])
+    global button
+    button = widgets.Button(ax, "Test")
+    button.on_clicked(onclick)
+
+addElements()
+
+pyplot.show()
+```
+
+
+### Actual outcome
+
+The widgets can't receive any input from a mouse click, when redrawing in the on_changed callback of a range Slider. 
+When using a button, there is no problem.
+
+### Expected outcome
+
+The range slider callback on_changed behaves the same as the button callback on_clicked.
+
+### Additional information
+
+The problem also occurred on Manjaro with:
+- Python version: 3.10.9
+- Matplotlib version: 3.6.2
+- Matplotlib backend: QtAgg
+- Installation of matplotlib via Linux package manager
+
+
+### Operating system
+
+Windows 10
+
+### Matplotlib Version
+
+3.6.2
+
+### Matplotlib Backend
+
+TkAgg
+
+### Python version
+
+3.11.0
+
+### Jupyter version
+
+_No response_
+
+### Installation
+
+pip
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：clf
+节点类型：top-level function
+父节点：pyplot
+行号范围：994-996
+代码：
+def clf():
+    """Clear the current figure."""
+    gcf().clear()
+
+
+【源码片段 2】
+文件路径：lib/matplotlib/pyplot.py
+对象名称：draw
+节点类型：top-level function
+父节点：pyplot
+行号范围：999-1016
+代码：
+def draw():
+    """
+    Redraw the current figure.
+
+    This is used to update a figure that has been altered, but not
+    automatically re-drawn.  If interactive mode is on (via `.ion()`), this
+    should be only rarely needed, but there may be ways to modify the state of
+    a figure without marking it as "stale".  Please report these cases as bugs.
+
+    This is equivalent to calling ``fig.canvas.draw_idle()``, where ``fig`` is
+    the current figure.
+
+    See Also
+    --------
+    .FigureCanvasBase.draw_idle
+    .FigureCanvasBase.draw
+    """
+    gcf().canvas.draw_idle()
+
+
+【源码片段 3】
+文件路径：lib/matplotlib/widgets.py
+对象名称：RangeSlider
+节点类型：class
+父节点：widgets
+行号范围：606-986
+代码：
+class RangeSlider(SliderBase):
+    """
+    A slider representing a range of floating point values. Defines the min and
+    max of the range via the *val* attribute as a tuple of (min, max).
+
+    Create a slider that defines a range contained within [*valmin*, *valmax*]
+    in Axes *ax*. For the slider to remain responsive you must maintain a
+    reference to it. Call :meth:`on_changed` to connect to the slider event.
+
+    Attributes
+    ----------
+    val : tuple of float
+        Slider value.
+    """
+    @_api.make_keyword_only("3.7", name="valinit")
+    def __init__(
+        self,
+        ax,
+        label,
+        valmin,
+        valmax,
+        valinit=None,
+        valfmt=None,
+        closedmin=True,
+        closedmax=True,
+        dragging=True,
+        valstep=None,
+        orientation="horizontal",
+        track_color='lightgrey',
+        handle_style=None,
+        **kwargs,
+    ):
+    def _update_selection_poly(self, vmin, vmax):
+    def _min_in_bounds(self, min):
+    def _max_in_bounds(self, max):
+    def _value_in_bounds(self, vals):
+    def _update_val_from_pos(self, pos):
+    def _update(self, event):
+    def _format(self, val):
+    def set_min(self, min):
+    def set_max(self, max):
+    def set_val(self, val):
+    def on_changed(self, func):
+
+
+【源码片段 4】
+文件路径：lib/matplotlib/widgets.py
+对象名称：Button
+节点类型：class
+父节点：widgets
+行号范围：153-253
+代码：
+class Button(AxesWidget):
+    """
+    A GUI neutral button.
+
+    For the button to remain responsive you must keep a reference to it.
+    Call `.on_clicked` to connect to the button.
+
+    Attributes
+    ----------
+    ax
+        The `matplotlib.axes.Axes` the button renders into.
+    label
+        A `matplotlib.text.Text` instance.
+    color
+        The color of the button when not hovering.
+    hovercolor
+        The color of the button when hovering.
+    """
+    def __init__(self, ax, label, image=None,
+                 color='0.85', hovercolor='0.95', *, useblit=True):
+    def _click(self, event):
+    def _release(self, event):
+    def _motion(self, event):
+    def on_clicked(self, func):
+    def disconnect(self, cid):
+
+
+【源码片段 5】
+文件路径：lib/matplotlib/widgets.py
+对象名称：on_changed
+节点类型：class_function
+父节点：RangeSlider
+行号范围：971-986
+代码：
+    def on_changed(self, func):
+        """
+        Connect *func* as callback function to changes of the slider value.
+
+        Parameters
+        ----------
+        func : callable
+            Function to call when slider is changed. The function
+            must accept a 2-tuple of floats as its argument.
+
+        Returns
+        -------
+        int
+            Connection id (which can be used to disconnect *func*).
+        """
+        return self._observers.connect('changed', lambda val: func(val))
+
+
+【源码片段 6】
+文件路径：lib/matplotlib/widgets.py
+对象名称：on_clicked
+节点类型：class_function
+父节点：Button
+行号范围：243-249
+代码：
+    def on_clicked(self, func):
+        """
+        Connect the callback function *func* to button click events.
+
+        Returns a connection id, which can be used to disconnect the callback.
+        """
+        return self._observers.connect('clicked', lambda event: func(event))
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：lib/matplotlib/tests/test_widgets.py
+测试名称：test_range_slider
+测试代码：
+@pytest.mark.parametrize("orientation", ["horizontal", "vertical"])
+def test_range_slider(orientation):
+    if orientation == "vertical":
+        idx = [1, 0, 3, 2]
+    else:
+        idx = [0, 1, 2, 3]
+
+    fig, ax = plt.subplots()
+
+    slider = widgets.RangeSlider(
+        ax=ax, label="", valmin=0.0, valmax=1.0, orientation=orientation,
+        valinit=[0.1, 0.34]
+    )
+    box = slider.poly.get_extents().transformed(ax.transAxes.inverted())
+    assert_allclose(box.get_points().flatten()[idx], [0.1, 0.25, 0.34, 0.75])
+
+    # Check initial value is set correctly
+    assert_allclose(slider.val, (0.1, 0.34))
+
+    def handle_positions(slider):
+        if orientation == "vertical":
+            return [h.get_ydata()[0] for h in slider._handles]
+        else:
+            return [h.get_xdata()[0] for h in slider._handles]
+
+    slider.set_val((0.4, 0.6))
+    assert_allclose(slider.val, (0.4, 0.6))
+    assert_allclose(handle_positions(slider), (0.4, 0.6))
+
+    box = slider.poly.get_extents().transformed(ax.transAxes.inverted())
+    assert_allclose(box.get_points().flatten()[idx], [0.4, .25, 0.6, .75])
+
+    slider.set_val((0.2, 0.1))
+    assert_allclose(slider.val, (0.1, 0.2))
+    assert_allclose(handle_positions(slider), (0.1, 0.2))
+
+    slider.set_val((-1, 10))
+    assert_allclose(slider.val, (0, 1))
+    assert_allclose(handle_positions(slider), (0, 1))
+
+    slider.reset()
+    assert_allclose(slider.val, (0.1, 0.34))
+    assert_allclose(handle_positions(slider), (0.1, 0.34))
+
+【相关测试 2】
+测试文件：lib/matplotlib/tests/test_widgets.py
+测试名称：test_range_slider_same_init_values
+测试代码：
+@pytest.mark.parametrize("orientation", ["horizontal", "vertical"])
+def test_range_slider_same_init_values(orientation):
+    if orientation == "vertical":
+        idx = [1, 0, 3, 2]
+    else:
+        idx = [0, 1, 2, 3]
+
+    fig, ax = plt.subplots()
+
+    slider = widgets.RangeSlider(
+         ax=ax, label="", valmin=0.0, valmax=1.0, orientation=orientation,
+         valinit=[0, 0]
+     )
+    box = slider.poly.get_extents().transformed(ax.transAxes.inverted())
+    assert_allclose(box.get_points().flatten()[idx], [0, 0.25, 0, 0.75])
+
+【相关测试 3】
+测试文件：lib/matplotlib/tests/test_widgets.py
+测试名称：test_slider_reset
+测试代码：
+def test_slider_reset():
+    fig, ax = plt.subplots()
+    slider = widgets.Slider(ax=ax, label='', valmin=0, valmax=1, valinit=.5)
+    slider.set_val(0.75)
+    slider.reset()
+    assert slider.val == 0.5
+
+【相关测试 4】
+测试文件：lib/matplotlib/tests/test_widgets.py
+测试名称：test_slider_horizontal_vertical
+测试代码：
+def test_slider_horizontal_vertical():
+    fig, ax = plt.subplots()
+    slider = widgets.Slider(ax=ax, label='', valmin=0, valmax=24,
+                            valinit=12, orientation='horizontal')
+    slider.set_val(10)
+    assert slider.val == 10
+    # check the dimension of the slider patch in axes units
+    box = slider.poly.get_extents().transformed(ax.transAxes.inverted())
+    assert_allclose(box.bounds, [0, .25, 10/24, .5])
+
+    fig, ax = plt.subplots()
+    slider = widgets.Slider(ax=ax, label='', valmin=0, valmax=24,
+                            valinit=12, orientation='vertical')
+    slider.set_val(10)
+    assert slider.val == 10
+    # check the dimension of the slider patch in axes units
+    box = slider.poly.get_extents().transformed(ax.transAxes.inverted())
+    assert_allclose(box.bounds, [.25, 0, .5, 10/24])
+
+【相关测试 5】
+测试文件：lib/matplotlib/tests/test_backend_tk.py
+测试名称：test_never_update
+测试代码：
+@pytest.mark.backend('TkAgg', skip_on_importerror=True)
+@pytest.mark.flaky(reruns=3)
+@_isolated_tk_test(success_count=0)
+def test_never_update():
+    import tkinter
+    del tkinter.Misc.update
+    del tkinter.Misc.update_idletasks
+
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    plt.show(block=False)
+
+    plt.draw()  # Test FigureCanvasTkAgg.
+    fig.canvas.toolbar.configure_subplots()  # Test NavigationToolbar2Tk.
+    # Test FigureCanvasTk filter_destroy callback
+    fig.canvas.get_tk_widget().after(100, plt.close, fig)
+
+    # Check for update() or update_idletasks() in the event queue, functionally
+    # equivalent to tkinter.Misc.update.
+    plt.show(block=True)
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

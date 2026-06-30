@@ -1,0 +1,127 @@
+instance_id: sympy__sympy-18532
+
+issue_summary: `Basic.atoms()` 方法在无参数调用时，错误地基于类型（`Atom` 子类）而非结构（`args` 为空）来收集原子节点，导致可能返回非叶子节点。
+
+trigger_condition:
+{
+  "text": "调用任意 SymPy 表达式对象的 `atoms()` 方法，且不传入任何参数。例如 `expr.atoms()`。",
+  "evidence": [
+    "Issue: '`expr.atoms()` with no arguments returns subclasses of `Atom` in `expr`.'",
+    "源码: `def atoms(self, *types):` 和当 `types` 为空时 `types = (Atom,)`。",
+    "测试: 多个测试用例调用 `expr.atoms()`。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "`expr.atoms()` 返回的集合中包含了某些 `Atom` 的子类对象，但这些对象拥有非空的 `.args` 属性（即它们不是真正的叶子节点）。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue: 'But the correct definition of a leaf node should be that it has no `.args`.'",
+    "源码: `Atom` 类的文档说明原子表达式没有子表达式。",
+    "源码: `Basic.args` 属性返回子表达式元组。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "`expr.atoms()` 在无参数调用时，应返回表达式 `expr` 中所有 `args` 属性为空的原子对象（即真正的叶子节点）。",
+  "evidence": [
+    "Issue: 'But the correct definition of a leaf node should be that it has no `.args`.'",
+    "源码: `Atom` 类文档: 'An atom is an expression with no subexpressions.'"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Basic.atoms",
+    "kind": "method",
+    "source_path": "sympy/core/basic.py",
+    "reason": "这是 Issue 直接讨论的方法，其无参数调用时的行为需要修正。"
+  },
+  {
+    "name": "Basic.args",
+    "kind": "method",
+    "source_path": "sympy/core/basic.py",
+    "reason": "Issue 的核心是依据 `args` 是否为空来判断叶子节点，需要调用此属性。"
+  },
+  {
+    "name": "Atom",
+    "kind": "class",
+    "source_path": "sympy/core/basic.py",
+    "reason": "`atoms()` 方法默认收集 `Atom` 类型，其定义与 Issue 相关。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "object_state",
+    "current_pattern": "相似测试中使用标准的原子对象（如 `Symbol('x')`, `S.One`, `S(2)`），这些对象通常 `args` 为空。",
+    "target_pattern": "使用或构造那些是 `Atom` 子类但拥有非空 `.args` 的表达式对象作为 `expr.atoms()` 的调用者。需要研究 SymPy 中哪些类继承自 `Atom` 但可能包含 `args`。",
+    "reason": "当前测试可能因为使用的表达式都是“正确”的原子而无法触发缺陷。变异目标表达式可以暴露 `atoms()` 方法错误地包含了非叶子节点。",
+    "confidence": "medium"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "测试中 `atoms()` 调用时通常不传参，或传入明确的类型（如 `Symbol`, `Number`）。",
+    "target_pattern": "保持 `atoms()` 调用时不传参，但改变调用它的表达式对象，使其包含可疑的 `Atom` 子类。",
+    "reason": "Issue 明确指出是无参数调用 `atoms()` 时的问题。因此变异应聚焦于改变表达式本身，而非调用参数。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "return_value",
+    "expression_hint": "`result = expr.atoms()` 的返回值。可以遍历 `result` 中的每个对象 `obj`，并观察 `obj.args`。",
+    "reason": "直接观察 `atoms()` 返回的集合内容，并检查其中每个对象的 `args` 属性，是判断是否包含非叶子节点的最直接方式。"
+  },
+  {
+    "kind": "type",
+    "expression_hint": "对于 `result` 中的每个对象 `obj`，观察 `type(obj)` 和 `isinstance(obj, Atom)`。",
+    "reason": "需要确认返回的对象确实是 `Atom` 的子类，以验证当前实现逻辑，并与 `args` 检查结果进行对比。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "对于 `expr.atoms()` 返回的集合中的每一个对象 `obj`，`obj.args` 应该是一个空元组 `()`。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "断言完整的返回集合与某个固定集合完全相等，因为修复前后的集合内容可能变化。避免断言私有属性 `_args`。",
+    "reason": "Issue 的核心标准是“没有 `.args`”。这个断言直接验证了返回的每个对象都满足叶子节点的结构定义，是稳定且与 Issue 对齐的。"
+  },
+  {
+    "assertion_goal": "`expr.atoms()` 返回的集合应该是 `expr` 中所有 `args` 为空的节点的集合。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言返回集合是 `expr` 中所有 `Atom` 子类的集合。",
+    "reason": "这概括了修复后的整体行为目标。可以通过手动遍历表达式树（如 `preorder_traversal`）收集 `args` 为空的节点，并与 `atoms()` 的结果比较来实现。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要导入 SymPy 核心模块，例如 `from sympy import Symbol, S, Add, Mul, sin, cos, Function, I, pi, Poly` 等，以及 `from sympy.core.basic import Atom`。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要在 `sympy/core/tests/` 目录下的现有测试文件（如 `test_expr.py`）的上下文中运行，或者遵循类似的测试类结构（如果有的话）。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "SymPy 代码库中具体哪些类是 `Atom` 的子类且其实例可能拥有非空的 `.args`。需要进一步代码分析或运行探索性测试来发现。",
+  "修复后的 `atoms()` 方法是否应该完全放弃类型检查（`Atom`），还是应该在检查类型的基础上再检查 `args`。这会影响断言的具体形式。",
+  "现有测试 `test_atoms` 中的哪些断言会在修复后失效，需要调整。"
+]

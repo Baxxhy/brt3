@@ -1,0 +1,572 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+Intersection should remove duplicates
+```python
+>>> Intersection({1},{1},{x})
+EmptySet()
+>>> Intersection({1},{x})
+{1}
+```
+The answer should be `Piecewise(({1}, Eq(x, 1)), (S.EmptySet, True))` or remain unevaluated.
+
+The routine should give the same answer if duplicates are present; my initial guess is that duplicates should just be removed at the outset of instantiation. Ordering them will produce canonical processing.
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：sympy/sets/sets.py
+对象名称：Intersection
+节点类型：class
+父节点：sets
+行号范围：1223-1384
+代码：
+class Intersection(Set, LatticeOp):
+    """
+    Represents an intersection of sets as a :class:`Set`.
+
+    Examples
+    ========
+
+    >>> from sympy import Intersection, Interval
+    >>> Intersection(Interval(1, 3), Interval(2, 4))
+    Interval(2, 3)
+
+    We often use the .intersect method
+
+    >>> Interval(1,3).intersect(Interval(2,4))
+    Interval(2, 3)
+
+    See Also
+    ========
+
+    Union
+
+    References
+    ==========
+
+    .. [1] https://en.wikipedia.org/wiki/Intersection_%28set_theory%29
+    """
+    is_Intersection = True
+    @property
+    def identity(self):
+    @property
+    def zero(self):
+    def __new__(cls, *args, **kwargs):
+    @property
+    @cacheit
+    def args(self):
+    @property
+    def is_iterable(self):
+    @property
+    def _inf(self):
+    @property
+    def _sup(self):
+    def _contains(self, other):
+    def __iter__(self):
+    @staticmethod
+    def _handle_finite_sets(args):
+    def as_relational(self, symbol):
+
+
+【源码片段 2】
+文件路径：sympy/sets/sets.py
+对象名称：EmptySet
+节点类型：class
+父节点：sets
+行号范围：1444-1499
+代码：
+class EmptySet(with_metaclass(Singleton, Set)):
+    """
+    Represents the empty set. The empty set is available as a singleton
+    as S.EmptySet.
+
+    Examples
+    ========
+
+    >>> from sympy import S, Interval
+    >>> S.EmptySet
+    EmptySet()
+
+    >>> Interval(1, 2).intersect(S.EmptySet)
+    EmptySet()
+
+    See Also
+    ========
+
+    UniversalSet
+
+    References
+    ==========
+
+    .. [1] https://en.wikipedia.org/wiki/Empty_set
+    """
+    is_EmptySet = True
+    is_FiniteSet = True
+    @property
+    def _measure(self):
+    def _contains(self, other):
+    def as_relational(self, symbol):
+    def __len__(self):
+    def __iter__(self):
+    def _eval_powerset(self):
+    @property
+    def _boundary(self):
+    def _complement(self, other):
+    def _symmetric_difference(self, other):
+
+
+【源码片段 3】
+文件路径：sympy/functions/elementary/piecewise.py
+对象名称：Piecewise
+节点类型：class
+父节点：piecewise
+行号范围：67-1032
+代码：
+class Piecewise(Function):
+    """
+    Represents a piecewise function.
+
+    Usage:
+
+      Piecewise( (expr,cond), (expr,cond), ... )
+        - Each argument is a 2-tuple defining an expression and condition
+        - The conds are evaluated in turn returning the first that is True.
+          If any of the evaluated conds are not determined explicitly False,
+          e.g. x < 1, the function is returned in symbolic form.
+        - If the function is evaluated at a place where all conditions are False,
+          nan will be returned.
+        - Pairs where the cond is explicitly False, will be removed.
+
+    Examples
+    ========
+
+    >>> from sympy import Piecewise, log, ITE, piecewise_fold
+    >>> from sympy.abc import x, y
+    >>> f = x**2
+    >>> g = log(x)
+    >>> p = Piecewise((0, x < -1), (f, x <= 1), (g, True))
+    >>> p.subs(x,1)
+    1
+    >>> p.subs(x,5)
+    log(5)
+
+    Booleans can contain Piecewise elements:
+
+    >>> cond = (x < y).subs(x, Piecewise((2, x < 0), (3, True))); cond
+    Piecewise((2, x < 0), (3, True)) < y
+
+    The folded version of this results in a Piecewise whose
+    expressions are Booleans:
+
+    >>> folded_cond = piecewise_fold(cond); folded_cond
+    Piecewise((2 < y, x < 0), (3 < y, True))
+
+    When a Boolean containing Piecewise (like cond) or a Piecewise
+    with Boolean expressions (like folded_cond) is used as a condition,
+    it is converted to an equivalent ITE object:
+
+    >>> Piecewise((1, folded_cond))
+    Piecewise((1, ITE(x < 0, y > 2, y > 3)))
+
+    When a condition is an ITE, it will be converted to a simplified
+    Boolean expression:
+
+    >>> piecewise_fold(_)
+    Piecewise((1, ((x >= 0) | (y > 2)) & ((y > 3) | (x < 0))))
+
+    See Also
+    ========
+    piecewise_fold, ITE
+    """
+    nargs = None
+    is_Piecewise = True
+    def __new__(cls, *args, **options):
+    @classmethod
+    def eval(cls, *_args):
+    def doit(self, **hints):
+    def _eval_simplify(self, ratio, measure, rational, inverse):
+    def _eval_as_leading_term(self, x):
+    def _eval_adjoint(self):
+    def _eval_conjugate(self):
+    def _eval_derivative(self, x):
+    def _eval_evalf(self, prec):
+    def piecewise_integrate(self, x, **kwargs):
+    def _handle_irel(self, x, handler):
+    def _eval_integral(self, x, _first=True, **kwargs):
+    def _eval_interval(self, sym, a, b, _first=True):
+    def _intervals(self, sym):
+    def _eval_nseries(self, x, n, logx):
+    def _eval_power(self, s):
+    def _eval_subs(self, old, new):
+    def _eval_transpose(self):
+    def _eval_template_is_attr(self, is_attr):
+    _eval_is_finite = lambda self: self._eval_template_is_attr(
+        'is_finite')
+    _eval_is_complex = lambda self: self._eval_template_is_attr('is_complex')
+    _eval_is_even = lambda self: self._eval_template_is_attr('is_even')
+    _eval_is_imaginary = lambda self: self._eval_template_is_attr(
+        'is_imaginary')
+    _eval_is_integer = lambda self: self._eval_template_is_attr('is_integer')
+    _eval_is_irrational = lambda self: self._eval_template_is_attr(
+        'is_irrational')
+    _eval_is_negative = lambda self: self._eval_template_is_attr('is_negative')
+    _eval_is_nonnegative = lambda self: self._eval_template_is_attr(
+        'is_nonnegative')
+    _eval_is_nonpositive = lambda self: self._eval_template_is_attr(
+        'is_nonpositive')
+    _eval_is_nonzero = lambda self: self._eval_template_is_attr(
+        'is_nonzero')
+    _eval_is_odd = lambda self: self._eval_template_is_attr('is_odd')
+    _eval_is_polar = lambda self: self._eval_template_is_attr('is_polar')
+    _eval_is_positive = lambda self: self._eval_template_is_attr('is_positive')
+    _eval_is_extended_real = lambda self: self._eval_template_is_attr(
+            'is_extended_real')
+    _eval_is_extended_positive = lambda self: self._eval_template_is_attr(
+            'is_extended_positive')
+    _eval_is_extended_negative = lambda self: self._eval_template_is_attr(
+            'is_extended_negative')
+    _eval_is_extended_nonzero = lambda self: self._eval_template_is_attr(
+            'is_extended_nonzero')
+    _eval_is_extended_nonpositive = lambda self: self._eval_template_is_attr(
+            'is_extended_nonpositive')
+    _eval_is_extended_nonnegative = lambda self: self._eval_template_is_attr(
+            'is_extended_nonnegative')
+    _eval_is_real = lambda self: self._eval_template_is_attr('is_real')
+    _eval_is_zero = lambda self: self._eval_template_is_attr(
+        'is_zero')
+    @classmethod
+    def __eval_cond(cls, cond):
+    def as_expr_set_pairs(self, domain=S.Reals):
+    def _eval_rewrite_as_ITE(self, *args, **kwargs):
+
+
+【源码片段 4】
+文件路径：sympy/core/relational.py
+对象名称：Eq
+节点类型：global_var
+父节点：relational
+行号范围：552-552
+代码：
+Eq = Equality
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：sympy/sets/tests/test_sets.py
+测试名称：test_intersection
+测试代码：
+def test_intersection():
+    # iterable
+    i = Intersection(FiniteSet(1, 2, 3), Interval(2, 5), evaluate=False)
+    assert i.is_iterable
+    assert set(i) == {S(2), S(3)}
+
+    # challenging intervals
+    x = Symbol('x', real=True)
+    i = Intersection(Interval(0, 3), Interval(x, 6))
+    assert (5 in i) is False
+    raises(TypeError, lambda: 2 in i)
+
+    # Singleton special cases
+    assert Intersection(Interval(0, 1), S.EmptySet) == S.EmptySet
+    assert Intersection(Interval(-oo, oo), Interval(-oo, x)) == Interval(-oo, x)
+
+    # Products
+    line = Interval(0, 5)
+    i = Intersection(line**2, line**3, evaluate=False)
+    assert (2, 2) not in i
+    assert (2, 2, 2) not in i
+    raises(ValueError, lambda: list(i))
+
+    a = Intersection(Intersection(S.Integers, S.Naturals, evaluate=False), S.Reals, evaluate=False)
+    assert a._argset == frozenset([Intersection(S.Naturals, S.Integers, evaluate=False), S.Reals])
+
+    assert Intersection(S.Complexes, FiniteSet(S.ComplexInfinity)) == S.EmptySet
+
+    # issue 12178
+    assert Intersection() == S.UniversalSet
+
+【相关测试 2】
+测试文件：sympy/sets/tests/test_sets.py
+测试名称：test_union_intersection_constructor
+测试代码：
+def test_union_intersection_constructor():
+    # The actual exception does not matter here, so long as these fail
+    sets = [FiniteSet(1), FiniteSet(2)]
+    raises(Exception, lambda: Union(sets))
+    raises(Exception, lambda: Intersection(sets))
+    raises(Exception, lambda: Union(tuple(sets)))
+    raises(Exception, lambda: Intersection(tuple(sets)))
+    raises(Exception, lambda: Union(i for i in sets))
+    raises(Exception, lambda: Intersection(i for i in sets))
+
+    # Python sets are treated the same as FiniteSet
+    # The union of a single set (of sets) is the set (of sets) itself
+    assert Union(set(sets)) == FiniteSet(*sets)
+    assert Intersection(set(sets)) == FiniteSet(*sets)
+
+    assert Union({1}, {2}) == FiniteSet(1, 2)
+    assert Intersection({1, 2}, {2, 3}) == FiniteSet(2)
+
+【相关测试 3】
+测试文件：sympy/sets/tests/test_sets.py
+测试名称：test_finite_set_intersection
+测试代码：
+def test_finite_set_intersection():
+    # The following should not produce recursion errors
+    # Note: some of these are not completely correct. See
+    # https://github.com/sympy/sympy/issues/16342.
+    assert Intersection(FiniteSet(-oo, x), FiniteSet(x)) == FiniteSet(x)
+    assert Intersection._handle_finite_sets([FiniteSet(-oo, x), FiniteSet(0, x)]) == FiniteSet(x)
+
+    assert Intersection._handle_finite_sets([FiniteSet(-oo, x), FiniteSet(x)]) == FiniteSet(x)
+    assert Intersection._handle_finite_sets([FiniteSet(2, 3, x, y), FiniteSet(1, 2, x)]) == \
+        Intersection._handle_finite_sets([FiniteSet(1, 2, x), FiniteSet(2, 3, x, y)]) == \
+        Intersection(FiniteSet(1, 2, x), FiniteSet(2, 3, x, y)) == \
+        FiniteSet(1, 2, x)
+
+【相关测试 4】
+测试文件：sympy/sets/tests/test_sets.py
+测试名称：test_intersect1
+测试代码：
+def test_intersect1():
+    assert all(S.Integers.intersection(i) is i for i in
+        (S.Naturals, S.Naturals0))
+    assert all(i.intersection(S.Integers) is i for i in
+        (S.Naturals, S.Naturals0))
+    s =  S.Naturals0
+    assert S.Naturals.intersection(s) is S.Naturals
+    assert s.intersection(S.Naturals) is S.Naturals
+    x = Symbol('x')
+    assert Interval(0, 2).intersect(Interval(1, 2)) == Interval(1, 2)
+    assert Interval(0, 2).intersect(Interval(1, 2, True)) == \
+        Interval(1, 2, True)
+    assert Interval(0, 2, True).intersect(Interval(1, 2)) == \
+        Interval(1, 2, False, False)
+    assert Interval(0, 2, True, True).intersect(Interval(1, 2)) == \
+        Interval(1, 2, False, True)
+    assert Interval(0, 2).intersect(Union(Interval(0, 1), Interval(2, 3))) == \
+        Union(Interval(0, 1), Interval(2, 2))
+
+    assert FiniteSet(1, 2).intersect(FiniteSet(1, 2, 3)) == FiniteSet(1, 2)
+    assert FiniteSet(1, 2, x).intersect(FiniteSet(x)) == FiniteSet(x)
+    assert FiniteSet('ham', 'eggs').intersect(FiniteSet('ham')) == \
+        FiniteSet('ham')
+    assert FiniteSet(1, 2, 3, 4, 5).intersect(S.EmptySet) == S.EmptySet
+
+    assert Interval(0, 5).intersect(FiniteSet(1, 3)) == FiniteSet(1, 3)
+    assert Interval(0, 1, True, True).intersect(FiniteSet(1)) == S.EmptySet
+
+    assert Union(Interval(0, 1), Interval(2, 3)).intersect(Interval(1, 2)) == \
+        Union(Interval(1, 1), Interval(2, 2))
+    assert Union(Interval(0, 1), Interval(2, 3)).intersect(Interval(0, 2)) == \
+        Union(Interval(0, 1), Interval(2, 2))
+    assert Union(Interval(0, 1), Interval(2, 3)).intersect(Interval(1, 2, True, True)) == \
+        S.EmptySet
+    assert Union(Interval(0, 1), Interval(2, 3)).intersect(S.EmptySet) == \
+        S.EmptySet
+    assert Union(Interval(0, 5), FiniteSet('ham')).intersect(FiniteSet(2, 3, 4, 5, 6)) == \
+        Union(FiniteSet(2, 3, 4, 5), Intersection(FiniteSet(6), Union(Interval(0, 5), FiniteSet('ham'))))
+
+    # issue 8217
+    assert Intersection(FiniteSet(x), FiniteSet(y)) == \
+        Intersection(FiniteSet(x), FiniteSet(y), evaluate=False)
+    assert FiniteSet(x).intersect(S.Reals) == \
+        Intersection(S.Reals, FiniteSet(x), evaluate=False)
+
+    # tests for the intersection alias
+    assert Interval(0, 5).intersection(FiniteSet(1, 3)) == FiniteSet(1, 3)
+    assert Interval(0, 1, True, True).intersection(FiniteSet(1)) == S.EmptySet
+
+    assert Union(Interval(0, 1), Interval(2, 3)).intersection(Interval(1, 2)) == \
+        Union(Interval(1, 1), Interval(2, 2))
+
+【相关测试 5】
+测试文件：sympy/sets/tests/test_conditionset.py
+测试名称：test_simplified_FiniteSet_in_CondSet
+测试代码：
+def test_simplified_FiniteSet_in_CondSet():
+    assert ConditionSet(x, And(x < 1, x > -3), FiniteSet(0, 1, 2)) == FiniteSet(0)
+    assert ConditionSet(x, x < 0, FiniteSet(0, 1, 2)) == EmptySet()
+    assert ConditionSet(x, And(x < -3), EmptySet()) == EmptySet()
+    y = Symbol('y')
+    assert (ConditionSet(x, And(x > 0), FiniteSet(-1, 0, 1, y)) ==
+        Union(FiniteSet(1), ConditionSet(x, And(x > 0), FiniteSet(y))))
+    assert (ConditionSet(x, Eq(Mod(x, 3), 1), FiniteSet(1, 4, 2, y)) ==
+        Union(FiniteSet(1, 4), ConditionSet(x, Eq(Mod(x, 3), 1), FiniteSet(y))))
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

@@ -1,0 +1,131 @@
+instance_id: matplotlib__matplotlib-22711
+
+issue_summary: 使用 valinit 参数初始化 RangeSlider 时，set_val 方法中访问 xy[4] 导致 IndexError。
+
+trigger_condition:
+{
+  "text": "调用 RangeSlider.__init__ 方法，并提供一个非空的 valinit 参数（例如一个长度为2的列表或元组）。",
+  "evidence": [
+    "Issue 中的复现代码：slider = RangeSlider(slider_ax, \"Threshold\", img.min(), img.max(),valinit=[0.0,0.0])",
+    "Issue 中的错误堆栈：__init__ 中调用了 self.set_val(valinit)。",
+    "检索源码显示 __init__ 方法最后调用了 self.set_val(valinit)。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "IndexError: index 4 is out of bounds for axis 0 with size 4，发生在 widgets.py 的 set_val 方法中，具体是赋值语句 xy[4] = ... 时。",
+  "symptom_type": "exception",
+  "evidence": [
+    "Issue 中的 Actual outcome 部分显示了完整的错误堆栈和异常信息。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "RangeSlider 对象应被成功创建，其内部状态 val 应被设置为用户通过 valinit 参数提供的值，且不会抛出 IndexError。",
+  "evidence": [
+    "Issue 中的 Expected outcome: \"range slider with user initial values\"。",
+    "相关测试 test_range_slider 展示了使用 valinit 参数成功创建滑块并验证其值。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "RangeSlider",
+    "kind": "class",
+    "source_path": "lib/matplotlib/widgets.py",
+    "reason": "Issue 直接报告了 RangeSlider 类的缺陷。"
+  },
+  {
+    "name": "RangeSlider.__init__",
+    "kind": "method",
+    "source_path": "lib/matplotlib/widgets.py",
+    "reason": "触发错误的入口点，它调用了 set_val。"
+  },
+  {
+    "name": "RangeSlider.set_val",
+    "kind": "method",
+    "source_path": "lib/matplotlib/widgets.py",
+    "reason": "错误发生的确切位置，Issue 明确指出问题在 set_val 方法中。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "input",
+    "current_pattern": "test_range_slider 中使用的 valinit=[0.1, 0.34]。",
+    "target_pattern": "使用不同的 valinit 值，特别是可能影响 self.poly 创建的值，例如 [0.0, 0.0] 或更极端的边界值。",
+    "reason": "Issue 中的复现代码使用了 valinit=[0.0,0.0]。不同的初始值可能影响 self.poly（通过 axvspan/axhspan 创建）的初始形状，进而影响 xy 的长度。",
+    "confidence": "medium"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "测试在创建滑块后立即验证其状态。",
+    "target_pattern": "在调用 __init__ 后，但在任何其他操作（如 set_val）之前，检查 self.poly.xy 的形状。或者，尝试在 __init__ 中调用 set_val 之前模拟 self.poly.xy 的状态。",
+    "reason": "错误表明 self.poly.xy 在 set_val 被调用时长度不足。需要理解 self.poly 是如何在 __init__ 中被创建和初始化的。",
+    "confidence": "low"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "在创建 RangeSlider 对象时捕获 IndexError 异常，并检查其类型和消息。",
+    "reason": "Issue 的核心症状是 IndexError，直接观察此异常可以确认缺陷是否被触发。"
+  },
+  {
+    "kind": "state",
+    "expression_hint": "在 RangeSlider.__init__ 中调用 set_val 之前和之后，检查 self.poly.xy 的形状（例如 len(self.poly.xy) 或 self.poly.xy.shape）。",
+    "reason": "错误直接与 xy 列表的索引有关。观察其长度有助于理解为何索引 4 越界。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "创建 RangeSlider 对象后，检查其公开属性 slider.val 的值。",
+    "reason": "期望行为是滑块成功创建并具有用户指定的初始值。slider.val 是一个公开属性，可用于验证功能是否正常。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "RangeSlider 对象应被成功实例化，且其 val 属性应等于提供的 valinit 值（或经过边界处理后的值）。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言 self.poly.xy 的内部结构或完整坐标值，因为这可能是实现细节。",
+    "reason": "slider.val 是公开的、稳定的属性，直接反映了滑块的值状态，与 Issue 的期望行为（\"range slider with user initial values\"）一致。"
+  },
+  {
+    "assertion_goal": "创建 RangeSlider 时不应抛出 IndexError 异常。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言其他无关的异常类型或完整的错误消息字符串。",
+    "reason": "修复后，导致 IndexError 的根本原因应被解决，因此该异常不应出现。使用 pytest.raises 上下文管理器来验证无异常是合适的。注意：这里 raises 的极性是验证不抛出异常，与 expected_behavior 的正向语义（应成功）一致。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要 matplotlib 的 pyplot 模块和 widgets 子模块。使用标准的 plt.subplots() 创建图形和坐标轴作为滑块的容器。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要在非交互式后端下运行，以避免显示图形窗口。",
+    "source": "inference",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "self.poly.xy 的确切创建和初始化过程，以及为什么在某些情况下它只有4个元素。",
+  "错误是否与 orientation 参数（水平或垂直）有关。",
+  "错误是否只对特定的 valinit 值（如 [0.0, 0.0]）触发，还是更普遍。",
+  "注释掉 xy[4] 的赋值是否是正确修复，或者是否需要调整其他代码（例如确保 xy 有5个元素）。"
+]

@@ -1,0 +1,132 @@
+instance_id: django__django-13033
+
+issue_summary: 当对自引用外键模型的 `_id` 字段进行排序时，Django 错误地应用了关联模型的默认排序并生成了不必要的 JOIN。
+
+trigger_condition:
+{
+  "text": "构建一个查询集，其模型（如 TwoModel）通过外键关联到一个具有自引用外键且设置了 Meta.ordering 的模型（如 OneModel），并对该自引用外键的 `_id` 字段（如 'record__root_id'）使用 order_by() 方法。",
+  "evidence": [
+    "Issue 中给出的模型定义和查询集构造：TwoModel.objects.filter(record__oneval__in=[1,2,3]).order_by('record__root_id')。",
+    "Issue 指出当 root 指向第三方模型时问题不出现，强调了自引用外键的条件。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的 SQL 查询包含错误的 DESC 排序方向（与显式指定的 ASC 不符）以及一个不必要的 LEFT OUTER JOIN，导致查询结果可能顺序错误且效率低下。",
+  "symptom_type": "wrong_sql",
+  "evidence": [
+    "Issue 中打印的 SQL 显示 ORDER BY T3.\"id\" DESC 和 LEFT OUTER JOIN。",
+    "Issue 描述：'The query has an unexpected DESCENDING sort' 和 'The the query has two JOINS, which is unnecessary.'"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "查询集对 `record__root_id` 字段的 order_by 应该生成正确的 ASC 排序（除非显式指定 '-'），并且不应该因为自引用关系而生成不必要的额外 JOIN。生成的 SQL 应该与使用 `record__root__id` 或通过 annotate 提取字段后排序的行为一致。",
+  "evidence": [
+    "Issue 中描述 order_by('record__root__id') 和 annotate 方法能生成 'correct results' 和 'pretty optimal SQL'（单 JOIN，ASC）。",
+    "测试 test_order_by_fk_attname 表明通过外键属性名排序应防止继承相关模型的排序。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "QuerySet.filter",
+    "kind": "method",
+    "source_path": "django/db/models/query.py",
+    "reason": "用于构建查询集，是触发条件的一部分。"
+  },
+  {
+    "name": "QuerySet.order_by",
+    "kind": "method",
+    "source_path": "django/db/models/query.py",
+    "reason": "直接触发缺陷的 API，用于指定排序字段。"
+  },
+  {
+    "name": "QuerySet.annotate",
+    "kind": "method",
+    "source_path": "django/db/models/query.py",
+    "reason": "Issue 中提到的一种正确的工作方法。"
+  },
+  {
+    "name": "F",
+    "kind": "class",
+    "source_path": "django/db/models/expressions.py",
+    "reason": "在 annotate 中用于引用字段。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "object_state",
+    "current_pattern": "测试 test_order_by_fk_attname 使用普通的两个模型（Author 和 Article），其中 Author 没有自引用 FK，且 Article 的外键指向 Author。",
+    "target_pattern": "将测试模型改为类似 Issue 中的结构：一个模型（如 Node）具有指向自身的 ForeignKey 字段（如 parent）并设置 Meta.ordering = ('-id',)；另一个模型（如 Item）具有指向 Node 的 ForeignKey。然后对 Item 查询集使用 order_by('node__parent_id')。",
+    "reason": "Issue 明确指出自引用外键和 Meta.ordering 是触发条件，而现有测试缺少这些要素。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "测试通常直接使用 order_by('foreign_key_id')。",
+    "target_pattern": "在 order_by 之前添加一个 filter，过滤关联模型的另一个字段（如 record__oneval__in=[...]），以更接近 Issue 中的完整场景。",
+    "reason": "Issue 中的触发条件包含了 filter(record__oneval__in=[...])，这可能影响查询构建和 JOIN 生成。",
+    "confidence": "medium"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "sql",
+    "expression_hint": "str(qs.query)",
+    "reason": "Issue 的核心症状体现在生成的 SQL 字符串上：排序方向（ASC/DESC）和 JOIN 的数量/类型。这是最直接的公开可观测输出。"
+  },
+  {
+    "kind": "order",
+    "expression_hint": "查询结果的实际顺序（例如，通过 list(qs.values_list('id', flat=True)) 观察）",
+    "reason": "错误的 SQL 排序方向可能导致查询结果顺序与预期不符，这是功能性的错误表现。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的 SQL 查询字符串中，ORDER BY 子句应对应正确的字段（如 `\"onemodel\".\"root_id\"`）且方向为 ASC（除非显式指定 '-'）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的 SQL 字符串相等，因为表名别名（如 T3）可能不稳定。",
+    "reason": "排序字段和方向是问题的核心，而具体的表别名可能因查询构建而异。检查 SQL 片段更稳定。"
+  },
+  {
+    "assertion_goal": "生成的 SQL 查询字符串中，JOIN 子句的数量应为 1（一个 INNER JOIN），不应出现不必要的 LEFT OUTER JOIN。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "精确计数 JOIN 关键字，因为注释或字符串常量中可能包含 'JOIN'。更安全的是检查是否存在特定的 JOIN 模式。",
+    "reason": "多余的 JOIN 是性能问题和潜在错误来源，Issue 中明确指出了这一点。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要创建一个 Django TestCase，并定义两个模型：一个具有自引用 ForeignKey 和 Meta.ordering，另一个具有指向第一个模型的 ForeignKey。需要在 setUp 或类级别创建测试数据。",
+    "source": "issue",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试可能需要运行在支持 Django ORM 的数据库上（如 sqlite3）。使用 django.test.TestCase 会自动处理测试数据库。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "Django 内部解析 `record__root_id` 和 `record__root__id` 的确切区别在哪里。",
+  "除了自引用外键，是否还有其他模型关系配置会触发类似问题。",
+  "Meta.ordering 的设置是否是触发 bug 的必要条件，还是说自引用 FK 本身就会导致多余的 JOIN。",
+  "bug 是否存在于所有 order_by 与 filter 组合的场景中，还是特定于某些查找类型（如 __in）。"
+]

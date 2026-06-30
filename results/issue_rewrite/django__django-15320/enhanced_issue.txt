@@ -1,0 +1,126 @@
+instance_id: django__django-15320
+
+issue_summary: Subquery.as_sql() 方法错误地切除了 SQL 字符串的首尾字符，导致生成无效 SQL，而手动设置 query.subquery = True 可修复此问题。
+
+trigger_condition:
+{
+  "text": "创建一个 Subquery 对象（例如 Subquery(App.objects.all())），不手动设置其 query.subquery 属性，然后调用其 as_sql(compiler, connection) 方法。",
+  "evidence": [
+    "Issue 中的代码：q = Subquery(App.objects.all()); print(q.as_sql(q.query.get_compiler('default'), connection))",
+    "Issue 描述：'Adding Subquery().query.subquery = True attribute fixes the problem.'"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "as_sql() 方法返回的 SQL 字符串不正确，缺失了首字符和尾字符（例如，'SELECT' 变成 'ELECT'，结尾的引号缺失），导致 SQL 语法无效。",
+  "symptom_type": "wrong_sql",
+  "evidence": [
+    "Issue 中的输出示例：'('(ELECT \"apps_app\".\"id\", \"apps_app\".\"name\" FROM \"apps_app)', ())'",
+    "Issue 描述：'returns incorrect SQL removing first and last symbols'"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "Subquery.as_sql() 方法应生成语法有效的 SQL 字符串，该字符串应正确包裹在括号内，且不缺失任何必要的字符。",
+  "evidence": [
+    "Issue 中设置 q.query.subquery = True 后的输出：'('(SELECT \"apps_app\".\"id\", \"apps_app\".\"name\" FROM \"apps_app\")', ())'",
+    "Issue 描述期望修复后生成正确的 SQL。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "Subquery",
+    "kind": "class",
+    "source_path": "django/db/models/expressions.py",
+    "reason": "Issue 直接报告 Subquery.as_sql() 的问题，且相关源码片段显示其定义。"
+  },
+  {
+    "name": "as_sql",
+    "kind": "method",
+    "source_path": "django/db/models/expressions.py",
+    "reason": "Issue 的核心是 Subquery.as_sql() 方法生成无效 SQL。"
+  },
+  {
+    "name": "get_compiler",
+    "kind": "method",
+    "source_path": "django/db/models/sql/query.py",
+    "reason": "Issue 中的复现代码使用了 q.query.get_compiler('default') 来获取 compiler。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "object_state",
+    "current_pattern": "在查询集上下文中使用 Subquery（如 annotate 或 filter），其内部状态可能已被正确设置。",
+    "target_pattern": "独立创建 Subquery 对象（如 Subquery(SomeModel.objects.all())），不将其嵌入更大的查询表达式，然后直接调用其 as_sql() 方法。",
+    "reason": "Issue 表明，当 Subquery 对象独立存在且 query.subquery 未手动设置为 True 时，as_sql() 会产生错误。这模拟了 Issue 中的触发条件。",
+    "confidence": "high"
+  },
+  {
+    "slot": "call_chain",
+    "current_pattern": "相似测试中，Subquery 的结果通常通过执行查询（如 list(qs)）或断言查询结果来间接验证。",
+    "target_pattern": "在测试中直接调用 subquery_instance.as_sql(compiler, connection) 并捕获其返回值。",
+    "reason": "为了直接观察错误症状（错误的 SQL 字符串），需要直接调用有问题的 as_sql 方法，而不是通过执行整个查询来间接测试。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "sql",
+    "expression_hint": "subquery_sql, sql = q.as_sql(compiler, connection); str(sql_tuple) 或 sql[0]",
+    "reason": "Issue 的核心错误是 as_sql() 返回的 SQL 字符串不正确。直接观察其返回的元组中的 SQL 字符串片段是判断问题是否触发的关键。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "result = q.as_sql(compiler, connection); type(result); len(result[0])",
+    "reason": "检查返回值是否为元组，以及 SQL 字符串的长度和内容，可以帮助确认格式错误。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "as_sql() 返回的 SQL 字符串应以 '(' 开头并以 ')' 结尾，且内部包含完整的 SELECT 语句，不缺失首尾字符。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、具体的 SQL 字符串相等，因为表名、列名可能因数据库后端或具体模型而异。",
+    "reason": "Issue 表明错误是缺失首尾字符。检查 SQL 字符串是否包含关键片段（如 'SELECT'）以及是否具有正确的括号包裹，是稳定且与问题对齐的断言方式。"
+  },
+  {
+    "assertion_goal": "as_sql() 返回的 SQL 字符串应是语法有效的（例如，可通过简单的字符串检查验证括号匹配和关键字存在）。",
+    "preferred_assertion_style": "before_after_relation",
+    "avoid": "检查私有属性如 query.subquery 的值，因为这属于内部实现细节。",
+    "reason": "修复后的行为应生成有效的 SQL。比较手动设置 query.subquery = True 前后的输出，可以验证修复是否有效，且关注公开的 SQL 输出而非内部状态。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要一个 Django TestCase 类，并配置可用的数据库连接。可能需要创建简单的模型（如 Issue 中的 App）或使用测试中已有的模型（如 tests/expressions/tests.py 中使用的 Company、Employee）。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要获取一个 database compiler 和 connection 对象，通常可以通过 django.db.connection 或模型的 _meta.db_table 等获得。",
+    "source": "issue",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "query.subquery 属性的确切默认值及其在 Django 查询生命周期中何时被设置。",
+  "除了手动设置 query.subquery = True 外，是否有其他条件或上下文会自动正确设置该属性。",
+  "as_sql() 方法中 template 参数和 extra_context 的潜在影响。",
+  "该缺陷是否在所有数据库后端上表现一致。"
+]

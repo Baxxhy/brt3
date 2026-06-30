@@ -1,0 +1,130 @@
+instance_id: django__django-15996
+
+issue_summary: Django 迁移序列化器无法正确处理组合的 Enum flags 默认值，错误地生成了 `[None]` 而不是正确的 OR 表达式。
+
+trigger_condition:
+{
+  "text": "创建一个 Django 模型字段（例如 `IntegerField` 或 `CharField`），其 `default` 参数设置为一个组合的 Enum flags 值（例如 `re.UNICODE | re.IGNORECASE`），然后调用 `MigrationWriter.serialize` 对该字段进行序列化。",
+  "evidence": [
+    "Issue 示例：`regex_flags = models.IntegerField(default=re.UNICODE | re.IGNORECASE)`。",
+    "相关测试 `test_serialize_enum_flags` 和 `test_serialize_enums` 展示了序列化带有枚举默认值的字段。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "序列化输出的字符串中，默认值部分为 `default=re.RegexFlag[None]`，而不是一个能正确重建原始组合枚举值的表达式（如 `default=re.RegexFlag['UNICODE'] | re.RegexFlag['IGNORECASE']`）。",
+  "symptom_type": "serialization_error",
+  "evidence": [
+    "Issue 描述：\"This is turned into a migration with: default=re.RegexFlag[None]\"。",
+    "`EnumSerializer.serialize` 方法在 `self.value.name` 为 `None` 时会生成 `[None]`。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "修复后，`MigrationWriter.serialize` 应能正确序列化组合的 Enum flags 默认值，生成一个使用 OR 操作符（`|`）组合各成员名称的表达式，该表达式在求值后能重建原始的枚举组合值。",
+  "evidence": [
+    "Issue 建议：\"use enum._decompose to obtain a list of names, and create an expression to create the enum value by 'ORing' the items together.\"",
+    "相关测试 `test_serialize_class_based_validators` 中展示了 `flags=re.RegexFlag['DOTALL']` 的序列化，表明对单个标志的序列化是支持的。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "MigrationWriter.serialize",
+    "kind": "function",
+    "source_path": "django/db/migrations/writer.py",
+    "reason": "这是序列化模型字段和其默认值（包括 Enum flags）的入口点。"
+  },
+  {
+    "name": "EnumSerializer.serialize",
+    "kind": "method",
+    "source_path": "django/db/migrations/serializer.py",
+    "reason": "这是直接处理枚举值序列化的类，Issue 明确指出其缺陷。"
+  },
+  {
+    "name": "models.IntegerField",
+    "kind": "class",
+    "source_path": "django/db/models/fields/__init__.py",
+    "reason": "Issue 中用作示例的字段类型，也是相关测试中使用的字段类型。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_serialize_enum_flags` 中，`models.IntegerField(default=IntFlagEnum.A)` 使用单个枚举值。",
+    "target_pattern": "将 `default` 参数改为组合的枚举值，例如 `default=IntFlagEnum.A | IntFlagEnum.B` 或 `default=re.RegexFlag.UNICODE | re.RegexFlag.IGNORECASE`。",
+    "reason": "组合值没有单一的 `.name`，会触发 `EnumSerializer` 中的缺陷路径，生成 `[None]`。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": "在 `test_serialize_class_based_validators` 中，`RegexValidator(..., flags=re.RegexFlag['DOTALL'])` 使用单个标志。",
+    "target_pattern": "将 `flags` 参数改为组合标志，例如 `flags=re.RegexFlag.UNICODE | re.RegexFlag.IGNORECASE`。",
+    "reason": "这直接对应 Issue 中的示例，可以测试 `EnumSerializer` 在处理 `re.RegexFlag` 组合值时的行为。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "serialization",
+    "expression_hint": "`MigrationWriter.serialize(field_or_validator)[0]` 返回的序列化字符串。",
+    "reason": "错误症状直接体现在序列化输出的字符串内容中，特别是 `default=` 或 `flags=` 后面的部分。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "`eval(serialized_string)` 的结果，与原始的组合枚举值进行比较。",
+    "reason": "序列化的最终目的是生成可求值的代码，求值结果应与原始输入相等。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "序列化字符串中，代表组合枚举值的部分应包含各成员名称，并通过 `|` 操作符连接，且不包含 `[None]`。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的、格式固定的序列化字符串，因为具体的模块路径和格式可能变化。避免断言私有属性。",
+    "reason": "`contains_fragment` 可以稳定地检查输出中是否包含了正确的成员名称和 OR 操作符，而不依赖于完整的字符串格式。"
+  },
+  {
+    "assertion_goal": "对序列化字符串进行求值（`eval`）后得到的结果，应与原始的组合枚举值相等。",
+    "preferred_assertion_style": "equals",
+    "avoid": "断言求值过程中不抛异常，因为修复后应正常求值。避免断言内部表示。",
+    "reason": "这是功能正确性的最终验证：序列化并求值后应重建原始值。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "使用 `SimpleTestCase` 作为测试基类，如相关测试所示。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "需要导入 `django.db.models`、`django.db.migrations.writer`、`re` 等模块。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可能需要定义或使用一个简单的 `IntFlag` 枚举（如测试中的 `IntFlagEnum`）来模拟组合标志。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "`enum._decompose` 方法是否在所有相关的 Python 版本中都可用且行为一致。",
+  "对于非 `re.RegexFlag` 的自定义 `IntFlag` 枚举，序列化输出格式是否完全相同。",
+  "序列化输出中 OR 表达式的具体格式（例如空格、括号）是否有严格规定。"
+]

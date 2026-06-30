@@ -1,0 +1,231 @@
+{
+  "instance_id": "django__django-17051",
+  "issue_summary": "QuerySet.bulk_create() 在使用 update_conflicts=True 时，未能为返回的对象设置主键（ID），尽管数据库支持通过 RETURNING 子句返回。",
+  "trigger_condition": {
+    "text": "调用 Model.objects.bulk_create(objs, update_conflicts=True, update_fields=[...], unique_fields=[...])，其中 objs 包含至少一个对象，并且数据库后端支持 update_conflicts 功能（如 PostgreSQL）。",
+    "evidence": [
+      "Issue 中的示例：MyModel.objects.bulk_create([MyModel(...)], update_conflicts=True, update_fields=[...], unique_fields=[...])",
+      "源码片段显示 bulk_create 方法接受 update_conflicts, update_fields, unique_fields 参数。",
+      "相关测试（如 test_update_conflicts_unique_fields_pk）使用了类似的调用模式。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "调用 bulk_create 并设置 update_conflicts=True 后，返回的模型对象实例的主键（通常是 id 字段）属性未被设置（例如，obj.pk 或 obj.id 为 None），尽管对应的行已成功插入或更新到数据库并拥有 ID。",
+    "symptom_type": "state_not_updated",
+    "evidence": [
+      "Issue 描述：\"the primary keys are not set in the returned queryset\"。",
+      "Issue 指出生成的 SQL 缺少 RETURNING my_model.id 子句。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "当使用 bulk_create 并设置 update_conflicts=True 时，如果数据库后端支持从冲突更新操作中返回行（例如 PostgreSQL 支持 RETURNING 子句），则方法应成功执行，并且返回的模型对象实例的主键属性应被正确设置为其数据库中的值。",
+    "evidence": [
+      "Issue 指出：\"If I append the RETURNING my_model.id clause, the query is indeed valid and the ID is returned\"。",
+      "Issue 期望：\"we could discriminate the cases differently so as to keep those returning_fields in the case of update_conflicts\"。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "QuerySet.bulk_create",
+      "kind": "method",
+      "source_path": "django/db/models/query.py",
+      "reason": "这是 Issue 报告的直接相关 API，缺陷行为发生在此方法的调用中。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/db/models/query.py",
+      "object": "QuerySet.bulk_create 方法内部，处理 on_conflict 参数和决定 returning_fields 的逻辑",
+      "lines": "",
+      "reason": "Issue 作者提到在源码中找到了 \"where the returning_fields gets removed\"。源码显示当 on_conflict 不为 None 时，可能与 can_return_rows_from_bulk_insert 的检查逻辑有关。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "BulkCreateTests.test_update_conflicts_unique_fields_pk",
+      "test_file": "tests/bulk_create/tests.py",
+      "why_relevant": "该测试直接调用了 bulk_create 并设置了 update_conflicts=True，使用了相同的 API 和参数模式（update_fields, unique_fields），并验证了数据库状态更新。",
+      "reusable_parts": [
+        "TestCase 类（BulkCreateTests）",
+        "模型对象（TwoFields）的构造",
+        "bulk_create 调用模式：TwoFields.objects.bulk_create(..., update_conflicts=True, update_fields=[...], unique_fields=[...])",
+        "数据库状态断言（assertCountEqual 检查 values）"
+      ],
+      "possible_gap": "该测试只断言了数据库中的最终数据（通过 values() 查询），没有检查 bulk_create 调用返回的 conflicting_objects 列表中的对象是否获得了正确的主键（pk）属性。需要变异以添加对返回对象主键的断言。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "argument",
+      "current_pattern": "测试调用 bulk_create 后，仅对数据库进行查询并断言最终状态。",
+      "target_pattern": "在调用 bulk_create 后，立即捕获其返回值（returned_objs），并检查 returned_objs 中每个对象的 .pk 或 .id 属性是否不为 None 且与数据库中对应行的主键匹配。",
+      "reason": "Issue 的核心是返回对象的主键未被设置。现有测试未观测此返回值属性，变异后可以触发对缺陷路径的观测。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "return_value",
+      "expression_hint": "bulk_create 调用返回的对象列表（例如 returned_objs），以及列表中每个对象的 .pk 或 .id 属性。",
+      "reason": "缺陷症状直接体现在返回对象的公开属性上。观察这些属性可以判断主键是否被设置。"
+    },
+    {
+      "kind": "state",
+      "expression_hint": "调用 bulk_create 前后，数据库中对应行的主键值（可通过 Model.objects.filter(...).values('id') 获取）。",
+      "reason": "可以将返回对象的主键属性与数据库中的实际值进行比对，验证其正确性。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "bulk_create 返回的每个对象都应具有一个非空的主键值（例如 obj.pk is not None），并且该值应与数据库中对应行的主键相等。",
+      "preferred_assertion_style": "before_after_relation",
+      "avoid": "断言完整的 SQL 查询字符串包含 RETURNING 子句（过于脆弱且是内部细节）。避免断言私有属性如 _state。",
+      "reason": "直接检查公开的、稳定的对象属性（pk）是否符合预期，并与数据库真实状态关联，这稳定且与 Issue 描述的症状对齐。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "需要使用支持 update_conflicts 功能的数据库后端（如 PostgreSQL）运行测试。测试应继承自 django.test.TestCase。可能需要创建简单的模型（如 TwoFields）用于测试。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    }
+  ],
+  "uncertainties": [
+    "具体是源码中哪一行或哪个条件语句错误地移除了 returning_fields。",
+    "所有数据库后端（如 SQLite, MySQL）在 update_conflicts=True 时对 RETURNING 子句的支持情况是否一致。",
+    "当部分对象冲突而部分是新插入时，返回对象主键设置的行为细节。"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "Allow returning IDs in QuerySet.bulk_create() when updating conflicts.\nDescription\n\nCurrently, when using bulk_create with a conflict handling flag turned on (e.g. ignore_conflicts or update_conflicts), the primary keys are not set in the returned queryset, as documented in bulk_create.\nWhile I understand using ignore_conflicts can lead to PostgreSQL not returning the IDs when a row is ignored (see ​this SO thread), I don't understand why we don't return the IDs in the case of update_conflicts.\nFor instance:\nMyModel.objects.bulk_create([MyModel(...)], update_conflicts=True, update_fields=[...], unique_fields=[...])\ngenerates a query without a RETURNING my_model.id part:\nINSERT INTO \"my_model\" (...)\nVALUES (...)\n\tON CONFLICT(...) DO UPDATE ...\nIf I append the RETURNING my_model.id clause, the query is indeed valid and the ID is returned (checked with PostgreSQL).\nI investigated a bit and ​this in Django source is where the returning_fields gets removed.\nI believe we could discriminate the cases differently so as to keep those returning_fields in the case of update_conflicts.\nThis would be highly helpful when using bulk_create as a bulk upsert feature.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当使用 QuerySet.bulk_create() 并设置 update_conflicts=True 时，即使数据库支持 RETURNING 子句，返回的对象列表中的主键（ID）字段也不会被设置。这发生在执行带有 ON CONFLICT ... DO UPDATE 的 INSERT 查询时。期望的行为是，当 update_conflicts=True 时，bulk_create 应该像处理普通插入一样，通过 RETURNING 子句获取并设置返回对象的主键。相关 API 是 django.db.models.query.QuerySet.bulk_create，源码中可能涉及 returning_fields 的处理逻辑。",
+      "facts_from_issue": [
+        "使用 bulk_create 并设置 update_conflicts=True 时，返回的对象列表中的主键（ID）字段不会被设置。",
+        "生成的 SQL 查询缺少 RETURNING my_model.id 子句。",
+        "手动添加 RETURNING my_model.id 子句后，查询有效且 ID 会被返回（在 PostgreSQL 中验证）。",
+        "Issue 作者在 Django 源码中找到了 returning_fields 被移除的位置。"
+      ],
+      "facts_from_retrieved_context": [
+        "bulk_create 方法位于 django/db/models/query.py 的 QuerySet 类中。",
+        "bulk_create 方法签名包含参数 update_conflicts, update_fields, unique_fields。",
+        "源码显示，当 on_conflict 不为 None 时，can_return_rows_from_bulk_insert 相关的逻辑可能影响 returned_columns 的处理。",
+        "存在多个测试用例（如 test_update_conflicts_unique_fields_pk）验证了 update_conflicts=True 时的更新行为，但未检查返回对象的主键是否被设置。"
+      ],
+      "inferences": [
+        "缺陷可能与 bulk_create 方法内部处理 on_conflict 参数时，决定是否包含 returning_fields 的逻辑有关。",
+        "当 update_conflicts=True 时，数据库可能支持返回行（如 PostgreSQL），但 Django 的代码路径可能错误地移除了 returning_fields。",
+        "测试用例目前只验证了数据库状态的更新，没有验证返回对象属性的设置，这可能是测试覆盖的缺口。"
+      ],
+      "do_not_assume": [
+        "具体的源码行号或函数名（除了 bulk_create）。",
+        "所有数据库后端的确切行为。",
+        "ignore_conflicts=True 时 ID 不返回是否一定是预期行为（虽然 Issue 提及理解此行为）。",
+        "修复后 ID 设置的确切机制或内部变量名。"
+      ]
+    },
+    "issue_summary": "QuerySet.bulk_create() 在使用 update_conflicts=True 时，未能为返回的对象设置主键（ID），尽管数据库支持通过 RETURNING 子句返回。",
+    "trigger_condition": {
+      "text": "调用 Model.objects.bulk_create(objs, update_conflicts=True, update_fields=[...], unique_fields=[...])，其中 objs 包含至少一个对象，并且数据库后端支持 update_conflicts 功能（如 PostgreSQL）。",
+      "evidence": [
+        "Issue 中的示例：MyModel.objects.bulk_create([MyModel(...)], update_conflicts=True, update_fields=[...], unique_fields=[...])",
+        "源码片段显示 bulk_create 方法接受 update_conflicts, update_fields, unique_fields 参数。",
+        "相关测试（如 test_update_conflicts_unique_fields_pk）使用了类似的调用模式。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "调用 bulk_create 并设置 update_conflicts=True 后，返回的模型对象实例的主键（通常是 id 字段）属性未被设置（例如，obj.pk 或 obj.id 为 None），尽管对应的行已成功插入或更新到数据库并拥有 ID。",
+      "symptom_type": "state_not_updated",
+      "evidence": [
+        "Issue 描述：\"the primary keys are not set in the returned queryset\"。",
+        "Issue 指出生成的 SQL 缺少 RETURNING my_model.id 子句。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "当使用 bulk_create 并设置 update_conflicts=True 时，如果数据库后端支持从冲突更新操作中返回行（例如 PostgreSQL 支持 RETURNING 子句），则方法应成功执行，并且返回的模型对象实例的主键属性应被正确设置为其数据库中的值。",
+      "evidence": [
+        "Issue 指出：\"If I append the RETURNING my_model.id clause, the query is indeed valid and the ID is returned\"。",
+        "Issue 期望：\"we could discriminate the cases differently so as to keep those returning_fields in the case of update_conflicts\"。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "QuerySet.bulk_create",
+        "kind": "method",
+        "source_path": "django/db/models/query.py",
+        "reason": "这是 Issue 报告的直接相关 API，缺陷行为发生在此方法的调用中。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/db/models/query.py",
+        "object": "QuerySet.bulk_create 方法内部，处理 on_conflict 参数和决定 returning_fields 的逻辑",
+        "lines": "",
+        "reason": "Issue 作者提到在源码中找到了 \"where the returning_fields gets removed\"。源码显示当 on_conflict 不为 None 时，可能与 can_return_rows_from_bulk_insert 的检查逻辑有关。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "BulkCreateTests.test_update_conflicts_unique_fields_pk",
+        "test_file": "tests/bulk_create/tests.py",
+        "why_relevant": "该测试直接调用了 bulk_create 并设置了 update_conflicts=True，使用了相同的 API 和参数模式（update_fields, unique_fields），并验证了数据库状态更新。",
+        "reusable_parts": [
+          "TestCase 类（BulkCreateTests）",
+          "模型对象（TwoFields）的构造",
+          "bulk_create 调用模式：TwoFields.objects.bulk_create(..., update_conflicts=True, update_fields=[...], unique_fields=[...])",
+          "数据库状态断言（assertCountEqual 检查 values）"
+        ],
+        "possible_gap": "该测试只断言了数据库中的最终数据（通过 values() 查询），没有检查 bulk_create 调用返回的 conflicting_objects 列表中的对象是否获得了正确的主键（pk）属性。需要变异以添加对返回对象主键的断言。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "argument",
+        "current_pattern": "测试调用 bulk_create 后，仅对数据库进行查询并断言最终状态。",
+        "target_pattern": "在调用 bulk_create 后，立即捕获其返回值（returned_objs），并检查 returned_objs 中每个对象的 .pk 或 .id 属性是否不为 None 且与数据库中对应行的主键匹配。",
+        "reason": "Issue 的核心是返回对象的主键未被设置。现有测试未观测此返回值属性，变异后可以触发对缺陷路径的观测。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "return_value",
+        "expression_hint": "bulk_create 调用返回的对象列表（例如 returned_objs），以及列表中每个对象的 .pk 或 .id 属性。",
+        "reason": "缺陷症状直接体现在返回对象的公开属性上。观察这些属性可以判断主键是否被设置。"
+      },
+      {
+        "kind": "state",
+        "expression_hint": "调用 bulk_create 前后，数据库中对应行的主键值（可通过 Model.objects.filter(...).values('id') 获取）。",
+        "reason": "可以将返回对象的主键属性与数据库中的实际值进行比对，验证其正确性。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "bulk_create 返回的每个对象都应具有一个非空的主键值（例如 obj.pk is not None），并且该值应与数据库中对应行的主键相等。",
+        "preferred_assertion_style": "before_after_relation",
+        "avoid": "断言完整的 SQL 查询字符串包含 RETURNING 子句（过于脆弱且是内部细节）。避免断言私有属性如 _state。",
+        "reason": "直接检查公开的、稳定的对象属性（pk）是否符合预期，并与数据库真实状态关联，这稳定且与 Issue 描述的症状对齐。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "需要使用支持 update_conflicts 功能的数据库后端（如 PostgreSQL）运行测试。测试应继承自 django.test.TestCase。可能需要创建简单的模型（如 TwoFields）用于测试。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      }
+    ],
+    "uncertainties": [
+      "具体是源码中哪一行或哪个条件语句错误地移除了 returning_fields。",
+      "所有数据库后端（如 SQLite, MySQL）在 update_conflicts=True 时对 RETURNING 子句的支持情况是否一致。",
+      "当部分对象冲突而部分是新插入时，返回对象主键设置的行为细节。"
+    ]
+  }
+}

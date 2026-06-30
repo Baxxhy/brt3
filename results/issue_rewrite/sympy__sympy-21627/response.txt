@@ -1,0 +1,206 @@
+```json
+{
+    "original_issue": {
+        "text": "Bug: maximum recusion depth error when checking is_zero of cosh expression\nThe following code causes a `RecursionError: maximum recursion depth exceeded while calling a Python object` error when checked if it is zero:\n```\nexpr =sympify(\"cosh(acos(-i + acosh(-g + i)))\")\nexpr.is_zero\n```",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当检查表达式 `cosh(acos(-i + acosh(-g + i)))` 的 `is_zero` 属性时，会触发 `RecursionError: maximum recursion depth exceeded while calling a Python object` 异常。该表达式通过 `sympify` 创建。期望行为是 `is_zero` 检查应正常完成，返回 `True`、`False` 或 `None`，而不应导致无限递归。可能涉及 `cosh`、`acos`、`acosh` 等函数的求值或化简逻辑，以及 `is_zero` 属性的实现。",
+        "facts_from_issue": [
+            "表达式 `cosh(acos(-i + acosh(-g + i)))` 通过 `sympify` 创建。",
+            "访问该表达式的 `is_zero` 属性会触发 `RecursionError: maximum recursion depth exceeded while calling a Python object` 异常。"
+        ],
+        "facts_from_retrieved_context": [
+            "`sympify` 函数存在于 `sympy/core/sympify.py`。",
+            "`cosh`、`acos`、`acosh` 函数在 `sympy/plotting/intervalmath/lib_interval.py` 中有定义，但它们是针对区间数学的，可能不是问题直接相关的实现。",
+            "`is_zero` 是 SymPy 对象的一个属性，在 `sympy/polys/agca/modules.py` 中有一个基类实现，但实际表达式类可能覆盖它。",
+            "相关测试显示 `cosh`、`acosh` 有大量数值和符号测试，`is_zero` 属性在其他上下文中被测试。"
+        ],
+        "inferences": [
+            "问题可能出现在 `cosh`、`acos`、`acosh` 组合表达式的化简或求值过程中，当计算 `is_zero` 时触发了递归。",
+            "`i` 和 `g` 可能是符号（Symbols）。",
+            "`is_zero` 属性的实现可能尝试对表达式进行深度求值或化简，导致了递归循环。"
+        ],
+        "do_not_assume": [
+            "具体的递归调用链。",
+            "`cosh`、`acos`、`acosh` 的哪个具体实现（符号 vs 区间）导致了问题。",
+            "修复后 `is_zero` 应该返回的确切值（True/False/None）。",
+            "是否存在其他类似的表达式也会触发此问题。"
+        ]
+    },
+    "issue_summary": "对特定复合双曲函数表达式调用 `is_zero` 属性时，触发最大递归深度异常。",
+    "trigger_condition": {
+        "text": "使用 `sympify` 创建表达式 `cosh(acos(-i + acosh(-g + i)))`，然后访问其 `is_zero` 属性。",
+        "evidence": [
+            "原始 Issue 中的代码片段：`expr =sympify(\"cosh(acos(-i + acosh(-g + i)))\")` 和 `expr.is_zero`。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "`RecursionError: maximum recursion depth exceeded while calling a Python object` 异常。",
+        "symptom_type": "exception",
+        "evidence": [
+            "原始 Issue 描述：\"causes a `RecursionError: maximum recursion depth exceeded while calling a Python object` error\"。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "对表达式 `cosh(acos(-i + acosh(-g + i)))` 调用 `is_zero` 属性应正常完成，不引发递归异常，并返回一个布尔值（True/False）或 None。",
+        "evidence": [
+            "根据 SymPy 语义，`is_zero` 是对象的标准属性，应能安全调用。",
+            "相关测试（如 `test_is_zero`）显示其他表达式可以正常调用 `is_zero`。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "sympify",
+            "kind": "function",
+            "source_path": "sympy/core/sympify.py",
+            "reason": "用于创建触发问题的表达式。"
+        },
+        {
+            "name": "cosh",
+            "kind": "function",
+            "source_path": "",
+            "reason": "表达式中的关键函数。"
+        },
+        {
+            "name": "acos",
+            "kind": "function",
+            "source_path": "",
+            "reason": "表达式中的关键函数。"
+        },
+        {
+            "name": "acosh",
+            "kind": "function",
+            "source_path": "",
+            "reason": "表达式中的关键函数。"
+        },
+        {
+            "name": "is_zero",
+            "kind": "property",
+            "source_path": "",
+            "reason": "触发异常的直接属性访问。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "sympy/functions/elementary/hyperbolic.py 或相关符号函数文件",
+            "object": "cosh, acos, acosh 的符号函数实现或其求值/化简方法",
+            "lines": "",
+            "reason": "Issue 涉及这些函数的复合表达式，递归可能发生在它们的 `_eval_is_zero` 或相关求值方法中。"
+        },
+        {
+            "path": "sympy/core/expr.py 或相关基类",
+            "object": "Expr.is_zero 属性或其底层调用链",
+            "lines": "",
+            "reason": "`is_zero` 是触发点，其实现可能对特定表达式结构处理不当，导致递归。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_cosh",
+            "test_file": "sympy/functions/elementary/tests/test_hyperbolic.py",
+            "why_relevant": "该测试包含大量 `cosh` 函数的数值和符号测试，包括对 `is_zero` 的隐式检查（如 `assert cosh(pi*I/2) == 0`），并使用了 `symbols` 和复数。",
+            "reusable_parts": [
+                "imports (如 `from sympy import cosh, acosh, acos, symbols, I`)",
+                "符号定义模式（如 `x, y = symbols('x,y')`）",
+                "使用 `assert` 进行等式或属性检查的测试风格。"
+            ],
+            "possible_gap": "该测试主要测试 `cosh` 的独立行为或简单组合，没有测试 `cosh(acos(...))` 这种深层嵌套且包含 `acosh` 的复杂符号表达式，也没有直接测试 `.is_zero` 属性。"
+        },
+        {
+            "test_name": "test_acosh",
+            "test_file": "sympy/functions/elementary/tests/test_hyperbolic.py",
+            "why_relevant": "该测试测试 `acosh` 函数，包括数值点、无穷大和符号处理，以及与其他函数（如 `cosh`）的组合（逆复合测试）。",
+            "reusable_parts": [
+                "`acosh` 的测试上下文和 imports",
+                "使用 `unchanged` 辅助函数测试符号参数",
+                "涉及复数 `I` 的测试用例。"
+            ],
+            "possible_gap": "没有测试 `acosh` 与 `acos` 和 `cosh` 的多层嵌套，也没有直接测试 `.is_zero` 属性。"
+        },
+        {
+            "test_name": "test_is_zero",
+            "test_file": "sympy/integrals/tests/test_integrals.py",
+            "why_relevant": "该测试直接测试 `Integral` 对象的 `is_zero` 属性，展示了如何构造对象并检查其 `is_zero` 属性，包括返回 `True`、`False`、`None` 的情况。",
+            "reusable_parts": [
+                "直接调用 `.is_zero` 属性的测试模式",
+                "处理 `is_zero` 可能返回 `None` 的断言风格（如 `assert ... is None`）。"
+            ],
+            "possible_gap": "测试的是 `Integral` 对象，而非双曲函数表达式。需要将对象构造改为 `cosh(acos(...))` 表达式。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "input",
+            "current_pattern": "测试中常见的简单输入，如 `cosh(pi*I/2)`、`acosh(1)` 或独立的符号 `x`。",
+            "target_pattern": "嵌套的符号表达式：`cosh(acos(-i + acosh(-g + i)))`，其中 `i` 和 `g` 是符号（或使用 `symbols('i g')` 创建）。",
+            "reason": "Issue 表明特定复杂嵌套结构触发了递归，而简单输入不会。需要将测试输入变异为这个精确的表达式字符串或等价结构。",
+            "confidence": "high"
+        },
+        {
+            "slot": "call_chain",
+            "current_pattern": "直接调用函数并断言返回值（如 `assert cosh(...) == ...`）或测试其他属性。",
+            "target_pattern": "创建表达式对象后，访问其 `.is_zero` 属性。",
+            "reason": "异常是在访问 `.is_zero` 时触发的，而不是在创建表达式时。需要将测试动作从值比较改为属性访问。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "尝试捕获 `RecursionError` 异常。",
+            "reason": "Issue 的核心症状是 `RecursionError`，观测是否抛出此异常可直接判断缺陷是否触发。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "如果未发生异常，观察 `expr.is_zero` 的返回值（应为 `True`、`False` 或 `None`）。",
+            "reason": "修复后，`is_zero` 应正常返回一个值，这是预期的公开行为。"
+        },
+        {
+            "kind": "type",
+            "expression_hint": "观察 `expr` 的类型以及 `expr.is_zero` 返回值的类型。",
+            "reason": "确保表达式创建成功，且返回值类型符合预期（bool 或 NoneType）。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "对给定表达式调用 `.is_zero` 不应引发 `RecursionError`。",
+            "preferred_assertion_style": "raises",
+            "avoid": "断言完整的异常消息字符串，因为递归深度消息可能因环境而异。",
+            "reason": "当前缺陷表现为异常，修复后应不再引发该异常。使用 `pytest.raises(RecursionError)` 或其等价物来验证缺陷是否被修复。"
+        },
+        {
+            "assertion_goal": "`expr.is_zero` 应返回一个值（True, False 或 None），且该值类型应为 bool 或 NoneType。",
+            "preferred_assertion_style": "isinstance",
+            "avoid": "断言 `is_zero` 返回一个特定的精确值（如 `True`），因为正确的值可能取决于符号化简，目前未知。",
+            "reason": "修复后，属性访问应正常完成并返回一个有效结果。检查返回类型是稳定且公开的验证方式。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要从 `sympy` 导入 `sympify`, `cosh`, `acos`, `acosh`, `symbols`, `I`。可能还需要 `S`（如 `S.NegativeOne`）或其他常量。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "测试可能需要在标准的 Python 测试框架（如 pytest）中运行，以使用 `pytest.raises`。",
+            "source": "inference",
+            "confidence": "medium"
+        },
+        {
+            "hint": "无需特殊数据库、文件或网络设置，纯内存符号计算。",
+            "source": "inference",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "表达式 `cosh(acos(-i + acosh(-g + i)))` 中 `i` 和 `g` 的确切类型（可能是默认符号，还是复数单位 `I`？）。原始 Issue 使用小写 `i`，可能代表符号，但需要确认。",
+        "递归发生的具体调用栈和根本原因在哪段代码。",
+        "修复后 `is_zero` 对于该表达式应返回的确切值是什么。",
+        "是否还有其他类似的表达式组合也会触发相同的递归问题。"
+    ]
+}
+```

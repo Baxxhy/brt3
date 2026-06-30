@@ -1,0 +1,326 @@
+{
+  "instance_id": "matplotlib__matplotlib-23913",
+  "issue_summary": "Legend 类的构造函数缺少 'draggable' 关键字参数，导致用户无法在创建图例时直接启用拖拽功能，必须进行额外的后续调用。",
+  "trigger_condition": {
+    "text": "尝试在创建 matplotlib.legend.Legend 对象时，向其 __init__ 方法传递一个名为 'draggable' 的关键字参数（例如 draggable=True）。",
+    "evidence": [
+      "原始 Issue 明确询问“Is there a code reason why one can not add a \"draggable=True\" keyword to the __init__ function for Legend?”",
+      "检索的 Legend.__init__ 源码片段显示其参数列表很长，但不包含 draggable。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "当向 Legend.__init__ 传递 draggable 参数时，会引发 TypeError，因为该参数不被 __init__ 签名接受。",
+    "symptom_type": "exception",
+    "evidence": [
+      "根据 Python 语言规则，向函数传递未在签名中定义的参数会引发 TypeError。",
+      "相关测试 TestLegendFunction.test_legend_positional_handles_only 展示了传递意外参数时引发的 TypeError。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "修复后，Legend.__init__ 方法应接受一个可选的 'draggable' 关键字参数。当传递 draggable=True 时，新创建的 Legend 对象的拖拽状态应被立即启用（即 get_draggable() 返回 True）。当传递 draggable=False 或不传递时，拖拽状态应被禁用。",
+    "evidence": [
+      "原始 Issue 期望“add a \"draggable=True\" keyword to the __init__ function”。",
+      "现有 set_draggable(True) 和 get_draggable() 方法定义了拖拽状态的语义。",
+      "测试 test_get_set_draggable 展示了拖拽状态 True/False 的预期行为。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "Legend",
+      "kind": "class",
+      "source_path": "lib/matplotlib/legend.py",
+      "reason": "Issue 的核心是关于 Legend 类构造函数的参数缺失。"
+    },
+    {
+      "name": "Legend.__init__",
+      "kind": "method",
+      "source_path": "lib/matplotlib/legend.py",
+      "reason": "需要修改此方法来添加 draggable 参数。"
+    },
+    {
+      "name": "Legend.set_draggable",
+      "kind": "method",
+      "source_path": "lib/matplotlib/legend.py",
+      "reason": "新参数的功能应与此方法的行为一致。"
+    },
+    {
+      "name": "Legend.get_draggable",
+      "kind": "method",
+      "source_path": "lib/matplotlib/legend.py",
+      "reason": "用于验证 draggable 参数设置后的状态。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "lib/matplotlib/legend.py",
+      "object": "Legend.__init__ 方法的参数列表和初始化逻辑",
+      "lines": "306-575",
+      "reason": "这是需要添加 'draggable' 参数并可能在其内部调用 set_draggable 或初始化 _draggable 属性的地方。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_get_set_draggable",
+      "test_file": "lib/matplotlib/tests/test_legend.py",
+      "why_relevant": "它直接测试了 Legend 对象的拖拽状态设置和获取，包含了创建图例、调用 set_draggable 和 get_draggable 的完整协议。",
+      "reusable_parts": [
+        "import plt (matplotlib.pyplot)",
+        "创建基础图例对象：legend = plt.legend()",
+        "使用 assert 验证 get_draggable() 返回值",
+        "调用 set_draggable(True/False) 的方法"
+      ],
+      "possible_gap": "该测试在创建图例后调用 set_draggable，而 Issue 要求在 __init__ 时设置。需要将 set_draggable 的调用移到 Legend 构造函数调用中，作为参数传递。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "argument",
+      "current_pattern": "legend = plt.legend() # 无 draggable 参数",
+      "target_pattern": "legend = plt.legend(draggable=True) # 添加 draggable 关键字参数",
+      "reason": "这是触发 TypeError（当前行为）或成功创建并启用拖拽图例（期望行为）的直接方式。",
+      "confidence": "high"
+    },
+    {
+      "slot": "call_chain",
+      "current_pattern": "1. legend = plt.legend(); 2. legend.set_draggable(True)",
+      "target_pattern": "1. legend = plt.legend(draggable=True)",
+      "reason": "将两步操作合并为一步，测试 __init__ 参数是否等效于后续调用 set_draggable。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "是否引发 TypeError（关于意外关键字参数 'draggable'）",
+      "reason": "如果功能未实现，传递 draggable 参数会立即引发异常，这是最直接的错误症状。"
+    },
+    {
+      "kind": "return_value",
+      "expression_hint": "legend.get_draggable() 的返回值（应为布尔值）",
+      "reason": "这是验证 draggable 参数是否成功设置拖拽状态的公开API。"
+    },
+    {
+      "kind": "type",
+      "expression_hint": "type(legend) 和 legend.__class__.__name__",
+      "reason": "确保创建的对象确实是 Legend 实例，而不是因参数错误导致的其他异常。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "使用 draggable=True 参数创建的 Legend 对象，其 get_draggable() 方法应返回 True。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言私有属性 _draggable 的内部结构或值。",
+      "reason": "get_draggable() 是公开的、稳定的 API，用于查询拖拽状态，与 set_draggable 的行为一致。"
+    },
+    {
+      "assertion_goal": "使用 draggable=False 参数创建的 Legend 对象，其 get_draggable() 方法应返回 False。",
+      "preferred_assertion_style": "equals",
+      "avoid": "断言与拖拽功能无关的其他图例属性。",
+      "reason": "验证参数能正确设置禁用状态，确保 API 的完整性和一致性。"
+    },
+    {
+      "assertion_goal": "不传递 draggable 参数创建的 Legend 对象，其 get_draggable() 方法应返回 False（或默认值）。",
+      "preferred_assertion_style": "equals",
+      "avoid": "假设默认值为 True 或 None。",
+      "reason": "验证向后兼容性，确保未使用新参数的现有代码行为不变。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "使用 matplotlib.pyplot 创建简单的图形和坐标轴，以便生成用于图例的句柄和标签。",
+      "source": "retrieved_test",
+      "confidence": "high"
+    },
+    {
+      "hint": "测试可能需要在非交互式后端下运行，例如 'Agg'。",
+      "source": "inference",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "draggable 参数的默认值应该是什么（可能是 False 以保持向后兼容）？",
+    "如果实现了该功能，传递 draggable=None 是否应该切换状态？还是应该被视为 False？",
+    "除了 TypeError，传递 draggable 参数是否会引起其他副作用或初始化顺序问题？",
+    "是否需要修改 Legend 类的文档字符串（__init__ 的 docstring）来反映新参数？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "legend draggable as keyword\n<!--To help us understand and resolve your issue, please fill out the form to the best of your ability.-->\n<!--You can feel free to delete the sections that do not apply.-->\n\n### Feature request\n\n**There is not keyword to make legend draggable at creation**\n\n<!--A short 1-2 sentences that succinctly describes the bug-->\n\nIs there a code reason why one can not add a \"draggable=True\" keyword to the __init__ function for Legend?  This would be more handy than having to call it after legend creation.  And, naively, it would seem simple to do.  But maybe there is a reason why it would not work?",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "当前 matplotlib.legend.Legend 类的 __init__ 方法不支持 'draggable' 关键字参数。用户创建图例后，必须额外调用 legend.set_draggable(True) 来启用拖拽功能。用户期望能在创建图例时直接通过 __init__ 的 draggable 参数设置拖拽状态，就像设置 loc、title 等其他参数一样。这看起来是一个缺失的功能，而非错误，但需要确认是否存在技术原因阻止添加此参数。",
+      "facts_from_issue": [
+        "用户希望向 Legend.__init__ 函数添加一个 'draggable=True' 关键字参数。",
+        "目前用户必须在图例创建后调用 set_draggable 来启用拖拽。",
+        "用户认为这应该很简单，但询问是否存在代码原因导致不能这样做。"
+      ],
+      "facts_from_retrieved_context": [
+        "源码显示 Legend 类有一个 set_draggable 方法和一个 get_draggable 方法。",
+        "Legend.__init__ 方法签名很长，包含许多参数，但没有 draggable 参数。",
+        "Legend.__init__ 方法内部初始化了 self._draggable = None。",
+        "测试 test_get_set_draggable 展示了创建图例后调用 set_draggable 和 get_draggable 的正常流程。",
+        "matplotlib.text._AnnotationBase 类有一个 draggable 方法，其逻辑与 Legend.set_draggable 类似。"
+      ],
+      "inferences": [
+        "Legend 类支持拖拽功能，但该功能的状态不能在构造时设置。",
+        "添加 draggable 参数到 __init__ 可能涉及在初始化时调用 set_draggable 或直接设置 _draggable 属性。",
+        "这可能是一个功能增强请求，旨在提高 API 的便利性和一致性。"
+      ],
+      "do_not_assume": [
+        "添加 draggable 参数会导致任何技术问题或破坏现有代码。",
+        "draggable 参数应该接受的确切值类型（例如布尔值或 None）。",
+        "实现此功能需要对 Legend.__init__ 方法进行的具体修改。"
+      ]
+    },
+    "issue_summary": "Legend 类的构造函数缺少 'draggable' 关键字参数，导致用户无法在创建图例时直接启用拖拽功能，必须进行额外的后续调用。",
+    "trigger_condition": {
+      "text": "尝试在创建 matplotlib.legend.Legend 对象时，向其 __init__ 方法传递一个名为 'draggable' 的关键字参数（例如 draggable=True）。",
+      "evidence": [
+        "原始 Issue 明确询问“Is there a code reason why one can not add a \"draggable=True\" keyword to the __init__ function for Legend?”",
+        "检索的 Legend.__init__ 源码片段显示其参数列表很长，但不包含 draggable。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "当向 Legend.__init__ 传递 draggable 参数时，会引发 TypeError，因为该参数不被 __init__ 签名接受。",
+      "symptom_type": "exception",
+      "evidence": [
+        "根据 Python 语言规则，向函数传递未在签名中定义的参数会引发 TypeError。",
+        "相关测试 TestLegendFunction.test_legend_positional_handles_only 展示了传递意外参数时引发的 TypeError。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "修复后，Legend.__init__ 方法应接受一个可选的 'draggable' 关键字参数。当传递 draggable=True 时，新创建的 Legend 对象的拖拽状态应被立即启用（即 get_draggable() 返回 True）。当传递 draggable=False 或不传递时，拖拽状态应被禁用。",
+      "evidence": [
+        "原始 Issue 期望“add a \"draggable=True\" keyword to the __init__ function”。",
+        "现有 set_draggable(True) 和 get_draggable() 方法定义了拖拽状态的语义。",
+        "测试 test_get_set_draggable 展示了拖拽状态 True/False 的预期行为。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "Legend",
+        "kind": "class",
+        "source_path": "lib/matplotlib/legend.py",
+        "reason": "Issue 的核心是关于 Legend 类构造函数的参数缺失。"
+      },
+      {
+        "name": "Legend.__init__",
+        "kind": "method",
+        "source_path": "lib/matplotlib/legend.py",
+        "reason": "需要修改此方法来添加 draggable 参数。"
+      },
+      {
+        "name": "Legend.set_draggable",
+        "kind": "method",
+        "source_path": "lib/matplotlib/legend.py",
+        "reason": "新参数的功能应与此方法的行为一致。"
+      },
+      {
+        "name": "Legend.get_draggable",
+        "kind": "method",
+        "source_path": "lib/matplotlib/legend.py",
+        "reason": "用于验证 draggable 参数设置后的状态。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "lib/matplotlib/legend.py",
+        "object": "Legend.__init__ 方法的参数列表和初始化逻辑",
+        "lines": "306-575",
+        "reason": "这是需要添加 'draggable' 参数并可能在其内部调用 set_draggable 或初始化 _draggable 属性的地方。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_get_set_draggable",
+        "test_file": "lib/matplotlib/tests/test_legend.py",
+        "why_relevant": "它直接测试了 Legend 对象的拖拽状态设置和获取，包含了创建图例、调用 set_draggable 和 get_draggable 的完整协议。",
+        "reusable_parts": [
+          "import plt (matplotlib.pyplot)",
+          "创建基础图例对象：legend = plt.legend()",
+          "使用 assert 验证 get_draggable() 返回值",
+          "调用 set_draggable(True/False) 的方法"
+        ],
+        "possible_gap": "该测试在创建图例后调用 set_draggable，而 Issue 要求在 __init__ 时设置。需要将 set_draggable 的调用移到 Legend 构造函数调用中，作为参数传递。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "argument",
+        "current_pattern": "legend = plt.legend() # 无 draggable 参数",
+        "target_pattern": "legend = plt.legend(draggable=True) # 添加 draggable 关键字参数",
+        "reason": "这是触发 TypeError（当前行为）或成功创建并启用拖拽图例（期望行为）的直接方式。",
+        "confidence": "high"
+      },
+      {
+        "slot": "call_chain",
+        "current_pattern": "1. legend = plt.legend(); 2. legend.set_draggable(True)",
+        "target_pattern": "1. legend = plt.legend(draggable=True)",
+        "reason": "将两步操作合并为一步，测试 __init__ 参数是否等效于后续调用 set_draggable。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "是否引发 TypeError（关于意外关键字参数 'draggable'）",
+        "reason": "如果功能未实现，传递 draggable 参数会立即引发异常，这是最直接的错误症状。"
+      },
+      {
+        "kind": "return_value",
+        "expression_hint": "legend.get_draggable() 的返回值（应为布尔值）",
+        "reason": "这是验证 draggable 参数是否成功设置拖拽状态的公开API。"
+      },
+      {
+        "kind": "type",
+        "expression_hint": "type(legend) 和 legend.__class__.__name__",
+        "reason": "确保创建的对象确实是 Legend 实例，而不是因参数错误导致的其他异常。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "使用 draggable=True 参数创建的 Legend 对象，其 get_draggable() 方法应返回 True。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言私有属性 _draggable 的内部结构或值。",
+        "reason": "get_draggable() 是公开的、稳定的 API，用于查询拖拽状态，与 set_draggable 的行为一致。"
+      },
+      {
+        "assertion_goal": "使用 draggable=False 参数创建的 Legend 对象，其 get_draggable() 方法应返回 False。",
+        "preferred_assertion_style": "equals",
+        "avoid": "断言与拖拽功能无关的其他图例属性。",
+        "reason": "验证参数能正确设置禁用状态，确保 API 的完整性和一致性。"
+      },
+      {
+        "assertion_goal": "不传递 draggable 参数创建的 Legend 对象，其 get_draggable() 方法应返回 False（或默认值）。",
+        "preferred_assertion_style": "equals",
+        "avoid": "假设默认值为 True 或 None。",
+        "reason": "验证向后兼容性，确保未使用新参数的现有代码行为不变。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "使用 matplotlib.pyplot 创建简单的图形和坐标轴，以便生成用于图例的句柄和标签。",
+        "source": "retrieved_test",
+        "confidence": "high"
+      },
+      {
+        "hint": "测试可能需要在非交互式后端下运行，例如 'Agg'。",
+        "source": "inference",
+        "confidence": "medium"
+      }
+    ],
+    "uncertainties": [
+      "draggable 参数的默认值应该是什么（可能是 False 以保持向后兼容）？",
+      "如果实现了该功能，传递 draggable=None 是否应该切换状态？还是应该被视为 False？",
+      "除了 TypeError，传递 draggable 参数是否会引起其他副作用或初始化顺序问题？",
+      "是否需要修改 Legend 类的文档字符串（__init__ 的 docstring）来反映新参数？"
+    ]
+  }
+}

@@ -1,0 +1,118 @@
+instance_id: sphinx-doc__sphinx-8435
+
+issue_summary: Sphinx 的 `autodoc_type_aliases` 配置无法替换模块级变量和类属性类型注解中的类型别名。
+
+trigger_condition:
+{
+  "text": "在 Sphinx 项目的 `conf.py` 中设置 `autodoc_type_aliases` 字典（例如 `{'String': 'example.MyString'}`），然后使用 `.. automodule::` 指令（或相关指令）为包含类型注解为 `String` 的模块级变量或类属性的模块生成文档。",
+  "evidence": [
+    "Issue 中的复现代码展示了 `autodoc_type_aliases` 配置和 `.. automodule::` 指令的使用。",
+    "相关测试 `test_autodoc_type_aliases` 展示了如何通过 `app.config.autodoc_type_aliases` 设置配置并调用 `do_autodoc`。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的文档中，模块级变量和类属性的类型字段（`:type:`）显示为原始类型名（如 `String`），而不是 `autodoc_type_aliases` 中映射的目标类型名（如 `example.MyString`）。",
+  "symptom_type": "wrong_type",
+  "evidence": [
+    "Issue 描述明确指出 `autodoc_type_aliases does not effect to variables and attributes`。",
+    "期望行为部分说明 `autodoc_type_aliases` 应应用于 `example.var` 和 `example.MyString.var`。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当 `autodoc_type_aliases` 配置正确时，生成的文档中，模块级变量和类属性的类型字段应显示为映射后的类型名（例如 `example.MyString`）。",
+  "evidence": [
+    "Issue 的期望行为部分：\"`autodoc_type_aliases` should be applied to `example.var` and `example.MyString.var`.\"",
+    "相关测试 `test_autodoc_type_aliases` 展示了该配置对函数签名类型替换的预期效果。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "autodoc_type_aliases",
+    "kind": "config",
+    "source_path": "",
+    "reason": "这是 Issue 中讨论的核心配置项，用于类型别名映射。"
+  },
+  {
+    "name": "do_autodoc",
+    "kind": "function",
+    "source_path": "",
+    "reason": "相关测试中用于生成文档输出的核心函数，是触发文档生成和观测结果的入口。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "config",
+    "current_pattern": "测试 `test_autodoc_type_aliases` 中，配置应用于检查函数签名的类型替换。",
+    "target_pattern": "将 `autodoc_type_aliases` 配置应用于包含类型注解变量和属性的模块，并检查这些变量/属性的 `:type:` 字段。",
+    "reason": "当前测试只验证了函数签名的替换。为了触发缺陷，需要将相同的配置应用于变量和属性的文档生成场景。",
+    "confidence": "high"
+  },
+  {
+    "slot": "input",
+    "current_pattern": "测试 `test_autodoc_typed_instance_variables` 中，目标模块是 `target.typed_vars`，它包含各种带类型注解的属性。",
+    "target_pattern": "创建一个新的测试模块，其中包含使用类型别名（如 `String`）的模块级变量和类属性，并在 `autodoc_type_aliases` 中配置该别名的映射。",
+    "reason": "需要提供一个具体的类型别名和映射目标，以观察替换是否发生。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "type",
+    "expression_hint": "`do_autodoc` 返回的文档行列表（`list(actual)`）中，查找 `:type:` 字段后的字符串。对于模块级变量（`.. py:data::`）和类属性（`.. py:attribute::`），观察其 `:type:` 的值是原始类型名还是映射后的类型名。",
+    "reason": "错误症状直接体现在生成的文档类型字段中。这是公开的、稳定的输出。"
+  },
+  {
+    "kind": "file_output",
+    "expression_hint": "如果测试生成临时文件，可以观察最终生成的 `.txt` 或 `.html` 文件内容中类型名的表示。",
+    "reason": "文档的最终输出格式可能更接近用户实际看到的内容。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的文档中，模块级变量和类属性的 `:type:` 字段应包含 `autodoc_type_aliases` 映射的目标类型名（例如 `example.MyString`），而不是原始别名（例如 `String`）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的文档输出字符串列表，因为其他无关部分（如空白行、其他成员）可能变化。避免断言私有属性或内部缓存。",
+    "reason": "核心问题是类型名是否被替换。使用 `contains_fragment` 检查 `:type:` 行中是否出现目标类型名，既稳定又直接针对 Issue。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "使用 `@pytest.mark.sphinx` fixture 创建测试应用（`app`）。可能需要设置 `testroot='ext-autodoc'` 或创建自定义测试根目录以包含示例模块。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "通过 `app.config.autodoc_type_aliases = {...}` 在测试中设置配置。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "使用 `do_autodoc` 函数生成特定对象（如 `'module'`, `'example'`）的文档。需要从相关测试中导入或定位此函数。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "`autodoc_type_aliases` 是否应影响 `from __future__ import annotations` 下的注解（字符串形式）。",
+  "类型别名映射的确切输出格式（是完全限定名 `example.MyString` 还是短名 `MyString`）。",
+  "除了 `:type:` 字段，是否还有其他相关字段（如 `:value:` 中的类型）需要被替换。"
+]

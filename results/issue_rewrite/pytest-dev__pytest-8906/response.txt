@@ -1,0 +1,182 @@
+```json
+{
+    "original_issue": {
+        "text": "Improve handling of skip for module level\nThis is potentially about updating docs, updating error messages or introducing a new API.\n\nConsider the following scenario:\n\n`pos_only.py` is using Python 3,8 syntax:\n```python\ndef foo(a, /, b):\n    return a + b\n```\n\nIt should not be tested under Python 3.6 and 3.7.\nThis is a proper way to skip the test in Python older than 3.8:\n```python\nfrom pytest import raises, skip\nimport sys\nif sys.version_info < (3, 8):\n    skip(msg=\"Requires Python >= 3.8\", allow_module_level=True)\n\n# import must be after the module level skip:\nfrom pos_only import *\n\ndef test_foo():\n    assert foo(10, 20) == 30\n    assert foo(10, b=20) == 30\n    with raises(TypeError):\n        assert foo(a=10, b=20)\n```\n\nMy actual test involves parameterize and a 3.8 only class, so skipping the test itself is not sufficient because the 3.8 class was used in the parameterization.\n\nA naive user will try to initially skip the module like:\n\n```python\nif sys.version_info < (3, 8):\n    skip(msg=\"Requires Python >= 3.8\")\n```\nThis issues this error:\n\n>Using pytest.skip outside of a test is not allowed. To decorate a test function, use the @pytest.mark.skip or @pytest.mark.skipif decorators instead, and to skip a module use `pytestmark = pytest.mark.{skip,skipif}.\n\nThe proposed solution `pytestmark = pytest.mark.{skip,skipif}`, does not work  in my case: pytest continues to process the file and fail when it hits the 3.8 syntax (when running with an older version of Python).\n\nThe correct solution, to use skip as a function is actively discouraged by the error message.\n\nThis area feels a bit unpolished.\nA few ideas to improve:\n\n1. Explain skip with  `allow_module_level` in the error message. this seems in conflict with the spirit of the message.\n2. Create an alternative API to skip a module to make things easier: `skip_module(\"reason\")`, which can call `_skip(msg=msg, allow_module_level=True)`.",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "当用户需要在模块级别跳过测试（例如，因为模块包含特定Python版本的语法），他们可能会尝试使用 `pytest.skip()` 函数。如果调用时没有设置 `allow_module_level=True` 参数，pytest会报错并建议使用 `pytestmark = pytest.mark.{skip,skipif}`。然而，在某些情况下（例如模块导入使用了新版本Python语法的代码），`pytestmark` 方法可能无效，因为pytest在设置标记前会先处理模块导入，导致语法错误。正确的做法是使用 `pytest.skip(msg, allow_module_level=True)`，但错误信息却劝阻这种用法。这造成了用户体验上的不一致和困惑。",
+        "facts_from_issue": [
+            "用户尝试在模块级别使用 `pytest.skip(msg=\"Requires Python >= 3.8\")` 来跳过包含Python 3.8语法的测试模块。",
+            "这导致错误信息：\"Using pytest.skip outside of a test is not allowed. To decorate a test function, use the @pytest.mark.skip or @pytest.mark.skipif decorators instead, and to skip a module use `pytestmark = pytest.mark.{skip,skipif}`.\"",
+            "错误信息中建议的 `pytestmark = pytest.mark.{skip,skipif}` 方法在某些情况下（如模块导入包含新版本语法）无效，因为pytest会先处理导入再应用标记。",
+            "正确的解决方案是使用 `pytest.skip(msg=\"Requires Python >= 3.8\", allow_module_level=True)`。",
+            "用户认为错误信息与正确的解决方案（使用 `allow_module_level=True`）存在冲突，并建议改进错误信息或提供新的API（如 `skip_module`）。"
+        ],
+        "facts_from_retrieved_context": [
+            "检索到的测试 `test_module_level_skip_error` 验证了在模块级别使用 `pytest.skip()` 会导致收集错误，并输出特定错误信息。",
+            "检索到的测试 `test_module_level_skip_with_allow_module_level` 验证了使用 `pytest.skip(\"skip_module_level\", allow_module_level=True)` 是允许的，并会导致测试被跳过。"
+        ],
+        "inferences": [
+            "`pytest.skip` 函数有一个 `allow_module_level` 参数，当设置为 `True` 时，允许在模块级别调用。",
+            "错误信息没有提及 `allow_module_level` 参数，这可能导致用户不知道正确的用法。",
+            "`pytestmark` 机制可能在模块导入阶段之后才生效，因此无法阻止因导入包含不兼容语法的模块而导致的解析错误。"
+        ],
+        "do_not_assume": [
+            "具体的错误信息生成代码位于哪个文件。",
+            "`skip_module` API 是否会被实现。",
+            "文档中关于 `allow_module_level` 的说明是否充分。"
+        ]
+    },
+    "issue_summary": "pytest在模块级别跳过测试的错误信息与正确用法（使用`allow_module_level=True`）不一致，且建议的替代方案（`pytestmark`）在某些导入场景下无效。",
+    "trigger_condition": {
+        "text": "在一个测试模块的顶层（导入语句之前或之间），调用 `pytest.skip(\"some reason\")` 函数，且不传递 `allow_module_level=True` 参数。该模块可能包含与当前Python版本不兼容的语法（例如，在Python 3.6中导入使用Python 3.8位置参数语法的模块）。",
+        "evidence": [
+            "Issue 中用户尝试的代码：`if sys.version_info < (3, 8): skip(msg=\"Requires Python >= 3.8\")`",
+            "Issue 中描述的错误信息：\"Using pytest.skip outside of a test is not allowed...\"",
+            "检索测试 `test_module_level_skip_error` 展示了触发此错误的代码模式。"
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "pytest 报告收集错误，输出错误信息：\"Using pytest.skip outside of a test is not allowed. To decorate a test function, use the @pytest.mark.skip or @pytest.mark.skipif decorators instead, and to skip a module use `pytestmark = pytest.mark.{skip,skipif}`.\" 如果模块包含不兼容的语法，可能还会先遇到语法错误。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中引用的错误信息。",
+            "检索测试 `test_module_level_skip_error` 的断言目标就是匹配该错误信息。"
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当用户在模块级别需要跳过测试时，pytest 应提供清晰、一致的指导。理想情况下，错误信息应提及 `allow_module_level=True` 参数作为有效的模块级跳过方法，或者 `pytestmark` 机制应能有效阻止不兼容模块的导入和解析。",
+        "evidence": [
+            "Issue 中用户指出正确的解决方案是使用 `skip(msg, allow_module_level=True)`。",
+            "Issue 中用户建议改进错误信息或提供新API。",
+            "检索测试 `test_module_level_skip_with_allow_module_level` 表明 `allow_module_level=True` 是有效的跳过机制。"
+        ],
+        "confidence": "medium"
+    },
+    "target_apis": [
+        {
+            "name": "pytest.skip",
+            "kind": "function",
+            "source_path": "",
+            "reason": "Issue 的核心是关于 `pytest.skip` 函数在模块级别的使用行为及其错误信息。"
+        },
+        {
+            "name": "pytest.mark.skip",
+            "kind": "function",
+            "source_path": "",
+            "reason": "错误信息中建议的替代方案之一。"
+        },
+        {
+            "name": "pytest.mark.skipif",
+            "kind": "function",
+            "source_path": "",
+            "reason": "错误信息中建议的替代方案之一。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "",
+            "object": "生成 `pytest.skip` 在模块级别调用错误信息的代码",
+            "lines": "",
+            "reason": "Issue 指出错误信息没有提及 `allow_module_level=True` 这个正确的解决方案，存在误导。"
+        },
+        {
+            "path": "",
+            "object": "处理 `pytestmark` 标记与应用模块导入/解析顺序的代码",
+            "lines": "",
+            "reason": "Issue 指出 `pytestmark` 方法在某些情况下（导入不兼容语法模块）无效，暗示标记应用时机可能早于模块解析错误。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_module_level_skip_error",
+            "test_file": "testing/test_skipping.py",
+            "why_relevant": "该测试直接验证了触发条件（在模块级别调用 `pytest.skip()`）会导致特定的错误信息，与Issue描述的核心错误现象完全一致。",
+            "reusable_parts": [
+                "使用 `pytester.makepyfile` 创建临时测试模块的协议",
+                "在模块顶层调用 `pytest.skip()` 的代码模式",
+                "使用 `result.stdout.fnmatch_lines` 来断言错误信息输出"
+            ],
+            "possible_gap": "该测试仅验证了错误信息的产生，没有涉及Issue中提到的 `pytestmark` 方法无效的场景（即模块包含不兼容语法导致导入失败）。需要变异测试模块内容，使其包含特定Python版本的语法。"
+        },
+        {
+            "test_name": "test_module_level_skip_with_allow_module_level",
+            "test_file": "testing/test_skipping.py",
+            "why_relevant": "该测试展示了正确的模块级跳过方法（使用 `allow_module_level=True`），并验证了跳过行为。这对应Issue中用户指出的正确解决方案。",
+            "reusable_parts": [
+                "使用 `pytester.makepyfile` 创建临时测试模块的协议",
+                "调用 `pytest.skip(..., allow_module_level=True)` 的代码模式",
+                "使用 `result.stdout.fnmatch_lines` 来断言跳过输出"
+            ],
+            "possible_gap": "该测试没有触发错误信息，也没有测试 `pytestmark` 方法在导入不兼容模块时的行为。需要将其与错误场景结合或对比。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "argument",
+            "current_pattern": "在 `test_module_level_skip_error` 测试中，临时模块代码为：`pytest.skip(\"skip_module_level\")`",
+            "target_pattern": "临时模块代码应包含条件判断和特定Python版本的语法导入，例如：`if sys.version_info < (3, 8): pytest.skip(\"Requires Python >= 3.8\")` 后跟 `from module_with_38_syntax import *`",
+            "reason": "Issue 强调用户场景涉及条件跳过和导入不兼容语法的模块。仅调用 `skip()` 不足以复现 `pytestmark` 方法无效的问题。添加条件导入可以测试错误信息建议的替代方案是否真的有效。",
+            "confidence": "high"
+        },
+        {
+            "slot": "config",
+            "current_pattern": "测试在默认的pytest配置下运行。",
+            "target_pattern": "使用较低版本的Python解释器（如3.6或3.7）运行测试，或者模拟该环境。",
+            "reason": "Issue 的核心场景是在旧版Python中跳过包含新版语法的测试。运行环境是触发条件的一部分。",
+            "confidence": "medium"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "`result.stdout` 中的文本输出，特别是错误信息或跳过信息。",
+            "reason": "Issue 的核心是关于错误信息的内容和准确性。观察 stdout 可以判断是否出现了预期的错误信息，或者测试是否被正确跳过。"
+        },
+        {
+            "kind": "file_output",
+            "expression_hint": "由 `pytester.makepyfile` 创建的临时测试文件的内容。",
+            "reason": "需要确保测试文件包含了触发条件（模块级 `skip` 调用和可能的不兼容语法导入）。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "当在模块级别调用 `pytest.skip()` 且未设置 `allow_module_level=True` 时，产生的错误信息应清晰指导用户，可能提及 `allow_module_level=True` 参数。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言完整的、一字不差的错误信息字符串，因为改进可能涉及措辞调整。避免断言内部状态或私有变量。",
+            "reason": "Issue 是关于错误信息质量的。断言应检查错误信息中是否包含关键指导（如对 `allow_module_level` 的提及），而不是固定的字符串，这样更稳定且与Issue目标（改进信息）对齐。"
+        },
+        {
+            "assertion_goal": "当使用 `pytest.skip(..., allow_module_level=True)` 时，整个测试模块应被跳过，不执行任何测试函数，也不因导入不兼容语法而崩溃。",
+            "preferred_assertion_style": "contains_fragment",
+            "avoid": "断言测试函数内部的 `assert` 语句未执行（这难以直接观测）。避免断言私有收集状态。",
+            "reason": "Issue 指出这是正确的解决方案。观察 stdout 中是否出现跳过标记（如 'SKIP'）是公开、稳定的行为。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "使用 `pytester` fixture 来创建和运行临时测试文件。这是检索到的相关测试中使用的标准协议。",
+            "source": "retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "可能需要创建辅助模块文件（如 `pos_only.py`），其中包含特定Python版本的语法（如位置参数语法 `/`），以模拟不兼容导入场景。",
+            "source": "issue",
+            "confidence": "medium"
+        },
+        {
+            "hint": "使用 `sys.version_info` 进行条件判断，以模拟版本相关的跳过逻辑。",
+            "source": "issue",
+            "confidence": "high"
+        }
+    ],
+    "uncertainties": [
+        "错误信息生成的确切代码位置和逻辑。",
+        "`pytestmark` 标记在处理模块导入和语法解析时的具体应用顺序和机制。",
+        "除了错误信息，`pytest.skip` 函数内部在处理 `allow_module_level` 参数时是否有其他边界情况或缺陷。"
+    ]
+}
+```

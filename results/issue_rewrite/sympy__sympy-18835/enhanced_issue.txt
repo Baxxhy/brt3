@@ -1,0 +1,114 @@
+instance_id: sympy__sympy-18835
+
+issue_summary: `uniq` 函数在迭代过程中允许修改传入的序列而不报错，导致输出错误，应像 Python 内置容器一样在大小变化时抛出 `RuntimeError`。
+
+trigger_condition:
+{
+  "text": "调用 `uniq(seq)` 并开始迭代其返回的迭代器，在迭代过程中（例如在 `for` 循环体内）修改传入的序列 `seq`（例如调用 `seq.remove(item)`、`seq.pop()`、`seq.append(item)` 等改变其长度的操作）。",
+  "evidence": [
+    "Issue 中的示例：`f=list('THISTLE'); for i in uniq(f): f.remove(i)`。",
+    "Issue 描述：\"the output will silently be wrong if you modify a passed list\"。",
+    "源码显示 `uniq` 使用 `for i, s in enumerate(seq):` 进行迭代，序列变化可能影响枚举。"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "迭代 `uniq(seq)` 时修改 `seq` 不会引发异常，但 `uniq` 的输出会缺失元素（例如，对于输入 `list('THISTLE')`，只输出 'T', 'I', 'L' 而不是所有唯一字母）。",
+  "symptom_type": "wrong_return",
+  "evidence": [
+    "Issue 示例输出：`'T'`, `'I'`, `'L'`（缺失了 'H', 'S', 'E' 等）。",
+    "Issue 描述：\"the output will silently be wrong\"。"
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当在迭代 `uniq(seq)` 的过程中检测到传入序列 `seq` 的大小（长度）发生变化时，`uniq` 应抛出 `RuntimeError`（类似于 Python 内置容器迭代的保护行为），从而防止产生错误的输出。",
+  "evidence": [
+    "Issue 明确建议：\"recording the size at the start and then checking the size and raising a similar RuntimeError if the size changes\"。",
+    "Issue 引用 Python 内置行为作为期望的参照：\"When you iterate over a dictionary or set and try to modify it while doing so you get an error from Python\"。"
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "uniq",
+    "kind": "function",
+    "source_path": "sympy/utilities/iterables.py",
+    "reason": "这是 Issue 报告的直接目标函数，需要修改以添加迭代过程中对序列大小变化的检测。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "call_chain",
+    "current_pattern": "在测试中，通常直接调用 `list(uniq(seq))` 并断言结果。",
+    "target_pattern": "改为：`seq = list('THISTLE'); iterator = uniq(seq); for item in iterator: seq.remove(item)`。即在迭代过程中修改 `seq`。",
+    "reason": "Issue 的触发条件就是在迭代过程中修改序列。当前测试模式没有这个操作，因此需要变异调用链来触发缺陷路径。",
+    "confidence": "high"
+  },
+  {
+    "slot": "object_state",
+    "current_pattern": "测试中传入 `uniq` 的序列在迭代期间保持不变。",
+    "target_pattern": "传入一个可变序列（如列表），并在迭代器被消耗（例如在 `for` 循环中）时改变该序列的状态（如删除元素）。",
+    "reason": "改变序列状态（大小）是触发 `uniq` 内部潜在错误的关键。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "exception",
+    "expression_hint": "在 `for item in uniq(seq): seq.remove(item)` 循环执行期间，观察是否抛出 `RuntimeError` 及其错误信息。",
+    "reason": "Issue 期望在序列大小变化时抛出异常，这是最直接的公开行为观测点。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "如果在没有异常的情况下完成迭代，观察 `list(uniq(seq))` 或循环中产生的元素序列，检查是否缺失元素。",
+    "reason": "当前 buggy 行为表现为输出错误（缺失元素），这也是一个可观测的症状。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "在迭代 `uniq(seq)` 并修改 `seq` 时，应抛出 `RuntimeError`。",
+    "preferred_assertion_style": "raises",
+    "avoid": "断言具体的缺失元素列表（因为输出可能不稳定），或断言私有变量。",
+    "reason": "Issue 明确要求抛出 `RuntimeError`，使用 `raises` 断言最直接且稳定。"
+  },
+  {
+    "assertion_goal": "抛出的异常应包含指示大小变化的信息（如 'changed size during iteration'）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言完整的异常信息字符串（可能因 Python 版本或实现细节而变化）。",
+    "reason": "检查错误信息中是否包含关键片段，可以更稳定地验证异常性质，同时避免对精确字符串的依赖。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "测试需要导入 `uniq`：`from sympy.utilities.iterables import uniq`。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  },
+  {
+    "hint": "可以使用 `pytest.raises` 或 SymPy 自己的 `raises` 工具（如 `from sympy.utilities.pytest import raises`）来断言异常。",
+    "source": "retrieved_test",
+    "confidence": "medium"
+  }
+]
+
+uncertainties:
+[
+  "`uniq` 函数是否应该检测所有类型的序列大小变化，还是仅检测长度变化（`len(seq)`）。",
+  "`uniq` 函数在 `TypeError` 分支（处理不可哈希元素）中，如果序列大小变化，是否也应该抛出异常。",
+  "对于迭代器或生成器作为输入的情况（`hasattr(seq, '__getitem__')` 为 False），`uniq` 的递归调用路径是否也需要保护。"
+]

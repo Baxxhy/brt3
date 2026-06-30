@@ -1,0 +1,645 @@
+你是一个软件测试和缺陷复现测试生成专家。你的任务是阅读一个 GitHub Issue、iCoRe 检索出的相关源代码片段、iCoRe 检索出的相关测试代码片段，并将它们转换成结构化的缺陷行为目标 BehaviorTarget。
+
+你的输出会被后续模块用于：
+1. 保留原始 Issue，避免后续生成过程丢失原始语义；
+2. 生成更清晰的 clarified_issue，用于后续 mutation plan 和 BRT generation；
+3. 选择相似测试作为 seed test；
+4. 根据 Issue 对 seed test 做小范围变异；
+5. 插入运行时观测点；
+6. 生成稳定的 assert 断言；
+7. 判断候选测试的失败是否和 Issue 对齐。
+
+你必须遵守：
+1. 不要编造 Issue、源码或测试中没有依据的信息；
+2. 必须区分 Issue 明确说明的事实、检索源码/测试提供的事实、以及根据上下文推断出的内容；
+3. 输出必须是单个合法 JSON 对象；
+4. 不要输出 markdown；
+5. 不要输出解释性文字；
+6. 不要生成测试代码；
+7. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS 的信息；
+8. expected_behavior 必须描述修复后应该成立的正向语义，不能复述当前 buggy 行为；
+9. assertion_hints 的极性必须与 expected_behavior 一致；
+10. 如果修复后应正常执行，不要建议 raises；
+11. 如果修复后应存在某个能力、属性或行为，不要建议 not hasattr、not in 或“保持缺失”；
+12. 如果 Issue 没有给出完整精确字符串，不要猜测完整 patched 输出，只能提取稳定片段、类型、关系、公开状态或公开行为；
+13. target_apis.name 必须优先使用源码或测试中真实出现的函数名、方法名、类名或模块名；
+14. 不要把中文自然语言描述、模糊位置描述写进 target_apis.name；
+15. 如果只能描述模糊缺陷位置，请写入 suspected_bug_locations，不要写入 target_apis；
+16. assertion_hints 应优先鼓励 public behavior，即公开 API、公开返回值、公开属性、warning、异常类型、稳定输出片段、文件输出片段等；
+17. 避免建议断言私有字段、内部缓存、完整 SQL、完整 repr、完整 HTML、完整长字符串或无关数量；
+18. original_issue 必须保留原始 Issue 文本，不要改写；
+19. clarified_issue 可以更清楚地表达 Issue，但不能引入无依据的新事实；
+20. 输出必须能被 Python 的 json.loads 直接解析。
+
+请分析下面这个缺陷复现任务。
+
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+
+你需要同时输出：
+1. original_issue：原始 Issue，保持原文；
+2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
+3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
+
+====================
+【原始 Issue】
+ModelForm fields with callable defaults don't correctly propagate default values
+Description
+	
+When creating an object via the admin, if an inline contains an ArrayField in error, the validation will be bypassed (and the inline dismissed) if we submit the form a second time (without modification).
+go to /admin/my_app/thing/add/
+type anything in plop
+submit -> it shows an error on the inline
+submit again -> no errors, plop become unfilled
+# models.py
+class Thing(models.Model):
+	pass
+class RelatedModel(models.Model):
+	thing = models.ForeignKey(Thing, on_delete=models.CASCADE)
+	plop = ArrayField(
+		models.CharField(max_length=42),
+		default=list,
+	)
+# admin.py
+class RelatedModelForm(forms.ModelForm):
+	def clean(self):
+		raise ValidationError("whatever")
+class RelatedModelInline(admin.TabularInline):
+	form = RelatedModelForm
+	model = RelatedModel
+	extra = 1
+@admin.register(Thing)
+class ThingAdmin(admin.ModelAdmin):
+	inlines = [
+		RelatedModelInline
+	]
+It seems related to the hidden input containing the initial value:
+<input type="hidden" name="initial-relatedmodel_set-0-plop" value="test" id="initial-relatedmodel_set-0-id_relatedmodel_set-0-plop">
+I can fix the issue locally by forcing show_hidden_initial=False on the field (in the form init)
+
+
+====================
+【iCoRe 检索出的相关源代码】
+【源码片段 1】
+文件路径：django/contrib/postgres/fields/array.py
+对象名称：ArrayField
+节点类型：class
+父节点：array
+行号范围：18-235
+代码：
+class ArrayField(CheckFieldDefaultMixin, Field):
+    empty_strings_allowed = False
+    default_error_messages = {
+        "item_invalid": _("Item %(nth)s in the array did not validate:"),
+        "nested_array_mismatch": _("Nested arrays must have the same length."),
+    }
+    _default_hint = ("list", "[]")
+    def __init__(self, base_field, size=None, **kwargs):
+    @property
+    def model(self):
+    @model.setter
+    def model(self, model):
+    @classmethod
+    def _choices_is_value(cls, value):
+    def check(self, **kwargs):
+    def set_attributes_from_name(self, name):
+    @property
+    def description(self):
+    def db_type(self, connection):
+    def cast_db_type(self, connection):
+    def db_parameters(self, connection):
+    def get_placeholder(self, value, compiler, connection):
+    def get_db_prep_value(self, value, connection, prepared=False):
+    def deconstruct(self):
+    def to_python(self, value):
+    def _from_db_value(self, value, expression, connection):
+    def value_to_string(self, obj):
+    def get_transform(self, name):
+    def validate(self, value, model_instance):
+    def run_validators(self, value):
+    def formfield(self, **kwargs):
+
+
+【源码片段 2】
+文件路径：django/forms/fields.py
+对象名称：CharField
+节点类型：class
+父节点：fields
+行号范围：259-292
+代码：
+class CharField(Field):
+    def __init__(
+        self, *, max_length=None, min_length=None, strip=True, empty_value="", **kwargs
+    ):
+    def to_python(self, value):
+    def widget_attrs(self, widget):
+
+
+【源码片段 3】
+文件路径：django/forms/fields.py
+对象名称：clean
+节点类型：class_function
+父节点：Field
+行号范围：193-201
+代码：
+    def clean(self, value):
+        """
+        Validate the given value and return its "cleaned" value as an
+        appropriate Python object. Raise ValidationError for any errors.
+        """
+        value = self.to_python(value)
+        self.validate(value)
+        self.run_validators(value)
+        return value
+
+
+【源码片段 4】
+文件路径：django/contrib/admin/options.py
+对象名称：TabularInline
+节点类型：class
+父节点：options
+行号范围：2499-2500
+代码：
+class TabularInline(InlineModelAdmin):
+    template = "admin/edit_inline/tabular.html"
+
+
+【源码片段 5】
+文件路径：django/contrib/admin/options.py
+对象名称：ModelAdmin
+节点类型：class
+父节点：options
+行号范围：614-2281
+代码：
+class ModelAdmin(BaseModelAdmin):
+    """Encapsulate all admin options and functionality for a given model."""
+    list_display = ("__str__",)
+    list_display_links = ()
+    list_filter = ()
+    list_select_related = False
+    list_per_page = 100
+    list_max_show_all = 200
+    list_editable = ()
+    search_fields = ()
+    search_help_text = None
+    date_hierarchy = None
+    save_as = False
+    save_as_continue = True
+    save_on_top = False
+    paginator = Paginator
+    preserve_filters = True
+    inlines = ()
+    add_form_template = None
+    change_form_template = None
+    change_list_template = None
+    delete_confirmation_template = None
+    delete_selected_confirmation_template = None
+    object_history_template = None
+    popup_response_template = None
+    actions = ()
+    action_form = helpers.ActionForm
+    actions_on_top = True
+    actions_on_bottom = False
+    actions_selection_counter = True
+    checks_class = ModelAdminChecks
+    def __init__(self, model, admin_site):
+    def __str__(self):
+    def __repr__(self):
+    def get_inline_instances(self, request, obj=None):
+    def get_urls(self):
+    @property
+    def urls(self):
+    @property
+    def media(self):
+    def get_model_perms(self, request):
+    def _get_form_for_get_fields(self, request, obj):
+    def get_form(self, request, obj=None, change=False, **kwargs):
+    def get_changelist(self, request, **kwargs):
+    def get_changelist_instance(self, request):
+    def get_object(self, request, object_id, from_field=None):
+    def get_changelist_form(self, request, **kwargs):
+    def get_changelist_formset(self, request, **kwargs):
+    def get_formsets_with_inlines(self, request, obj=None):
+    def get_paginator(
+        self, request, queryset, per_page, orphans=0, allow_empty_first_page=True
+    ):
+    def log_addition(self, request, obj, message):
+    def log_change(self, request, obj, message):
+    def log_deletion(self, request, obj, object_repr):
+    @display(description=mark_safe('<input type="checkbox" id="action-toggle">'))
+    def action_checkbox(self, obj):
+    @staticmethod
+    def _get_action_description(func, name):
+    def _get_base_actions(self):
+    def _filter_actions_by_permissions(self, request, actions):
+    def get_actions(self, request):
+    def get_action_choices(self, request, default_choices=models.BLANK_CHOICE_DASH):
+    def get_action(self, action):
+    def get_list_display(self, request):
+    def get_list_display_links(self, request, list_display):
+    def get_list_filter(self, request):
+    def get_list_select_related(self, request):
+    def get_search_fields(self, request):
+    def get_search_results(self, request, queryset, search_term):
+    def get_preserved_filters(self, request):
+    def construct_change_message(self, request, form, formsets, add=False):
+    def message_user(
+        self, request, message, level=messages.INFO, extra_tags="", fail_silently=False
+    ):
+    def save_form(self, request, form, change):
+    def save_model(self, request, obj, form, change):
+    def delete_model(self, request, obj):
+    def delete_queryset(self, request, queryset):
+    def save_formset(self, request, form, formset, change):
+    def save_related(self, request, form, formsets, change):
+    def render_change_form(
+        self, request, context, add=False, change=False, form_url="", obj=None
+    ):
+    def response_add(self, request, obj, post_url_continue=None):
+    def response_change(self, request, obj):
+    def _response_post_save(self, request, obj):
+    def response_post_save_add(self, request, obj):
+    def response_post_save_change(self, request, obj):
+    def response_action(self, request, queryset):
+    def response_delete(self, request, obj_display, obj_id):
+    def render_delete_form(self, request, context):
+    def get_inline_formsets(self, request, formsets, inline_instances, obj=None):
+    def get_changeform_initial_data(self, request):
+    def _get_obj_does_not_exist_redirect(self, request, opts, object_id):
+    @csrf_protect_m
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+    def _changeform_view(self, request, object_id, form_url, extra_context):
+    def add_view(self, request, form_url="", extra_context=None):
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+    def _get_edited_object_pks(self, request, prefix):
+    def _get_list_editable_queryset(self, request, prefix):
+    @csrf_protect_m
+    def changelist_view(self, request, extra_context=None):
+    def get_deleted_objects(self, objs, request):
+    @csrf_protect_m
+    def delete_view(self, request, object_id, extra_context=None):
+    def _delete_view(self, request, object_id, extra_context):
+    def history_view(self, request, object_id, extra_context=None):
+    def get_formset_kwargs(self, request, obj, inline, prefix):
+    def _create_formsets(self, request, obj, change):
+
+
+
+====================
+【iCoRe 检索出的相关测试代码】
+【相关测试 1】
+测试文件：tests/model_forms/tests.py
+测试名称：test_callable_field_default
+测试代码：
+class OtherModelFormTests(TestCase):
+    def test_callable_field_default(self):
+        class PublicationDefaultsForm(forms.ModelForm):
+            class Meta:
+                model = PublicationDefaults
+                fields = ("title", "date_published", "mode", "category")
+
+        self.maxDiff = 2000
+        form = PublicationDefaultsForm()
+        today_str = str(datetime.date.today())
+        self.assertHTMLEqual(
+            form.as_p(),
+            """
+            <p><label for="id_title">Title:</label>
+            <input id="id_title" maxlength="30" name="title" type="text" required>
+            </p>
+            <p><label for="id_date_published">Date published:</label>
+            <input id="id_date_published" name="date_published" type="text" value="{0}"
+                required>
+            <input id="initial-id_date_published" name="initial-date_published"
+                type="hidden" value="{0}">
+            </p>
+            <p><label for="id_mode">Mode:</label> <select id="id_mode" name="mode">
+            <option value="di" selected>direct</option>
+            <option value="de">delayed</option></select>
+            <input id="initial-id_mode" name="initial-mode" type="hidden" value="di">
+            </p>
+            <p>
+            <label for="id_category">Category:</label>
+            <select id="id_category" name="category">
+            <option value="1">Games</option>
+            <option value="2">Comics</option>
+            <option value="3" selected>Novel</option></select>
+            <input id="initial-id_category" name="initial-category" type="hidden"
+                value="3">
+            """.format(
+                today_str
+            ),
+        )
+        empty_data = {
+            "title": "",
+            "date_published": today_str,
+            "initial-date_published": today_str,
+            "mode": "di",
+            "initial-mode": "di",
+            "category": "3",
+            "initial-category": "3",
+        }
+        bound_form = PublicationDefaultsForm(empty_data)
+        self.assertFalse(bound_form.has_changed())
+
+【相关测试 2】
+测试文件：tests/admin_views/tests.py
+测试名称：AdminInlineTests.test_inherited_inline
+测试代码：
+@override_settings(ROOT_URLCONF="admin_views.urls")
+class AdminInlineTests(TestCase):
+    def test_inherited_inline(self):
+        "An inherited model can be saved as inlines. Regression for #11042"
+        # First add a new inline
+        self.post_data["fancydoodad_set-0-name"] = "Fancy Doodad 1"
+        collector_url = reverse(
+            "admin:admin_views_collector_change", args=(self.collector.pk,)
+        )
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(FancyDoodad.objects.count(), 1)
+        self.assertEqual(FancyDoodad.objects.all()[0].name, "Fancy Doodad 1")
+        doodad_pk = FancyDoodad.objects.all()[0].pk
+
+        # The PK link exists on the rendered form
+        response = self.client.get(collector_url)
+        self.assertContains(response, 'name="fancydoodad_set-0-doodad_ptr"')
+
+        # Now resave that inline
+        self.post_data["fancydoodad_set-INITIAL_FORMS"] = "1"
+        self.post_data["fancydoodad_set-0-doodad_ptr"] = str(doodad_pk)
+        self.post_data["fancydoodad_set-0-name"] = "Fancy Doodad 1"
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(FancyDoodad.objects.count(), 1)
+        self.assertEqual(FancyDoodad.objects.all()[0].name, "Fancy Doodad 1")
+
+        # Now modify that inline
+        self.post_data["fancydoodad_set-INITIAL_FORMS"] = "1"
+        self.post_data["fancydoodad_set-0-doodad_ptr"] = str(doodad_pk)
+        self.post_data["fancydoodad_set-0-name"] = "Fancy Doodad 1 Updated"
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(FancyDoodad.objects.count(), 1)
+        self.assertEqual(FancyDoodad.objects.all()[0].name, "Fancy Doodad 1 Updated")
+
+【相关测试 3】
+测试文件：tests/admin_views/tests.py
+测试名称：AdminViewOnSiteTests.test_add_view_form_and_formsets_run_validation
+测试代码：
+@override_settings(ROOT_URLCONF="admin_views.urls")
+class AdminViewOnSiteTests(TestCase):
+    def test_add_view_form_and_formsets_run_validation(self):
+        """
+        Issue #20522
+        Verifying that if the parent form fails validation, the inlines also
+        run validation even if validation is contingent on parent form data.
+        Also, assertFormError() and assertFormSetError() is usable for admin
+        forms and formsets.
+        """
+        # The form validation should fail because 'some_required_info' is
+        # not included on the parent form, and the family_name of the parent
+        # does not match that of the child
+        post_data = {
+            "family_name": "Test1",
+            "dependentchild_set-TOTAL_FORMS": "1",
+            "dependentchild_set-INITIAL_FORMS": "0",
+            "dependentchild_set-MAX_NUM_FORMS": "1",
+            "dependentchild_set-0-id": "",
+            "dependentchild_set-0-parent": "",
+            "dependentchild_set-0-family_name": "Test2",
+        }
+        response = self.client.post(
+            reverse("admin:admin_views_parentwithdependentchildren_add"), post_data
+        )
+        self.assertFormError(
+            response.context["adminform"],
+            "some_required_info",
+            ["This field is required."],
+        )
+        self.assertFormError(response.context["adminform"], None, [])
+        self.assertFormSetError(
+            response.context["inline_admin_formset"],
+            0,
+            None,
+            [
+                "Children must share a family name with their parents in this "
+                "contrived test case"
+            ],
+        )
+        self.assertFormSetError(
+            response.context["inline_admin_formset"], None, None, []
+        )
+
+【相关测试 4】
+测试文件：tests/admin_views/tests.py
+测试名称：AdminInlineTests.test_integer_pk_inline
+测试代码：
+@override_settings(ROOT_URLCONF="admin_views.urls")
+class AdminInlineTests(TestCase):
+    def test_integer_pk_inline(self):
+        "A model with an integer PK can be saved as inlines. Regression for #10992"
+        # First add a new inline
+        self.post_data["whatsit_set-0-index"] = "42"
+        self.post_data["whatsit_set-0-name"] = "Whatsit 1"
+        collector_url = reverse(
+            "admin:admin_views_collector_change", args=(self.collector.pk,)
+        )
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Whatsit.objects.count(), 1)
+        self.assertEqual(Whatsit.objects.all()[0].name, "Whatsit 1")
+
+        # The PK link exists on the rendered form
+        response = self.client.get(collector_url)
+        self.assertContains(response, 'name="whatsit_set-0-index"')
+
+        # Now resave that inline
+        self.post_data["whatsit_set-INITIAL_FORMS"] = "1"
+        self.post_data["whatsit_set-0-index"] = "42"
+        self.post_data["whatsit_set-0-name"] = "Whatsit 1"
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Whatsit.objects.count(), 1)
+        self.assertEqual(Whatsit.objects.all()[0].name, "Whatsit 1")
+
+        # Now modify that inline
+        self.post_data["whatsit_set-INITIAL_FORMS"] = "1"
+        self.post_data["whatsit_set-0-index"] = "42"
+        self.post_data["whatsit_set-0-name"] = "Whatsit 1 Updated"
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Whatsit.objects.count(), 1)
+        self.assertEqual(Whatsit.objects.all()[0].name, "Whatsit 1 Updated")
+
+【相关测试 5】
+测试文件：tests/admin_views/tests.py
+测试名称：AdminInlineTests.test_explicit_autofield_inline
+测试代码：
+@override_settings(ROOT_URLCONF="admin_views.urls")
+class AdminInlineTests(TestCase):
+    def test_explicit_autofield_inline(self):
+        """
+        A model with an explicit autofield primary key can be saved as inlines.
+        """
+        # First add a new inline
+        self.post_data["grommet_set-0-name"] = "Grommet 1"
+        collector_url = reverse(
+            "admin:admin_views_collector_change", args=(self.collector.pk,)
+        )
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Grommet.objects.count(), 1)
+        self.assertEqual(Grommet.objects.all()[0].name, "Grommet 1")
+
+        # The PK link exists on the rendered form
+        response = self.client.get(collector_url)
+        self.assertContains(response, 'name="grommet_set-0-code"')
+
+        # Now resave that inline
+        self.post_data["grommet_set-INITIAL_FORMS"] = "1"
+        self.post_data["grommet_set-0-code"] = str(Grommet.objects.all()[0].code)
+        self.post_data["grommet_set-0-name"] = "Grommet 1"
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Grommet.objects.count(), 1)
+        self.assertEqual(Grommet.objects.all()[0].name, "Grommet 1")
+
+        # Now modify that inline
+        self.post_data["grommet_set-INITIAL_FORMS"] = "1"
+        self.post_data["grommet_set-0-code"] = str(Grommet.objects.all()[0].code)
+        self.post_data["grommet_set-0-name"] = "Grommet 1 Updated"
+        response = self.client.post(collector_url, self.post_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Grommet.objects.count(), 1)
+        self.assertEqual(Grommet.objects.all()[0].name, "Grommet 1 Updated")
+
+
+====================
+
+请只输出一个合法 JSON 对象，字段必须严格如下：
+
+{
+  "original_issue": {
+    "text": "原始 Issue 文本，保持原文，不要改写。",
+    "source": "raw_issue"
+  },
+
+  "clarified_issue": {
+    "text": "在不引入无依据内容的前提下，将原始 Issue 改写成更清楚的缺陷复现描述。应包含：触发条件、错误现象、期望行为、可能相关 API 或文件。不要生成测试代码。",
+    "facts_from_issue": ["只来自原始 Issue 的事实。"],
+    "facts_from_retrieved_context": ["来自检索源码或检索测试的补充事实。"],
+    "inferences": ["根据 Issue、源码和测试上下文推断出的内容。必须能被 evidence 支持。"],
+    "do_not_assume": ["当前不能确定、后续不能当成事实使用的内容。"]
+  },
+
+  "issue_summary": "用一句话概括这个 Issue 报告的问题。",
+
+  "trigger_condition": {
+    "text": "可能触发 bug 的输入、状态、配置、API 调用或操作步骤。要尽量写成后续测试可执行的触发条件。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "error_symptom": {
+    "text": "Issue 中观察到的错误现象，例如异常、warning 缺失、返回值错误、类型错误、SQL 错误、顺序错误、状态未更新等。",
+    "symptom_type": "exception|warning|wrong_return|wrong_type|wrong_sql|wrong_order|state_not_updated|serialization_error|performance|unknown",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "expected_behavior": {
+    "text": "修复后应该满足的正确行为。必须是正向语义，例如应该成功、应该包含、应该 warning、应该保持顺序、应该更新状态、应该不崩溃等。",
+    "evidence": ["来自 Issue、源码或测试的依据。"],
+    "confidence": "high|medium|low"
+  },
+
+  "target_apis": [
+    {
+      "name": "后续测试中可能需要调用的真实函数名、方法名、类名或模块名。必须是代码中可匹配的名称，不要写中文描述或模糊短语。",
+      "kind": "function|method|class|module|unknown",
+      "source_path": "如果知道源码路径就填写，否则为空字符串。",
+      "reason": "为什么这个 API 和 Issue 相关。"
+    }
+  ],
+
+  "suspected_bug_locations": [
+    {
+      "path": "相关源码文件路径。",
+      "object": "相关函数、类或方法名；如果无法确定具体对象，可以写自然语言描述。",
+      "lines": "如果知道行号范围就填写，例如 10-30，否则为空字符串。",
+      "reason": "为什么这里可能和缺陷有关。"
+    }
+  ],
+
+  "related_test_seeds": [
+    {
+      "test_name": "相关测试名称。",
+      "test_file": "相关测试所在文件路径。",
+      "why_relevant": "这个测试为什么可以作为相似测试起点。请说明它复用了什么测试协议、对象构造、API 调用或断言风格。",
+      "reusable_parts": ["可以复用的部分，例如 imports、fixture、class、setup、对象构造、API 调用、assert 风格。"],
+      "possible_gap": "这个相似测试为什么还不能直接复现当前 Issue，需要后续 mutation 修改什么。"
+    }
+  ],
+
+  "mutation_hints": [
+    {
+      "slot": "input|argument|object_state|mock|config|call_chain|operator|boundary_value|unknown",
+      "current_pattern": "相似测试中已有的正常模式。",
+      "target_pattern": "根据 Issue 需要变异成的触发模式。应尽量写成可执行的输入、参数、状态、配置或调用链变化。",
+      "reason": "为什么这个变异可能让测试走向缺陷路径。",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "observation_points": [
+    {
+      "kind": "exception|warning|return_value|type|repr|str|sql|order|state|cache|config|file_output|serialization|unknown",
+      "expression_hint": "后续插桩时建议观察的公开行为或稳定表达式，例如 str(query)、type(result)、warnings、before/after state、raw file bytes、public attribute。",
+      "reason": "为什么这个观测点能帮助判断 Issue 是否被触发。"
+    }
+  ],
+
+  "assertion_hints": [
+    {
+      "assertion_goal": "最终 assert 应该验证的语义目标。必须和 expected_behavior 极性一致。",
+      "preferred_assertion_style": "contains_fragment|not_contains_fragment|equals|isinstance|raises|warns|before_after_relation|order_equals|unknown",
+      "avoid": "需要避免的脆弱或无关断言，例如完整 SQL 字符串相等、完整 repr 相等、完整 HTML 相等、私有字段、内部缓存、无关数量断言。",
+      "reason": "为什么这种断言更稳定且与 Issue 对齐。"
+    }
+  ],
+
+  "setup_hints": [
+    {
+      "hint": "运行测试可能需要的上下文，例如 fixture、TestCase、settings、database、tmp_path、monkeypatch、mock、临时文件、项目 runner。",
+      "source": "issue|retrieved_test|retrieved_source|inference",
+      "confidence": "high|medium|low"
+    }
+  ],
+
+  "uncertainties": [
+    "当前仍然不确定、需要后续通过运行相似测试或插桩观测确认的信息。"
+  ]
+}
+
+规则：
+1. 所有字段都必须出现；
+2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
+3. 不要复制大段代码到 JSON 里；
+4. 不要输出 markdown；
+5. 不要输出 JSON 之外的任何解释；
+6. 不要生成测试代码；
+7. 不要假设已经有真实修复补丁；
+8. 不要使用 patched version、golden patch、golden test、test_patch、FAIL_TO_PASS 或 PASS_TO_PASS；
+9. original_issue.text 必须保留原始 Issue，不要改写；
+10. clarified_issue.text 可以更清晰，但不能引入 Issue、源码、测试都没有依据的新事实；
+11. target_apis.name 必须是代码里可匹配的真实名称，例如函数名、方法名、类名或模块名；
+12. 不要把“某文件中涉及某逻辑的函数或方法”这类中文描述写入 target_apis.name，这类信息应写入 suspected_bug_locations；
+13. expected_behavior 必须描述修复后成立的正向语义，不能复述当前 buggy 行为；
+14. assertion_hints 的极性必须与 expected_behavior 一致；
+15. 当前会抛异常但修复后应正常时，不能建议 raises；
+16. 应该存在、支持、包含、更新、保持的行为，不能建议 not hasattr、not in 或“保持缺失”；
+17. 若 Issue 没给出精确完整字符串，只提取稳定片段、类型或关系，不猜测完整 patched 输出；
+18. 对 SQL、repr、HTML、文件内容、序列化输出等，优先建议 contains_fragment、not_contains_fragment 或 before_after_relation，避免完整字符串相等；
+19. 优先建议检查 public behavior，不要建议检查私有字段、内部缓存或实现细节；
+20. 如果读取后的数值、对象或状态可能掩盖原始格式问题，应优先建议观察 file_output、str、repr、sql 或 serialization 等更接近错误症状的公开输出；
+21. 输出必须能被 Python 的 json.loads 直接解析。

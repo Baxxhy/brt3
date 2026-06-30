@@ -1,0 +1,314 @@
+{
+  "instance_id": "django__django-13028",
+  "issue_summary": "当模型字段名为 'filterable' 时，通过该模型的外键进行 QuerySet 过滤会错误地引发 NotSupportedError。",
+  "trigger_condition": {
+    "text": "创建一个 Django 模型（ModelA），其中包含一个名为 'filterable' 的字段（类型不限，例如 BooleanField）。创建另一个模型（ModelB），其中包含一个指向 ModelA 的 ForeignKey 字段。然后，对 ModelB 的 QuerySet 执行 filter() 操作，其中 filter 条件包含该 ForeignKey 字段等于一个 ModelA 实例。",
+    "evidence": [
+      "Issue 中提供了完整的模型定义和触发错误的调用：`ProductMetaData.objects.filter(value=\"Dark Vador\", metadata_type=self.brand_metadata)`。",
+      "Issue 明确指出将字段名从 'filterable' 改为其他名称（如 'filterable_test'）后问题消失。"
+    ],
+    "confidence": "high"
+  },
+  "error_symptom": {
+    "text": "执行 QuerySet.filter() 时引发 django.db.utils.NotSupportedError 异常，错误消息为 '[ModelName] is disallowed in the filter clause.'，其中 [ModelName] 是外键指向的模型类名（例如 ProductMetaDataType）。",
+    "symptom_type": "exception",
+    "evidence": [
+      "Issue 中提供了完整的错误堆栈跟踪和异常信息：'django.db.utils.NotSupportedError: ProductMetaDataType is disallowed in the filter clause.'。"
+    ],
+    "confidence": "high"
+  },
+  "expected_behavior": {
+    "text": "无论外键指向的模型（RHS）中的字段名称如何，通过该外键字段对 QuerySet 进行 filter() 操作都应成功执行，返回相应的查询结果，而不引发 NotSupportedError 异常。",
+    "evidence": [
+      "Issue 中用户通过重命名字段解决了问题，暗示了这是预期行为。",
+      "从逻辑上讲，字段的名称不应影响通过外键进行过滤的基本功能。"
+    ],
+    "confidence": "high"
+  },
+  "target_apis": [
+    {
+      "name": "QuerySet.filter",
+      "kind": "method",
+      "source_path": "django/db/models/query.py",
+      "reason": "Issue 中触发错误的直接调用是 `ProductMetaData.objects.filter(...)`。"
+    },
+    {
+      "name": "ForeignKey",
+      "kind": "class",
+      "source_path": "django/db/models/fields/related.py",
+      "reason": "Issue 涉及通过 ForeignKey 字段进行过滤。检索到的源码片段 6 包含了 ForeignKey 的定义。"
+    }
+  ],
+  "suspected_bug_locations": [
+    {
+      "path": "django/db/models/sql/query.py",
+      "object": "check_filterable",
+      "lines": "1131",
+      "reason": "错误堆栈跟踪明确指出异常是在该文件的 check_filterable 方法中抛出的。"
+    },
+    {
+      "path": "django/db/models/sql/query.py",
+      "object": "build_filter",
+      "lines": "1264",
+      "reason": "堆栈跟踪显示 build_filter 方法调用了 check_filterable。"
+    }
+  ],
+  "related_test_seeds": [
+    {
+      "test_name": "test_field_error_values_list",
+      "test_file": "tests/queries/tests.py",
+      "why_relevant": "此测试位于 queries 测试模块中，涉及 QuerySet 操作（values_list）和 FieldError 异常。它展示了如何在 Django 测试框架中构造 QuerySet 操作并断言其引发的特定异常。",
+      "reusable_parts": [
+        "使用 TestCase 类",
+        "使用 QuerySet（Tag.objects）",
+        "使用 assertRaisesMessage 来断言特定异常和消息",
+        "涉及过滤或字段解析错误的测试模式"
+      ],
+      "possible_gap": "此测试断言的是 FieldError，而当前 Issue 是 NotSupportedError。它测试的是字段名解析错误（'name__foo'），而非由特定字段名称（'filterable'）引起的过滤子句错误。需要将测试变异为使用包含 'filterable' 字段的模型，并通过其外键进行过滤。"
+    },
+    {
+      "test_name": "test_non_local_to_field",
+      "test_file": "tests/model_fields/test_foreignkey.py",
+      "why_relevant": "此测试专门针对 ForeignKey 字段的行为进行测试，并检查其引发的 FieldError。它展示了如何定义包含 ForeignKey 的模型并在测试中检查相关错误。",
+      "reusable_parts": [
+        "使用 @isolate_apps 装饰器",
+        "在测试函数内动态定义模型类",
+        "访问模型的 _meta.get_field('...').related_fields",
+        "使用 assertRaisesMessage 断言 FieldError"
+      ],
+      "possible_gap": "此测试关注的是 ForeignKey 的 to_field 指向非本地字段的逻辑错误，而非 QuerySet 过滤操作。需要将焦点从模型定义时的字段检查转移到运行时 QuerySet.filter() 操作上。"
+    }
+  ],
+  "mutation_hints": [
+    {
+      "slot": "object_state",
+      "current_pattern": "相似测试通常使用标准字段名（如 'name', 'key', 'source'）定义模型。",
+      "target_pattern": "在动态定义的测试模型中，将一个字段的名称设置为 'filterable'（例如 `filterable = models.BooleanField(default=False)`）。",
+      "reason": "Issue 的核心触发条件是模型中存在名为 'filterable' 的字段。将测试模型中的某个字段名改为 'filterable' 是走向缺陷路径的关键变异。",
+      "confidence": "high"
+    },
+    {
+      "slot": "call_chain",
+      "current_pattern": "相似测试可能直接检查字段属性或进行简单的查询（如 Tag.objects.values_list）。",
+      "target_pattern": "构造一个包含指向上述模型的外键的第二个模型，然后对该第二个模型的 QuerySet 执行 filter() 操作，条件中包含该外键字段等于一个模型实例。",
+      "reason": "Issue 中的错误发生在通过外键进行过滤时。需要将测试动作从检查字段属性变异为执行具体的 filter() 查询调用。",
+      "confidence": "high"
+    }
+  ],
+  "observation_points": [
+    {
+      "kind": "exception",
+      "expression_hint": "在调用 `queryset.filter(...)` 时捕获的异常类型和消息。",
+      "reason": "错误症状是特定的 NotSupportedError 异常。观测是否引发此异常是判断 Issue 是否触发的直接方式。"
+    },
+    {
+      "kind": "sql",
+      "expression_hint": "生成的 SQL 查询字符串（例如通过 `str(queryset.query)` 观察）。",
+      "reason": "如果过滤成功，应生成有效的 SQL WHERE 子句。如果因错误而提前中断，可能无法生成完整 SQL 或 SQL 中包含异常信息。观测 SQL 有助于理解查询构建过程是否被错误阻止。"
+    }
+  ],
+  "assertion_hints": [
+    {
+      "assertion_goal": "对包含 'filterable' 字段的模型的外键进行过滤时，不应引发 NotSupportedError 异常。",
+      "preferred_assertion_style": "not_contains_fragment",
+      "avoid": "断言完整的异常消息字符串相等，因为消息格式可能在版本间变化。避免断言内部查询对象的状态。",
+      "reason": "修复后的核心行为是操作成功，不崩溃。使用 `assertNotRaises` 或确保查询正常执行（如评估 queryset）是稳定的断言方式。观测异常消息片段（如 'disallowed in the filter clause'）可用于诊断，但主要断言应是操作成功。"
+    },
+    {
+      "assertion_goal": "过滤操作应成功执行并返回预期的查询结果（可能为空）。",
+      "preferred_assertion_style": "before_after_relation",
+      "avoid": "断言具体的、依赖于测试数据库状态的记录数量或内容。",
+      "reason": "更稳定的断言是验证 filter() 调用没有引发异常，并且返回了一个 QuerySet 对象（例如，可以对其调用 .exists() 或 .count() 而不会崩溃）。这关注于公开的 API 行为而非内部状态。"
+    }
+  ],
+  "setup_hints": [
+    {
+      "hint": "测试可能需要使用 `TestCase` 类来支持数据库操作。考虑使用 `@isolate_apps` 装饰器来隔离动态创建的模型，避免与项目已有模型冲突。",
+      "source": "retrieved_test",
+      "confidence": "medium"
+    },
+    {
+      "hint": "需要设置 Django 的数据库配置。测试运行器通常会处理这些，但确保测试在支持迁移和模型创建的环境中运行。",
+      "source": "inference",
+      "confidence": "medium"
+    }
+  ],
+  "uncertainties": [
+    "除了 'filterable'，是否还有其他保留字或特定字段名会触发相同的错误？",
+    "错误的确切逻辑位于 `check_filterable` 方法中的哪一部分？是字符串匹配逻辑错误还是属性访问逻辑错误？",
+    "修复后的行为是简单地允许名为 'filterable' 的字段，还是对查询构建逻辑进行了更通用的修改？",
+    "是否所有类型的字段（CharField, IntegerField 等）名为 'filterable' 时都会触发此问题，还是仅限于某些字段类型？"
+  ],
+  "raw": {
+    "original_issue": {
+      "text": "Queryset raises NotSupportedError when RHS has filterable=False attribute.\nDescription\n\t \n\t\t(last modified by Nicolas Baccelli)\n\t \nI'm migrating my app to django 3.0.7 and I hit a strange behavior using a model class with a field labeled filterable\nclass ProductMetaDataType(models.Model):\n\tlabel = models.CharField(max_length=255, unique=True, blank=False, null=False)\n\tfilterable = models.BooleanField(default=False, verbose_name=_(\"filterable\"))\n\tclass Meta:\n\t\tapp_label = \"adminpricing\"\n\t\tverbose_name = _(\"product meta data type\")\n\t\tverbose_name_plural = _(\"product meta data types\")\n\tdef __str__(self):\n\t\treturn self.label\nclass ProductMetaData(models.Model):\n\tid = models.BigAutoField(primary_key=True)\n\tproduct = models.ForeignKey(\n\t\tProduit, null=False, blank=False, on_delete=models.CASCADE\n\t)\n\tvalue = models.TextField(null=False, blank=False)\n\tmarketplace = models.ForeignKey(\n\t\tPlateforme, null=False, blank=False, on_delete=models.CASCADE\n\t)\n\tdate_created = models.DateTimeField(null=True, default=timezone.now)\n\tmetadata_type = models.ForeignKey(\n\t\tProductMetaDataType, null=False, blank=False, on_delete=models.CASCADE\n\t)\n\tclass Meta:\n\t\tapp_label = \"adminpricing\"\n\t\tverbose_name = _(\"product meta data\")\n\t\tverbose_name_plural = _(\"product meta datas\")\nError happened when filtering ProductMetaData with a metadata_type :\nProductMetaData.objects.filter(value=\"Dark Vador\", metadata_type=self.brand_metadata)\nError traceback :\nTraceback (most recent call last):\n File \"/backoffice/backoffice/adminpricing/tests/test_pw.py\", line 481, in test_checkpolicywarning_by_fields\n\tfor p in ProductMetaData.objects.filter(\n File \"/usr/local/lib/python3.8/site-packages/django/db/models/manager.py\", line 82, in manager_method\n\treturn getattr(self.get_queryset(), name)(*args, **kwargs)\n File \"/usr/local/lib/python3.8/site-packages/django/db/models/query.py\", line 904, in filter\n\treturn self._filter_or_exclude(False, *args, **kwargs)\n File \"/usr/local/lib/python3.8/site-packages/django/db/models/query.py\", line 923, in _filter_or_exclude\n\tclone.query.add_q(Q(*args, **kwargs))\n File \"/usr/local/lib/python3.8/site-packages/django/db/models/sql/query.py\", line 1351, in add_q\n\tclause, _ = self._add_q(q_object, self.used_aliases)\n File \"/usr/local/lib/python3.8/site-packages/django/db/models/sql/query.py\", line 1378, in _add_q\n\tchild_clause, needed_inner = self.build_filter(\n File \"/usr/local/lib/python3.8/site-packages/django/db/models/sql/query.py\", line 1264, in build_filter\n\tself.check_filterable(value)\n File \"/usr/local/lib/python3.8/site-packages/django/db/models/sql/query.py\", line 1131, in check_filterable\n\traise NotSupportedError(\ndjango.db.utils.NotSupportedError: ProductMetaDataType is disallowed in the filter clause.\nI changed label to filterable_test and it fixed this issue\nThis should be documented or fix.",
+      "source": "raw_issue"
+    },
+    "clarified_issue": {
+      "text": "在 Django 3.0.7 中，当一个模型类（例如 ProductMetaDataType）包含一个名为 'filterable' 的字段时，尝试通过该模型的外键字段（例如 ProductMetaData.metadata_type）进行 QuerySet 过滤操作会引发 NotSupportedError 异常，错误信息为 'ProductMetaDataType is disallowed in the filter clause.'。将冲突字段名（例如 'filterable'）重命名后问题消失。期望行为是：无论模型字段的名称如何，通过外键进行过滤都应正常执行，不引发异常。可能相关的 API 包括 QuerySet.filter()、ForeignKey 以及 django/db/models/sql/query.py 中的 check_filterable 方法。",
+      "facts_from_issue": [
+        "Issue 发生在 Django 3.0.7 迁移过程中。",
+        "用户定义了一个名为 ProductMetaDataType 的模型，其中包含一个名为 'filterable' 的 BooleanField。",
+        "另一个模型 ProductMetaData 包含一个指向 ProductMetaDataType 的 ForeignKey 字段 metadata_type。",
+        "执行 `ProductMetaData.objects.filter(value=\"Dark Vador\", metadata_type=self.brand_metadata)` 时触发错误。",
+        "错误是 NotSupportedError，消息为 'ProductMetaDataType is disallowed in the filter clause.'。",
+        "堆栈跟踪指向 django/db/models/sql/query.py 中的 check_filterable 方法。",
+        "用户将冲突字段名从 'filterable' 改为 'filterable_test' 后问题得到解决。"
+      ],
+      "facts_from_retrieved_context": [
+        "检索到的源码片段 6 显示了 ForeignKey 类的定义，它是构建模型关系的核心组件。",
+        "检索到的测试代码表明 Django 测试套件包含对 ForeignKey 和 QuerySet 行为的测试。"
+      ],
+      "inferences": [
+        "Django 的查询构建逻辑（可能在 check_filterable 方法中）错误地将模型字段名 'filterable' 解释为某种查询限制指令，而不是一个普通的字段名。",
+        "问题与字段的名称属性有关，而不是其类型（BooleanField）或其他定义。",
+        "错误发生在构建过滤子句时，涉及对外键关系右侧（RHS）值的检查。"
+      ],
+      "do_not_assume": [
+        "具体是哪个源码文件中的哪一行代码导致了错误的判断。",
+        "除了 'filterable' 之外，是否还有其他字段名会触发此问题。",
+        "这是 Django 3.0.7 特有的问题，还是其他版本也存在。",
+        "修复后的确切行为细节（例如，是否应完全忽略字段名，还是进行其他处理）。"
+      ]
+    },
+    "issue_summary": "当模型字段名为 'filterable' 时，通过该模型的外键进行 QuerySet 过滤会错误地引发 NotSupportedError。",
+    "trigger_condition": {
+      "text": "创建一个 Django 模型（ModelA），其中包含一个名为 'filterable' 的字段（类型不限，例如 BooleanField）。创建另一个模型（ModelB），其中包含一个指向 ModelA 的 ForeignKey 字段。然后，对 ModelB 的 QuerySet 执行 filter() 操作，其中 filter 条件包含该 ForeignKey 字段等于一个 ModelA 实例。",
+      "evidence": [
+        "Issue 中提供了完整的模型定义和触发错误的调用：`ProductMetaData.objects.filter(value=\"Dark Vador\", metadata_type=self.brand_metadata)`。",
+        "Issue 明确指出将字段名从 'filterable' 改为其他名称（如 'filterable_test'）后问题消失。"
+      ],
+      "confidence": "high"
+    },
+    "error_symptom": {
+      "text": "执行 QuerySet.filter() 时引发 django.db.utils.NotSupportedError 异常，错误消息为 '[ModelName] is disallowed in the filter clause.'，其中 [ModelName] 是外键指向的模型类名（例如 ProductMetaDataType）。",
+      "symptom_type": "exception",
+      "evidence": [
+        "Issue 中提供了完整的错误堆栈跟踪和异常信息：'django.db.utils.NotSupportedError: ProductMetaDataType is disallowed in the filter clause.'。"
+      ],
+      "confidence": "high"
+    },
+    "expected_behavior": {
+      "text": "无论外键指向的模型（RHS）中的字段名称如何，通过该外键字段对 QuerySet 进行 filter() 操作都应成功执行，返回相应的查询结果，而不引发 NotSupportedError 异常。",
+      "evidence": [
+        "Issue 中用户通过重命名字段解决了问题，暗示了这是预期行为。",
+        "从逻辑上讲，字段的名称不应影响通过外键进行过滤的基本功能。"
+      ],
+      "confidence": "high"
+    },
+    "target_apis": [
+      {
+        "name": "QuerySet.filter",
+        "kind": "method",
+        "source_path": "django/db/models/query.py",
+        "reason": "Issue 中触发错误的直接调用是 `ProductMetaData.objects.filter(...)`。"
+      },
+      {
+        "name": "ForeignKey",
+        "kind": "class",
+        "source_path": "django/db/models/fields/related.py",
+        "reason": "Issue 涉及通过 ForeignKey 字段进行过滤。检索到的源码片段 6 包含了 ForeignKey 的定义。"
+      }
+    ],
+    "suspected_bug_locations": [
+      {
+        "path": "django/db/models/sql/query.py",
+        "object": "check_filterable",
+        "lines": "1131",
+        "reason": "错误堆栈跟踪明确指出异常是在该文件的 check_filterable 方法中抛出的。"
+      },
+      {
+        "path": "django/db/models/sql/query.py",
+        "object": "build_filter",
+        "lines": "1264",
+        "reason": "堆栈跟踪显示 build_filter 方法调用了 check_filterable。"
+      }
+    ],
+    "related_test_seeds": [
+      {
+        "test_name": "test_field_error_values_list",
+        "test_file": "tests/queries/tests.py",
+        "why_relevant": "此测试位于 queries 测试模块中，涉及 QuerySet 操作（values_list）和 FieldError 异常。它展示了如何在 Django 测试框架中构造 QuerySet 操作并断言其引发的特定异常。",
+        "reusable_parts": [
+          "使用 TestCase 类",
+          "使用 QuerySet（Tag.objects）",
+          "使用 assertRaisesMessage 来断言特定异常和消息",
+          "涉及过滤或字段解析错误的测试模式"
+        ],
+        "possible_gap": "此测试断言的是 FieldError，而当前 Issue 是 NotSupportedError。它测试的是字段名解析错误（'name__foo'），而非由特定字段名称（'filterable'）引起的过滤子句错误。需要将测试变异为使用包含 'filterable' 字段的模型，并通过其外键进行过滤。"
+      },
+      {
+        "test_name": "test_non_local_to_field",
+        "test_file": "tests/model_fields/test_foreignkey.py",
+        "why_relevant": "此测试专门针对 ForeignKey 字段的行为进行测试，并检查其引发的 FieldError。它展示了如何定义包含 ForeignKey 的模型并在测试中检查相关错误。",
+        "reusable_parts": [
+          "使用 @isolate_apps 装饰器",
+          "在测试函数内动态定义模型类",
+          "访问模型的 _meta.get_field('...').related_fields",
+          "使用 assertRaisesMessage 断言 FieldError"
+        ],
+        "possible_gap": "此测试关注的是 ForeignKey 的 to_field 指向非本地字段的逻辑错误，而非 QuerySet 过滤操作。需要将焦点从模型定义时的字段检查转移到运行时 QuerySet.filter() 操作上。"
+      }
+    ],
+    "mutation_hints": [
+      {
+        "slot": "object_state",
+        "current_pattern": "相似测试通常使用标准字段名（如 'name', 'key', 'source'）定义模型。",
+        "target_pattern": "在动态定义的测试模型中，将一个字段的名称设置为 'filterable'（例如 `filterable = models.BooleanField(default=False)`）。",
+        "reason": "Issue 的核心触发条件是模型中存在名为 'filterable' 的字段。将测试模型中的某个字段名改为 'filterable' 是走向缺陷路径的关键变异。",
+        "confidence": "high"
+      },
+      {
+        "slot": "call_chain",
+        "current_pattern": "相似测试可能直接检查字段属性或进行简单的查询（如 Tag.objects.values_list）。",
+        "target_pattern": "构造一个包含指向上述模型的外键的第二个模型，然后对该第二个模型的 QuerySet 执行 filter() 操作，条件中包含该外键字段等于一个模型实例。",
+        "reason": "Issue 中的错误发生在通过外键进行过滤时。需要将测试动作从检查字段属性变异为执行具体的 filter() 查询调用。",
+        "confidence": "high"
+      }
+    ],
+    "observation_points": [
+      {
+        "kind": "exception",
+        "expression_hint": "在调用 `queryset.filter(...)` 时捕获的异常类型和消息。",
+        "reason": "错误症状是特定的 NotSupportedError 异常。观测是否引发此异常是判断 Issue 是否触发的直接方式。"
+      },
+      {
+        "kind": "sql",
+        "expression_hint": "生成的 SQL 查询字符串（例如通过 `str(queryset.query)` 观察）。",
+        "reason": "如果过滤成功，应生成有效的 SQL WHERE 子句。如果因错误而提前中断，可能无法生成完整 SQL 或 SQL 中包含异常信息。观测 SQL 有助于理解查询构建过程是否被错误阻止。"
+      }
+    ],
+    "assertion_hints": [
+      {
+        "assertion_goal": "对包含 'filterable' 字段的模型的外键进行过滤时，不应引发 NotSupportedError 异常。",
+        "preferred_assertion_style": "not_contains_fragment",
+        "avoid": "断言完整的异常消息字符串相等，因为消息格式可能在版本间变化。避免断言内部查询对象的状态。",
+        "reason": "修复后的核心行为是操作成功，不崩溃。使用 `assertNotRaises` 或确保查询正常执行（如评估 queryset）是稳定的断言方式。观测异常消息片段（如 'disallowed in the filter clause'）可用于诊断，但主要断言应是操作成功。"
+      },
+      {
+        "assertion_goal": "过滤操作应成功执行并返回预期的查询结果（可能为空）。",
+        "preferred_assertion_style": "before_after_relation",
+        "avoid": "断言具体的、依赖于测试数据库状态的记录数量或内容。",
+        "reason": "更稳定的断言是验证 filter() 调用没有引发异常，并且返回了一个 QuerySet 对象（例如，可以对其调用 .exists() 或 .count() 而不会崩溃）。这关注于公开的 API 行为而非内部状态。"
+      }
+    ],
+    "setup_hints": [
+      {
+        "hint": "测试可能需要使用 `TestCase` 类来支持数据库操作。考虑使用 `@isolate_apps` 装饰器来隔离动态创建的模型，避免与项目已有模型冲突。",
+        "source": "retrieved_test",
+        "confidence": "medium"
+      },
+      {
+        "hint": "需要设置 Django 的数据库配置。测试运行器通常会处理这些，但确保测试在支持迁移和模型创建的环境中运行。",
+        "source": "inference",
+        "confidence": "medium"
+      }
+    ],
+    "uncertainties": [
+      "除了 'filterable'，是否还有其他保留字或特定字段名会触发相同的错误？",
+      "错误的确切逻辑位于 `check_filterable` 方法中的哪一部分？是字符串匹配逻辑错误还是属性访问逻辑错误？",
+      "修复后的行为是简单地允许名为 'filterable' 的字段，还是对查询构建逻辑进行了更通用的修改？",
+      "是否所有类型的字段（CharField, IntegerField 等）名为 'filterable' 时都会触发此问题，还是仅限于某些字段类型？"
+    ]
+  }
+}

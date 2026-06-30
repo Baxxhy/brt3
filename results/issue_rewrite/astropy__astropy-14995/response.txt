@@ -1,0 +1,175 @@
+```json
+{
+    "original_issue": {
+        "text": "In v5.3, NDDataRef mask propagation fails when one of the operand does not have a mask\n### Description\n\nThis applies to v5.3. \n\nIt looks like when one of the operand does not have a mask, the mask propagation when doing arithmetic, in particular with `handle_mask=np.bitwise_or` fails.  This is not a problem in v5.2.\n\nI don't know enough about how all that works, but it seems from the error that the operand without a mask is set as a mask of None's and then the bitwise_or tries to operate on an integer and a None and fails.\n\n### Expected behavior\n\nWhen one of the operand does not have mask, the mask that exists should just be copied over to the output.  Or whatever was done in that situation in v5.2 where there's no problem.\n\n### How to Reproduce\n\nThis is with v5.3.   With v5.2, there are no errors.\n\n```\n>>> import numpy as np\n>>> from astropy.nddata import NDDataRef\n\n>>> array = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\n>>> mask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\n\n>>> nref_nomask = NDDataRef(array)\n>>> nref_mask = NDDataRef(array, mask=mask)\n\n# multiply no mask by constant (no mask * no mask)\n>>> nref_nomask.multiply(1., handle_mask=np.bitwise_or).mask   # returns nothing, no mask,  OK\n\n# multiply no mask by itself (no mask * no mask)\n>>> nref_nomask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask # return nothing, no mask, OK\n\n# multiply mask by constant (mask * no mask)\n>>> nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\n...\nTypeError: unsupported operand type(s) for |: 'int' and 'NoneType'\n\n# multiply mask by itself (mask * mask)\n>>> nref_mask.multiply(nref_mask, handle_mask=np.bitwise_or).mask\narray([[ 0,  1, 64],\n       [ 8,  0,  1],\n       [ 2,  1,  0]])\n\n# multiply mask by no mask (mask * no mask)\n>>> nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\n...\nTypeError: unsupported operand type(s) for |: 'int' and 'NoneType'\n```\n\n\n### Versions\n\n>>> import sys; print(\"Python\", sys.version)\nPython 3.10.11 | packaged by conda-forge | (main, May 10 2023, 19:07:22) [Clang 14.0.6 ]\n>>> import astropy; print(\"astropy\", astropy.__version__)\nastropy 5.3\n>>> import numpy; print(\"Numpy\", numpy.__version__)\nNumpy 1.24.3\n>>> import erfa; print(\"pyerfa\", erfa.__version__)\npyerfa 2.0.0.3\n>>> import scipy; print(\"Scipy\", scipy.__version__)\nScipy 1.10.1\n>>> import matplotlib; print(\"Matplotlib\", matplotlib.__version__)\nMatplotlib 3.7.1\n\n",
+        "source": "raw_issue"
+    },
+    "clarified_issue": {
+        "text": "在 astropy v5.3 中，当对 NDDataRef 对象进行算术运算（如 multiply）并指定 handle_mask=np.bitwise_or 时，如果其中一个操作数没有 mask（即 mask 为 None），而另一个操作数有 mask，则运算会失败，抛出 TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'。在 v5.2 中此操作正常。期望行为是：当只有一个操作数有 mask 时，运算结果应继承该 mask，或者至少不抛出异常。相关 API 包括 NDDataRef.multiply 和 NDArithmeticMixin 中的算术方法。",
+        "facts_from_issue": [
+            "Bug 出现在 astropy v5.3，在 v5.2 中正常。",
+            "当 NDDataRef 算术运算（如 multiply）使用 handle_mask=np.bitwise_or 时触发。",
+            "触发条件是：一个操作数有 mask（非 None），另一个操作数没有 mask（mask 为 None）。",
+            "错误现象是 TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'。",
+            "期望行为：当只有一个操作数有 mask 时，结果应继承该 mask，或至少不报错。"
+        ],
+        "facts_from_retrieved_context": [
+            "NDDataRef 继承自 NDArithmeticMixin，支持算术运算（包括 multiply）。",
+            "NDDataRef.multiply 方法内部调用 _prepare_then_do_arithmetic。",
+            "NDData 类有一个 mask 属性，返回 self._mask。",
+            "存在测试 test_arithmetics_data_masks 处理了 mask1 或 mask2 为 None 的情况，并定义了 ref_mask 的传播逻辑（mask1 is None 则 ref_mask = mask2，反之亦然）。",
+            "存在测试 test_arithmetics_mask_func 测试了自定义 handle_mask 函数。"
+        ],
+        "inferences": [
+            "缺陷可能位于 NDArithmeticMixin 或其父类的 _prepare_then_do_arithmetic 方法中，在处理 handle_mask=np.bitwise_or 且一个操作数 mask 为 None 时，错误地将 None 传递给了位运算。",
+            "v5.2 中可能对 None mask 有特殊处理，避免了位运算。",
+            "handle_mask 参数用于定义两个 mask 的合并方式，np.bitwise_or 是 numpy 的按位或函数。"
+        ],
+        "do_not_assume": [
+            "具体是 NDArithmeticMixin 中哪个函数或哪一行代码导致了错误。",
+            "v5.2 中处理 None mask 的确切逻辑。",
+            "除了 multiply 之外，add、subtract、divide 是否也有同样的问题（Issue 只展示了 multiply）。",
+            "handle_mask 使用其他函数（非 np.bitwise_or）时是否也会出错。"
+        ]
+    },
+    "issue_summary": "在 astropy v5.3 中，NDDataRef 算术运算使用 handle_mask=np.bitwise_or 时，若一个操作数有 mask 而另一个没有，会因尝试对 int 和 None 进行位运算而抛出 TypeError。",
+    "trigger_condition": {
+        "text": "创建两个 NDDataRef 对象：一个有 mask（非 None 数组），一个没有 mask（mask 为 None）。调用有 mask 对象的 multiply 方法，传入另一个对象（或标量）作为 operand，并指定参数 handle_mask=np.bitwise_or。",
+        "evidence": [
+            "Issue 中提供的复现代码：nref_mask.multiply(1., handle_mask=np.bitwise_or) 和 nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or) 均抛出 TypeError。",
+            "Issue 描述：\"when one of the operand does not have a mask, the mask propagation when doing arithmetic, in particular with `handle_mask=np.bitwise_or` fails.\""
+        ],
+        "confidence": "high"
+    },
+    "error_symptom": {
+        "text": "抛出 TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'。",
+        "symptom_type": "exception",
+        "evidence": [
+            "Issue 中错误输出：\"TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'\"。",
+            "Issue 描述：\"the bitwise_or tries to operate on an integer and a None and fails.\""
+        ],
+        "confidence": "high"
+    },
+    "expected_behavior": {
+        "text": "当只有一个操作数有 mask 时，算术运算（使用 handle_mask=np.bitwise_or）应成功执行，且结果的 mask 应继承自那个有 mask 的操作数（或根据 v5.2 的行为进行传播），不应抛出 TypeError。",
+        "evidence": [
+            "Issue 中 Expected behavior 部分：\"When one of the operand does not have mask, the mask that exists should just be copied over to the output. Or whatever was done in that situation in v5.2 where there's no problem.\"",
+            "检索到的测试 test_arithmetics_data_masks 中定义了类似的 mask 传播逻辑：如果 mask1 为 None，ref_mask = mask2；如果 mask2 为 None，ref_mask = mask1。"
+        ],
+        "confidence": "high"
+    },
+    "target_apis": [
+        {
+            "name": "NDDataRef",
+            "kind": "class",
+            "source_path": "astropy/nddata/nddata_withmixins.py",
+            "reason": "Issue 中使用的容器类，继承自 NDArithmeticMixin，是触发缺陷的入口。"
+        },
+        {
+            "name": "NDDataRef.multiply",
+            "kind": "method",
+            "source_path": "astropy/nddata/mixins/ndarithmetic.py",
+            "reason": "Issue 中触发缺陷的具体方法，内部调用 _prepare_then_do_arithmetic。"
+        },
+        {
+            "name": "NDArithmeticMixin._prepare_then_do_arithmetic",
+            "kind": "method",
+            "source_path": "",
+            "reason": "multiply 方法调用的内部方法，很可能包含 mask 处理逻辑，是缺陷的疑似位置。"
+        }
+    ],
+    "suspected_bug_locations": [
+        {
+            "path": "astropy/nddata/mixins/ndarithmetic.py",
+            "object": "NDArithmeticMixin._prepare_then_do_arithmetic 或其中调用的 mask 处理函数",
+            "lines": "",
+            "reason": "该方法负责处理算术运算的准备工作，包括 mask 传播。当 handle_mask=np.bitwise_or 且一个 mask 为 None 时，可能错误地将 None 传递给了 np.bitwise_or。"
+        }
+    ],
+    "related_test_seeds": [
+        {
+            "test_name": "test_arithmetics_data_masks",
+            "test_file": "astropy/nddata/mixins/tests/test_ndarithmetic.py",
+            "why_relevant": "该测试直接测试了 NDDataArithmetic（与 NDDataRef 共享 NDArithmeticMixin）在各种 mask 组合（包括 None）下的算术运算行为，并定义了 mask 传播的参考逻辑（ref_mask）。它使用了相同的测试类、对象构造和断言风格（assert_array_equal）。",
+            "reusable_parts": [
+                "导入 NDDataArithmetic",
+                "使用 mask1 和 mask2 参数化构造测试对象",
+                "对 add, subtract, multiply, divide 进行运算",
+                "使用 assert_array_equal 比较结果 mask 和 ref_mask"
+            ],
+            "possible_gap": "该测试没有使用 handle_mask 参数（默认行为），而 Issue 中缺陷在指定 handle_mask=np.bitwise_or 时触发。该测试的 ref_mask 逻辑（mask1 is None 则 ref_mask = mask2）可能正是期望行为，但需要验证在 handle_mask=np.bitwise_or 下是否也适用。"
+        },
+        {
+            "test_name": "test_arithmetics_mask_func",
+            "test_file": "astropy/nddata/mixins/tests/test_ndarithmetic.py",
+            "why_relevant": "该测试专门测试了 handle_mask 参数的使用，传入了一个自定义函数 mask_sad_func。它展示了如何为算术运算指定 handle_mask 参数。",
+            "reusable_parts": [
+                "为 add 方法指定 handle_mask 参数的调用方式",
+                "使用自定义函数处理 mask 的测试模式"
+            ],
+            "possible_gap": "该测试使用的自定义函数不涉及 np.bitwise_or，且两个操作数都有 mask（非 None）。没有覆盖一个 mask 为 None 的情况。"
+        }
+    ],
+    "mutation_hints": [
+        {
+            "slot": "argument",
+            "current_pattern": "相似测试 test_arithmetics_data_masks 中调用 nd1.multiply(nd2) 时不指定 handle_mask 参数（使用默认行为）。",
+            "target_pattern": "调用 nd1.multiply(nd2, handle_mask=np.bitwise_or)，其中 nd1 或 nd2 的 mask 为 None，另一个有非 None mask。",
+            "reason": "Issue 表明缺陷仅在指定 handle_mask=np.bitwise_or 且 mask 组合为 (有, 无) 时触发。此变异将测试引向缺陷路径。",
+            "confidence": "high"
+        },
+        {
+            "slot": "object_state",
+            "current_pattern": "相似测试中构造的 NDDataArithmetic 对象，其 mask 参数化组合包括 (None, None), (None, 非None), (非None, None) 等。",
+            "target_pattern": "构造一个 NDDataRef（或 NDDataArithmetic）对象，其 mask 为 None；构造另一个同类型对象，其 mask 为一个非 None 的整数数组（如 Issue 中的示例）。",
+            "reason": "Issue 的复现步骤使用了整数数组作为 mask（非布尔），且一个对象无 mask。测试中使用了布尔数组，但缺陷可能也适用于整数数组。确保一个 mask 为 None 是关键。",
+            "confidence": "high"
+        }
+    ],
+    "observation_points": [
+        {
+            "kind": "exception",
+            "expression_hint": "调用 multiply(..., handle_mask=np.bitwise_or) 时是否抛出 TypeError，并检查异常信息是否包含 'unsupported operand type(s) for |'。",
+            "reason": "Issue 的核心错误症状是 TypeError，直接观测异常是判断缺陷是否触发的直接方式。"
+        },
+        {
+            "kind": "return_value",
+            "expression_hint": "成功调用 multiply(...) 后，检查返回对象的 .mask 属性。观察其值（应为非 None 数组或 None）和类型。",
+            "reason": "期望行为是结果应继承有 mask 操作数的 mask。观测返回的 mask 可以验证行为是否正确。"
+        }
+    ],
+    "assertion_hints": [
+        {
+            "assertion_goal": "当只有一个操作数有 mask 时，multiply 操作（使用 handle_mask=np.bitwise_or）应成功完成，不抛出 TypeError。",
+            "preferred_assertion_style": "raises",
+            "avoid": "断言完整的异常消息字符串，因为具体措辞可能变化。",
+            "reason": "修复后，该操作不应再抛出异常。使用 pytest.raises 断言没有异常发生，与期望行为一致。"
+        },
+        {
+            "assertion_goal": "当只有一个操作数有 mask 时，运算结果的 mask 应与有 mask 的操作数的 mask 相等（或等效）。",
+            "preferred_assertion_style": "equals",
+            "avoid": "断言 mask 的完整 repr 字符串，或断言内部私有属性 _mask。",
+            "reason": "期望行为是 mask 被正确传播。使用 assert_array_equal 比较公开的 .mask 属性是稳定且与 Issue 相关的断言。"
+        }
+    ],
+    "setup_hints": [
+        {
+            "hint": "需要导入 numpy 和 astropy.nddata.NDDataRef。可能还需要导入 pytest 用于断言。测试应在一个能访问 astropy v5.3 环境（或模拟环境）中运行。",
+            "source": "issue|retrieved_test",
+            "confidence": "high"
+        },
+        {
+            "hint": "可以使用 pytest.mark.parametrize 来参数化 mask 的组合（有/无）以及操作数类型（另一个 NDDataRef 对象或标量）。",
+            "source": "retrieved_test",
+            "confidence": "medium"
+        }
+    ],
+    "uncertainties": [
+        "缺陷是否也存在于其他算术方法（add, subtract, divide）中，还是仅限于 multiply。",
+        "handle_mask 使用其他 numpy 函数（如 np.bitwise_and）时是否也会出现同样问题。",
+        "v5.2 中处理此场景的确切代码路径是什么。",
+        "mask 数组的数据类型（布尔 vs 整数）是否影响缺陷的触发。",
+        "缺陷的确切代码位置和根本原因（是 None 被错误传递，还是 np.bitwise_or 对 None 的处理问题）。"
+    ]
+}
+```

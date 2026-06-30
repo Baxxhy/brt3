@@ -1,0 +1,119 @@
+instance_id: django__django-14667
+
+issue_summary: QuerySet.only("field").defer("field") 链式调用未能正确生成只选择主键的 SQL 查询，反而选择了所有字段。
+
+trigger_condition:
+{
+  "text": "对一个 Django 模型（如 Company）的 QuerySet 调用 .only(\"field_name\") 后立即调用 .defer(\"field_name\")，其中 field_name 是模型的一个非主键字段。然后对 QuerySet 求值（例如迭代、调用 list() 或 get()）。",
+  "evidence": [
+    "Issue 中的示例：Company.objects.only(\"name\").defer(\"name\")",
+    "Issue 中描述的 SQL 查询结果"
+  ],
+  "confidence": "high"
+}
+
+error_symptom:
+{
+  "text": "生成的 SQL 查询的 SELECT 子句包含了所有字段（包括应被 defer 的字段），而不是只选择未被 defer 的字段（在 .only(\"name\").defer(\"name\") 情况下，应只选择主键 id）。",
+  "symptom_type": "wrong_sql",
+  "evidence": [
+    "Issue 中给出的错误 SQL：SELECT \"company\".\"id\", \"company\".\"name\", \"company\".\"trade_number\", \"company\".\"country\" FROM \"company\"",
+    "Issue 中给出的期望 SQL：SELECT \"company\".\"id\" FROM \"company\""
+  ],
+  "confidence": "high"
+}
+
+expected_behavior:
+{
+  "text": "当对 QuerySet 调用 .only(\"field_name\").defer(\"field_name\") 时，生成的 SQL 查询应只选择未被 defer 的字段。在 .only(\"field_name\") 指定了唯一字段且该字段又被 .defer(\"field_name\") 推迟的情况下，应只选择主键字段。",
+  "evidence": [
+    "Issue 中明确陈述的期望：\"i would expect the sql query to be: SELECT \"company\".\"id\" FROM \"company\"\"",
+    "Issue 中给出的符合预期的例子：Company.objects.only(\"name\", \"country\").defer(\"name\") 生成了 SELECT \"company\".\"id\", \"company\".\"country\" FROM \"company\""
+  ],
+  "confidence": "high"
+}
+
+target_apis:
+[
+  {
+    "name": "QuerySet.only",
+    "kind": "method",
+    "source_path": "django/db/models/query.py",
+    "reason": "Issue 中触发缺陷的链式调用的起始方法。"
+  },
+  {
+    "name": "QuerySet.defer",
+    "kind": "method",
+    "source_path": "django/db/models/query.py",
+    "reason": "Issue 中触发缺陷的链式调用的后续方法，用于推迟字段加载。"
+  }
+]
+
+mutation_hints:
+[
+  {
+    "slot": "call_chain",
+    "current_pattern": "qs.only(\"name\", \"value\").defer(\"name\")",
+    "target_pattern": "qs.only(\"name\").defer(\"name\")",
+    "reason": "Issue 表明当 .only() 只指定一个字段且该字段又被 .defer() 推迟时，缺陷被触发。将 .only() 的参数从多个字段变为单个字段可能使测试走向缺陷路径。",
+    "confidence": "high"
+  },
+  {
+    "slot": "argument",
+    "current_pattern": ".only() 接收多个字段名参数",
+    "target_pattern": ".only() 接收单个字段名参数",
+    "reason": "缺陷症状在 .only(\"name\")（单个字段）后跟 .defer(\"name\") 时出现，而在 .only(\"name\", \"country\").defer(\"name\") 时正常。这表明参数数量是关键变异点。",
+    "confidence": "high"
+  }
+]
+
+observation_points:
+[
+  {
+    "kind": "sql",
+    "expression_hint": "str(queryset.query) 或 queryset.query.sql_with_params() 返回的 SQL 字符串",
+    "reason": "Issue 的核心错误现象是生成的 SQL 查询不正确。观察 SQL 字符串的 SELECT 子句可以判断是否包含了应被 defer 的字段。"
+  },
+  {
+    "kind": "return_value",
+    "expression_hint": "从数据库中加载的对象实例，检查其 deferred 属性（如 obj.get_deferred_fields()）或尝试访问被 defer 的字段时是否触发额外查询",
+    "reason": "SQL 查询错误会导致加载的字段集错误。检查对象的延迟加载状态可以间接验证 SQL 是否正确。"
+  }
+]
+
+assertion_hints:
+[
+  {
+    "assertion_goal": "生成的 SQL 查询字符串不应包含被 defer 的字段名（例如 \"name\"）。",
+    "preferred_assertion_style": "not_contains_fragment",
+    "avoid": "断言完整的 SQL 字符串相等，因为表名、别名或格式可能变化。",
+    "reason": "Issue 的核心是 SELECT 子句包含了不该有的字段。检查 SQL 字符串不包含特定字段名是稳定且与 Issue 对齐的断言。"
+  },
+  {
+    "assertion_goal": "生成的 SQL 查询字符串应只包含未被 defer 的字段（在 .only(\"name\").defer(\"name\") 情况下，应只包含主键字段，如 \"id\"）。",
+    "preferred_assertion_style": "contains_fragment",
+    "avoid": "断言 SELECT 子句中字段的精确顺序或完整列表。",
+    "reason": "期望行为是只选择必要的字段。检查 SQL 包含主键字段是正向且稳定的断言。"
+  }
+]
+
+setup_hints:
+[
+  {
+    "hint": "需要一个简单的 Django 模型（如 Company），包含 id、name 和其他几个字段，并插入测试数据。",
+    "source": "issue",
+    "confidence": "high"
+  },
+  {
+    "hint": "测试应继承自 django.test.TestCase 以使用数据库事务和 Django 的测试运行器。",
+    "source": "retrieved_test",
+    "confidence": "high"
+  }
+]
+
+uncertainties:
+[
+  "缺陷是否也存在于 .defer(\"field\").only(\"field\") 的链式调用顺序中。",
+  "缺陷的确切代码位置是在 QuerySet 方法中还是在底层的 Query 对象中。",
+  "除了 SQL 字符串，是否还有其他可观测的错误症状（如性能问题、对象状态不一致）。"
+]
