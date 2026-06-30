@@ -166,6 +166,57 @@ def _build_dependency_command(repo_path: str) -> str:
     return f"python -m pip install {quoted}"
 
 
+_PIP_INSTALL_PREFIX = "python -m pip install"
+_EDITABLE_FLAG_RE = re.compile(r"(?<!\S)(?:-e|--editable)(?=\s)")
+
+
+def _editable_pip_install(command: str) -> tuple[int, re.Match[str]] | None:
+    """Locate the pip subcommand that owns the final editable flag."""
+    editable_matches = list(_EDITABLE_FLAG_RE.finditer(command))
+    if not editable_matches:
+        return None
+    editable = editable_matches[-1]
+    pip_start = command.rfind(_PIP_INSTALL_PREFIX, 0, editable.start())
+    if pip_start < 0:
+        return None
+    last_separator = max(
+        command.rfind("&&", pip_start, editable.start()),
+        command.rfind("||", pip_start, editable.start()),
+        command.rfind(";", pip_start, editable.start()),
+    )
+    if last_separator >= pip_start:
+        return None
+    return pip_start, editable
+
+
+def harden_editable_install_command(command: str) -> str:
+    """Install the worktree without uninstalling another instance's metadata."""
+    located = _editable_pip_install(command)
+    if located is None:
+        return command
+    pip_start, editable = located
+    prefix_end = pip_start + len(_PIP_INSTALL_PREFIX)
+    pip_arguments = command[prefix_end : editable.start()]
+    flags = [
+        flag
+        for flag in ("--ignore-installed", "--no-deps")
+        if flag not in pip_arguments
+    ]
+    if not flags:
+        return command
+    insertion = " " + " ".join(flags)
+    return command[:prefix_end] + insertion + command[prefix_end:]
+
+
+def disable_editable_install_command(command: str) -> str:
+    """Convert only the target project's editable install to a regular install."""
+    located = _editable_pip_install(command)
+    if located is None:
+        return command
+    _, editable = located
+    return command[: editable.start()] + command[editable.end() :]
+
+
 def icore_setup_command(spec: Any, repo_path: str = "") -> str:
     install = spec.install
     commands = list(install.get("pre_install", []))
@@ -194,7 +245,11 @@ def icore_setup_command(spec: Any, repo_path: str = "") -> str:
         "sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen",
         "(test ! -f /etc/locale.gen || (sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && (command -v locale-gen >/dev/null 2>&1 && locale-gen || true)))",
     )
-    return command
+    # Project dependencies are already provisioned by the base iCoRe env.
+    # Avoid uninstalling a previous instance's editable distribution: an
+    # interrupted uninstall can leave missing RECORD/METADATA and poison every
+    # later instance that reuses this environment.
+    return harden_editable_install_command(command)
 
 
 def first_test_selector(code: str) -> str:

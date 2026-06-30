@@ -21,18 +21,24 @@ from generation.generator import (
     generate_candidate,
     repair_candidate,
 )
-from context.host_context import build_host_context, rank_related_tests, select_related_test
-from context.protocol_recovery import audit_recovered_protocol, recover_test_protocol
+from context.host_context import build_host_context
+from context.protocol_recovery import (
+    audit_protocol_context,
+    audit_recovered_protocol,
+    recover_test_protocol,
+)
 from mutation.seed_mutator import build_mutation_plan
 from mutation.brt_mutation_rules import TRIGGER_RULE_NAMES, infer_issue_pattern
 from mutation.mutation_effectiveness import load_mutation_prior, prioritize_rules
 from oracle.observation_oracle import rebind_observation_oracle
 from validation.strict_semantic_verifier import verify_strict_semantics
 from execution.icore_runtime import (
+    disable_editable_install_command,
     dump_spec,
     ensure_icore_environment,
     env_name_for,
     env_lock_path,
+    harden_editable_install_command,
     icore_setup_command,
     icore_test_command,
     first_test_selector,
@@ -54,6 +60,18 @@ from core.schema import (
 )
 from core.utils import ensure_dir, safe_json_dump, write_text
 from validation.verifier import verify_buggy_only
+
+
+MECHANICAL_SEED_FAILURE_STATUSES = frozenset(
+    {"SETUP_ERROR", "SYNTAX_ERROR", "COLLECT_ERROR", "TIMEOUT", "ERROR"}
+)
+SEED_SELECTION_STRATEGY = (
+    "icore_original_order_first_mechanically_executable_top5"
+)
+
+
+def _seed_is_mechanically_executable(status: str) -> bool:
+    return status not in MECHANICAL_SEED_FAILURE_STATUSES
 
 
 def _run_local(command: str, cwd: str, timeout: int = 300) -> dict[str, Any]:
@@ -310,15 +328,19 @@ def _recover_declared_dependency(
     requirement = _find_declared_requirement(context.buggy_repo_path, hint)
     if not requirement:
         return False
-    install_result = run_command_in_conda(
-        f"python -m pip install {shlex.quote(requirement)}",
-        context.buggy_repo_path,
-        conda_env,
-        timeout,
-        no_conda,
-        None,
-        context.instance_id,
-    )
+    dependency_lock = env_lock_path(conda_env or "__direct_host__", "project_setup")
+    dependency_lock.parent.mkdir(parents=True, exist_ok=True)
+    with open(dependency_lock, "w", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        install_result = run_command_in_conda(
+            f"python -m pip install {shlex.quote(requirement)}",
+            context.buggy_repo_path,
+            conda_env,
+            timeout,
+            no_conda,
+            None,
+            context.instance_id,
+        )
     safe_json_dump(
         {
             "module_hint": hint,
@@ -435,7 +457,7 @@ def prepare_instance_worktree(
             and "missing the 'build_editable' hook" in setup_log
             and " -e ." in setup
         ):
-            fallback_setup = setup.replace(" -e .", " .")
+            fallback_setup = disable_editable_install_command(setup)
             fallback_result = run_command_in_conda(
                 fallback_setup,
                 str(worktree),
@@ -459,11 +481,9 @@ def prepare_instance_worktree(
             and "python -m pip install" in setup
             and " -e ." in setup
         ):
-            fallback_setup = setup.replace(
-                "python -m pip install",
-                "python -m pip install --ignore-installed --no-deps",
-                1,
-            )
+            fallback_setup = harden_editable_install_command(setup)
+            if fallback_setup == setup:
+                fallback_setup = disable_editable_install_command(setup)
             fallback_result = run_command_in_conda(
                 fallback_setup,
                 str(worktree),
@@ -486,7 +506,7 @@ def prepare_instance_worktree(
             )
             and " -e ." in setup
         ):
-            fallback_setup = setup.replace(" -e .", " .")
+            fallback_setup = disable_editable_install_command(setup)
             fallback_result = run_command_in_conda(
                 fallback_setup,
                 str(worktree),
@@ -538,6 +558,9 @@ def run_instance_pipeline(
     deterministic: bool = True,
     analysis_prior_dir: str = "",
     use_mutation_prior: bool = True,
+    issue_rewrite_dir: str = "",
+    precomputed_behavior_target: dict[str, Any] | None = None,
+    issue_rewrite_source: str = "",
 ) -> FinalResult:
     ensure_dir(output_dir)
     ensure_dir(Path(output_dir) / "prompts")
@@ -590,101 +613,168 @@ def run_instance_pipeline(
                 return result
         else:
             safe_json_dump({"status": "SKIPPED", "reason": "generate_only"}, str(Path(output_dir) / "repo_prepare.json"))
-        behavior_path = Path(output_dir) / "behavior_target.json"
-        if behavior_path.exists():
+        local_behavior_path = Path(output_dir) / "behavior_target.json"
+        if precomputed_behavior_target is not None:
             from context.issue_rewriter import behavior_from_dict
-            from core.utils import safe_json_load
 
-            behavior = behavior_from_dict(context.instance_id, safe_json_load(behavior_path))
+            behavior = behavior_from_dict(
+                context.instance_id,
+                precomputed_behavior_target,
+            )
+            safe_json_dump(
+                {
+                    "mode": "precomputed_aggregate",
+                    "source_path": str(Path(issue_rewrite_source).resolve()),
+                    "instance_id": context.instance_id,
+                },
+                str(Path(output_dir) / "issue_rewrite_source.json"),
+            )
+        elif issue_rewrite_dir:
+            from context.issue_rewriter import load_behavior_target
+
+            cached_behavior_path = (
+                Path(issue_rewrite_dir) / context.instance_id / "behavior_target.json"
+            )
+            behavior = load_behavior_target(
+                cached_behavior_path,
+                expected_instance_id=context.instance_id,
+            )
+            safe_json_dump(
+                {
+                    "mode": "precomputed",
+                    "source_path": str(cached_behavior_path.resolve()),
+                    "instance_id": context.instance_id,
+                },
+                str(Path(output_dir) / "issue_rewrite_source.json"),
+            )
+        elif local_behavior_path.exists():
+            from context.issue_rewriter import load_behavior_target
+
+            behavior = load_behavior_target(
+                local_behavior_path,
+                expected_instance_id=context.instance_id,
+            )
         else:
             behavior = rewrite_issue(context, llm_client, output_dir)
-        behavior.save_json(str(Path(output_dir) / "behavior_target.json"))
+        behavior.save_json(str(local_behavior_path))
         protocol = None
         seed_fallback_used = False
         seed_attempts: list[dict[str, Any]] = []
-        ranked_tests = rank_related_tests(context.retrieved_tests, behavior)
-        related_test = ranked_tests[0] if ranked_tests else select_related_test(context.retrieved_tests, behavior)
+        # Seed Selection follows the original iCoRe retrieval order. Since
+        # iCoRe already ranks related tests using textual similarity and
+        # call-graph similarity, BRT3 does not perform an additional strong
+        # reranking. It tries the top-k retrieved tests in order and selects
+        # the first seed whose original test protocol is mechanically
+        # executable.
+        seeds_to_try = list(context.retrieved_tests)[:5]
+        related_test = seeds_to_try[0] if seeds_to_try else None
         host = None
         selected_seed_path = Path(output_dir) / "selected_seed.json"
+        seed_fallback_path = Path(output_dir) / "seed_fallback.json"
         host_cache_path = Path(output_dir) / "host_context.json"
         protocol_cache_path = Path(output_dir) / "protocol_recovery.json"
         seed_reused = False
         seed_change_reason = ""
 
         def _seed_rank(seed: Any) -> int:
-            for index, item in enumerate(ranked_tests):
+            for index, item in enumerate(context.retrieved_tests):
                 if item.file == seed.file and item.name == seed.name:
                     return index
             return -1
 
-        seeds_to_try = ranked_tests[:3] if enable_protocol_recovery else ([related_test] if related_test else [])
-        if deterministic and host_cache_path.is_file():
+        saved_seed: dict[str, Any] = {}
+        if deterministic and selected_seed_path.is_file():
+            try:
+                saved_seed = json.loads(
+                    selected_seed_path.read_text(encoding="utf-8")
+                )
+            except (OSError, ValueError, TypeError):
+                saved_seed = {}
+        saved_file = str(saved_seed.get("selected_seed_file") or "")
+        saved_name = str(saved_seed.get("selected_seed_name") or "")
+        matched_seed = next(
+            (
+                item
+                for item in seeds_to_try
+                if item.file == saved_file and item.name == saved_name
+            ),
+            None,
+        )
+        cache_matches_strategy = (
+            saved_seed.get("selection_strategy") == SEED_SELECTION_STRATEGY
+            and matched_seed is not None
+        )
+
+        if (
+            deterministic
+            and host_cache_path.is_file()
+            and cache_matches_strategy
+        ):
             try:
                 host = _dataclass_from_mapping(
                     HostContext,
                     json.loads(host_cache_path.read_text(encoding="utf-8")),
                 )
+                related_test = matched_seed
                 selected_seed_signature = _host_signature(host)
                 seed_reused = True
-                if protocol_cache_path.is_file():
+                seed_fallback_used = bool(saved_seed.get("fallback_used"))
+                seed_change_reason = str(
+                    saved_seed.get("fallback_reason")
+                    or saved_seed.get("seed_change_reason")
+                    or ""
+                )
+                if enable_protocol_recovery and protocol_cache_path.is_file():
                     protocol = _dataclass_from_mapping(
                         ProtocolRecovery,
                         json.loads(protocol_cache_path.read_text(encoding="utf-8")),
                     )
-                if selected_seed_path.is_file():
-                    saved_seed = json.loads(selected_seed_path.read_text(encoding="utf-8"))
-                    saved_file = str(saved_seed.get("selected_seed_file") or "")
-                    saved_name = str(saved_seed.get("selected_seed_name") or "")
-                    matched_seed = next(
-                        (
-                            item
-                            for item in ranked_tests
-                            if item.file == saved_file and item.name == saved_name
-                        ),
-                        None,
+                if seed_fallback_path.is_file():
+                    cached_fallback = json.loads(
+                        seed_fallback_path.read_text(encoding="utf-8")
                     )
-                    if matched_seed is not None:
-                        related_test = matched_seed
-                seed_attempts.append(
-                    {
-                        "rank": _seed_rank(related_test) if related_test else -1,
-                        "file": related_test.file if related_test else host.host_file,
-                        "name": related_test.name if related_test else host.seed_test_name,
-                        "execution_status": host.seed_execution_status,
-                        "selected": True,
-                        "protocol_risks": protocol.protocol_risks if protocol else [],
-                        "reused_from_cache": True,
-                    }
-                )
+                    cached_attempts = cached_fallback.get("attempts")
+                    if isinstance(cached_attempts, list):
+                        seed_attempts = [
+                            dict(item)
+                            for item in cached_attempts
+                            if isinstance(item, dict)
+                        ]
+                if not seed_attempts:
+                    seed_attempts.append(
+                        {
+                            "rank": _seed_rank(related_test),
+                            "file": related_test.file,
+                            "name": related_test.name,
+                            "execution_status": host.seed_execution_status,
+                            "selected": True,
+                            "protocol_risks": (
+                                protocol.protocol_risks if protocol else []
+                            ),
+                            "reused_from_cache": True,
+                        }
+                    )
+                else:
+                    for attempt in seed_attempts:
+                        attempt["selected"] = (
+                            attempt.get("file") == related_test.file
+                            and attempt.get("name") == related_test.name
+                        )
             except Exception as exc:  # noqa: BLE001
                 host = None
                 protocol = None
                 seed_reused = False
                 seed_change_reason = f"cached HostContext/ProtocolRecovery could not be loaded: {exc}"
-        if deterministic and selected_seed_path.is_file():
-            try:
-                saved_seed = json.loads(selected_seed_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError, TypeError):
-                saved_seed = {}
-            saved_file = str(saved_seed.get("selected_seed_file") or "")
-            saved_name = str(saved_seed.get("selected_seed_name") or "")
-            matched_seed = next(
-                (
-                    item
-                    for item in ranked_tests
-                    if item.file == saved_file and item.name == saved_name
-                ),
-                None,
+        elif deterministic and host_cache_path.is_file():
+            seed_change_reason = (
+                "cached seed selection used a previous strategy or is no "
+                "longer available in the top-5 iCoRe results"
             )
-            if matched_seed is not None:
-                seeds_to_try = [matched_seed]
-                related_test = matched_seed
-                seed_reused = True
-            elif saved_file or saved_name:
-                seed_change_reason = (
-                    "previous selected seed is unavailable in current retrieved tests"
-                )
+
         if host is None:
+            first_candidate_seed = None
+            first_candidate_host = None
+            first_candidate_protocol = None
             for seed_index, seed in enumerate(seeds_to_try):
                 rank = _seed_rank(seed)
                 candidate_host = build_host_context(
@@ -698,6 +788,10 @@ def run_instance_pipeline(
                     context.retrieved_code, context.repo,
                     str(context.metadata.get("version") or ""),
                 ) if enable_protocol_recovery else None
+                if seed_index == 0:
+                    first_candidate_seed = seed
+                    first_candidate_host = candidate_host
+                    first_candidate_protocol = candidate_protocol
                 seed_attempts.append({
                     "rank": rank if rank >= 0 else seed_index,
                     "file": seed.file,
@@ -706,14 +800,47 @@ def run_instance_pipeline(
                     "selected": False,
                     "protocol_risks": candidate_protocol.protocol_risks if candidate_protocol else [],
                 })
-                related_test, host, protocol = seed, candidate_host, candidate_protocol
-                if generate_only or candidate_host.seed_execution_status not in {
-                    "SETUP_ERROR", "SYNTAX_ERROR", "COLLECT_ERROR", "TIMEOUT", "ERROR"
-                }:
+                if generate_only or _seed_is_mechanically_executable(
+                    candidate_host.seed_execution_status
+                ):
+                    related_test, host, protocol = (
+                        seed,
+                        candidate_host,
+                        candidate_protocol,
+                    )
+                    seed_attempts[-1]["selected"] = True
+                    seed_fallback_used = seed_index > 0
+                    if seed_fallback_used:
+                        seed_change_reason = (
+                            "previous seed failed mechanical execution "
+                            "qualification; tried next iCoRe-ranked seed"
+                        )
                     break
-                seed_fallback_used = seed_index < min(2, len(seeds_to_try) - 1)
-                if seed_fallback_used and not seed_change_reason:
-                    seed_change_reason = "previous seed failed environment qualification; tried next ranked seed"
+                if seed_index < len(seeds_to_try) - 1:
+                    seed_fallback_used = True
+                    seed_change_reason = (
+                        "previous seed failed mechanical execution "
+                        "qualification; tried next iCoRe-ranked seed"
+                    )
+            else:
+                if first_candidate_seed is not None and first_candidate_host is not None:
+                    related_test, host, protocol = (
+                        first_candidate_seed,
+                        first_candidate_host,
+                        first_candidate_protocol,
+                    )
+                    if seed_attempts:
+                        seed_attempts[0]["selected"] = True
+                    seed_fallback_used = True
+                    seed_change_reason = (
+                        "all top-5 iCoRe-ranked seeds failed mechanical "
+                        "execution qualification; falling back to the first "
+                        "iCoRe-ranked seed"
+                    )
+                else:
+                    related_test = None
+                    host = None
+                    protocol = None
         if host is None:
             host = build_host_context(
                 context.instance_id, None, context.buggy_repo_path, behavior,
@@ -721,12 +848,21 @@ def run_instance_pipeline(
                 skip_execution=generate_only, repo=context.repo,
                 version=str(context.metadata.get("version") or ""),
             )
-        if seed_attempts:
-            seed_attempts[-1]["selected"] = True
         selected_seed_signature = _host_signature(host)
-        safe_json_dump({"fallback_used": seed_fallback_used, "attempts": seed_attempts}, str(Path(output_dir) / "seed_fallback.json"))
         safe_json_dump(
             {
+                "selection_strategy": SEED_SELECTION_STRATEGY,
+                "fallback_used": seed_fallback_used,
+                "fallback_reason": (
+                    seed_change_reason if seed_fallback_used else ""
+                ),
+                "attempts": seed_attempts,
+            },
+            str(seed_fallback_path),
+        )
+        safe_json_dump(
+            {
+                "selection_strategy": SEED_SELECTION_STRATEGY,
                 "selected_seed_file": related_test.file if related_test else "",
                 "selected_seed_name": related_test.name if related_test else "",
                 "seed_rank": _seed_rank(related_test) if related_test else -1,
@@ -740,6 +876,7 @@ def run_instance_pipeline(
             },
             str(selected_seed_path),
         )
+        protocol_context_audit: dict[str, Any] = {}
         if protocol is not None:
             try:
                 protocol = audit_recovered_protocol(
@@ -748,6 +885,26 @@ def run_instance_pipeline(
             except Exception as exc:  # noqa: BLE001
                 protocol.protocol_risks.append(f"协议模型审计失败，保留 AST 恢复结果：{exc}")
             protocol.save_json(str(Path(output_dir) / "protocol_recovery.json"))
+            if related_test is not None:
+                try:
+                    protocol_context_audit = audit_protocol_context(
+                        protocol,
+                        behavior,
+                        related_test,
+                        list(context.retrieved_tests)[:5],
+                        context.retrieved_code,
+                        llm_client,
+                        output_dir,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    protocol_context_audit = {
+                        "audit_failed": True,
+                        "error": str(exc),
+                    }
+                    safe_json_dump(
+                        protocol_context_audit,
+                        str(Path(output_dir) / "protocol_context_audit.json"),
+                    )
         host.save_json(str(Path(output_dir) / "host_context.json"))
         candidate = None
         execution = None
@@ -781,6 +938,7 @@ def run_instance_pipeline(
             initial_plan = build_mutation_plan(
                 context.instance_id, 0, behavior, host, protocol, llm_client, output_dir,
                 analysis_prior_hint=analysis_prior_hint,
+                protocol_context_audit=protocol_context_audit,
             )
         if initial_plan:
             mutation_plans.append(initial_plan)
@@ -1077,6 +1235,7 @@ def run_instance_pipeline(
                         execution.stdout + "\n" + execution.stderr,
                         decision.to_dict(),
                         analysis_prior_hint,
+                        protocol_context_audit=protocol_context_audit,
                     )
                     mutation_plans.append(mutation_plan)
                 candidate = repair_candidate(

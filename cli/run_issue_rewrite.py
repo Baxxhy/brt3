@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 
 from core.config import DEFAULT_MAX_TOKENS, DEFAULT_MAX_WORKERS, DEFAULT_TEMPERATURE, DEFAULT_TOP_CODE, DEFAULT_TOP_TESTS
 from core.io_utils import build_instance_context, load_issue_data
-from context.issue_rewriter import rewrite_issue
+from context.issue_rewriter import load_behavior_target, rewrite_issue
 from llm.llm_client import LLMClient
 from core.utils import ensure_dir, safe_json_dump
 
@@ -84,6 +85,43 @@ def main() -> None:
         "defaults": {"max_workers": DEFAULT_MAX_WORKERS, "top_code": DEFAULT_TOP_CODE, "top_tests": DEFAULT_TOP_TESTS},
     }
     safe_json_dump(summary, str(Path(args.output_dir) / "summary.json"))
+    aggregate_instances = {}
+    aggregate_errors = []
+    for instance_id in ids:
+        behavior_path = Path(args.output_dir) / instance_id / "behavior_target.json"
+        try:
+            aggregate_instances[instance_id] = load_behavior_target(
+                behavior_path,
+                expected_instance_id=instance_id,
+            ).to_dict()
+        except (OSError, ValueError) as exc:
+            aggregate_errors.append(str(exc))
+    aggregate = {
+        "schema_version": 1,
+        "generated_at": datetime.now().astimezone().isoformat(),
+        "count": len(aggregate_instances),
+        "instances": aggregate_instances,
+    }
+    safe_json_dump(
+        aggregate,
+        str(Path(args.output_dir) / "issue_rewrite.partial.json"),
+    )
+    if aggregate_errors:
+        print(
+            f"aggregate incomplete: {len(aggregate_instances)}/{len(ids)}; "
+            "see issue_rewrite.partial.json",
+            flush=True,
+        )
+    else:
+        safe_json_dump(
+            aggregate,
+            str(Path(args.output_dir) / "issue_rewrite.json"),
+        )
+        print(
+            f"aggregate complete: {len(aggregate_instances)}/{len(ids)} -> "
+            f"{Path(args.output_dir) / 'issue_rewrite.json'}",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

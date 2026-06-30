@@ -23,6 +23,10 @@ from typing import Any
 
 from core.io_utils import load_issue_data
 from core.utils import ensure_dir, safe_json_dump, sanitize_instance_id
+from execution.icore_runtime import (
+    disable_editable_install_command,
+    harden_editable_install_command,
+)
 
 
 CONDA_EXE = os.environ.get("CONDA_EXE", "/root/miniconda3/bin/conda")
@@ -243,18 +247,16 @@ def setup_fallback_command(command: str, output: str) -> str:
         return ""
     if (
         "missing the 'build_editable' hook" in output
+        or "uninstall-no-record-file" in output
         or "AssertionError: Egg-link" in output
         or "Egg-link" in output
     ):
         if "missing the 'build_editable' hook" in output:
-            return command.replace(" -e .", " .")
-        if "python -m pip install" in command and "--ignore-installed" not in command:
-            return command.replace(
-                "python -m pip install",
-                "python -m pip install --ignore-installed --no-deps",
-                1,
-            )
-        return command.replace(" -e .", " .")
+            return disable_editable_install_command(command)
+        hardened = harden_editable_install_command(command)
+        if hardened != command:
+            return hardened
+        return disable_editable_install_command(command)
     return ""
 
 

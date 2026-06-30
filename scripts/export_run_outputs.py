@@ -16,6 +16,17 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INSTANCES = PROJECT_ROOT.parent / "brt2/data/issues/swt276_issues.json"
+OPERATOR_RULE_NAMES = (
+    "ARG_VALUE_REPLACE",
+    "ARG_BOUNDARY_EXPAND",
+    "OPERATOR_FLIP",
+    "CALL_CHAIN_EXTEND",
+    "STATE_MUTATION",
+    "CONFIG_MUTATION",
+    "LIFECYCLE_TRIGGER",
+    "FIXTURE_DATA_MUTATION",
+    "ORACLE_REBIND",
+)
 
 
 def _read_json(path: Path, default: Any = None) -> Any:
@@ -119,6 +130,120 @@ def _failure_category(result: dict[str, Any]) -> str | None:
     return "UNRELATED_FAIL"
 
 
+def _latest_plan(instance_dir: Path, summary: dict[str, Any]) -> tuple[dict[str, Any], Path | None]:
+    plan_paths = sorted(instance_dir.glob("mutation_round_*_plan.json"))
+    for path in reversed(plan_paths):
+        data = _read_json(path, {})
+        if isinstance(data, dict) and data:
+            return data, path
+    plan = summary.get("mutation_plan") if isinstance(summary, dict) else {}
+    return (plan if isinstance(plan, dict) else {}), None
+
+
+def _normalized_selected_rules(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    selected = plan.get("selected_rules")
+    if not isinstance(selected, list):
+        selected = []
+    normalized: list[dict[str, Any]] = []
+    for raw in selected:
+        if not isinstance(raw, dict):
+            continue
+        rule = str(raw.get("rule") or "")
+        if not rule:
+            continue
+        normalized.append(
+            {
+                "rule": rule,
+                "operator_subtype": str(raw.get("operator_subtype") or ""),
+                "mutation_scope": str(raw.get("mutation_scope") or "trigger"),
+                "confidence": raw.get("confidence"),
+                "confidence_reason": str(raw.get("confidence_reason") or ""),
+                "pre_requisite": raw.get("pre_requisite") if isinstance(raw.get("pre_requisite"), list) else [],
+                "depends_on": raw.get("depends_on") if isinstance(raw.get("depends_on"), list) else [],
+                "implementation_mode": str(raw.get("implementation_mode") or ""),
+                "ast_feasibility": str(raw.get("ast_feasibility") or ""),
+                "target_code": str(raw.get("target_code") or ""),
+                "seed_element": str(raw.get("seed_element") or ""),
+                "before_pattern": str(raw.get("before_pattern") or ""),
+                "after_pattern": str(raw.get("after_pattern") or raw.get("mutation") or ""),
+                "expected_trigger_effect": str(raw.get("expected_trigger_effect") or ""),
+                "observable_difference": str(raw.get("observable_difference") or ""),
+                "why_issue_aligned": str(raw.get("why_issue_aligned") or ""),
+                "expected_buggy_observation": str(raw.get("expected_buggy_observation") or ""),
+                "expected_fixed_behavior": str(raw.get("expected_fixed_behavior") or ""),
+                "risk": str(raw.get("risk") or ""),
+            }
+        )
+    return normalized
+
+
+def _status_from_execution(value: Any) -> str:
+    return str(value.get("status") or "") if isinstance(value, dict) else ""
+
+
+def _operator_stats(records: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    stats = {
+        rule: {
+            "used": 0,
+            "buggy_pass": 0,
+            "issue_aligned_fail": 0,
+            "surrogate_f2p": 0,
+            "formal_f2p": 0,
+            "setup_error": 0,
+            "unrelated_fail": 0,
+            "noop_risk_high": 0,
+        }
+        for rule in OPERATOR_RULE_NAMES
+    }
+    for item in records:
+        used_rules = {
+            str(rule.get("rule") or "")
+            for rule in item.get("selected_rules", [])
+            if isinstance(rule, dict)
+        }
+        buggy_status = str(item.get("buggy_result") or "")
+        surrogate_status = str(item.get("surrogate_result") or "")
+        formal_status = str(item.get("formal_result") or "")
+        final_status = str(item.get("final_status") or "")
+        generation_status = str(item.get("generation_status") or "")
+        effect = item.get("mutation_effect_check")
+        noop_high = (
+            isinstance(effect, dict)
+            and effect.get("risk_of_noop_mutation") == "high"
+        )
+        status_blob = " ".join(
+            [buggy_status, surrogate_status, formal_status, final_status, generation_status]
+        ).upper()
+        for rule in used_rules:
+            if rule not in stats:
+                stats[rule] = {
+                    "used": 0,
+                    "buggy_pass": 0,
+                    "issue_aligned_fail": 0,
+                    "surrogate_f2p": 0,
+                    "formal_f2p": 0,
+                    "setup_error": 0,
+                    "unrelated_fail": 0,
+                    "noop_risk_high": 0,
+                }
+            stats[rule]["used"] += 1
+            if buggy_status == "PASS" or formal_status == "BUGGY_PASS":
+                stats[rule]["buggy_pass"] += 1
+            if "ISSUE_ALIGNED_FAIL" in status_blob:
+                stats[rule]["issue_aligned_fail"] += 1
+            if surrogate_status in {"F2P_SUCCESS", "SURROGATE_F2P_SUCCESS"} or "SURROGATE_F2P_SUCCESS" in status_blob:
+                stats[rule]["surrogate_f2p"] += 1
+            if formal_status == "F2P_SUCCESS":
+                stats[rule]["formal_f2p"] += 1
+            if "SETUP_ERROR" in status_blob:
+                stats[rule]["setup_error"] += 1
+            if "UNRELATED_FAIL" in status_blob:
+                stats[rule]["unrelated_fail"] += 1
+            if noop_high:
+                stats[rule]["noop_risk_high"] += 1
+    return stats
+
+
 def _selected_checkpoint(
     instance_id: str,
     instance_dir: Path,
@@ -183,6 +308,11 @@ def export_run(args: argparse.Namespace) -> dict[str, Any]:
         ranking_path = instance_dir / "candidate_ranking.json"
         summary = _read_json(summary_path, {})
         ranking = _read_json(ranking_path, {})
+        plan, plan_path = _latest_plan(instance_dir, summary if isinstance(summary, dict) else {})
+        selected_rules = _normalized_selected_rules(plan)
+        mutation_effect_check = plan.get("mutation_effect_check") if isinstance(plan, dict) else {}
+        if not isinstance(mutation_effect_check, dict):
+            mutation_effect_check = {}
         evaluation = eval_results.get(instance_id, {})
         selected_attempt, candidate_count, copied = _selected_checkpoint(
             instance_id, instance_dir, checkpoint_root, ranking
@@ -228,6 +358,10 @@ def export_run(args: argparse.Namespace) -> dict[str, Any]:
             "instance_id": instance_id,
             "generated": generated,
             "evaluated": instance_id in eval_results,
+            "issue_pattern": plan.get("issue_pattern") if isinstance(plan, dict) else "",
+            "fault_proxy": plan.get("fault_proxy", {}) if isinstance(plan, dict) else {},
+            "selected_rules": selected_rules,
+            "mutation_effect_check": mutation_effect_check,
             "selected_test": {
                 "test_file_path": direct_path or _rel(final_test_path, run_dir),
                 "test_nodeid": selector,
@@ -261,6 +395,7 @@ def export_run(args: argparse.Namespace) -> dict[str, Any]:
                 "test_file": _rel(final_test_path, run_dir) if generated else None,
                 "buggy_log": _rel(execution_log, run_dir) if execution_log else None,
                 "patched_log": None,
+                "mutation_plan": _rel(plan_path, run_dir) if plan_path else None,
             },
             "error": error,
         }
@@ -301,6 +436,30 @@ def export_run(args: argparse.Namespace) -> dict[str, Any]:
         }
         for item in records
     ]
+    all_generated_tests = [
+        {
+            "instance_id": item["instance_id"],
+            "issue_pattern": item.get("issue_pattern") or "",
+            "fault_proxy": item.get("fault_proxy") if isinstance(item.get("fault_proxy"), dict) else {},
+            "selected_rules": item.get("selected_rules") if isinstance(item.get("selected_rules"), list) else [],
+            "mutation_effect_check": (
+                item.get("mutation_effect_check")
+                if isinstance(item.get("mutation_effect_check"), dict)
+                else {}
+            ),
+            "generated_test_path": item["selected_test"]["test_file_path"] or "",
+            "generated_test_code": item["selected_test"]["test_content"] or "",
+            "buggy_result": item["generation"]["buggy_execution_status"] or "",
+            "surrogate_result": item["generation"]["surrogate_status"] or "",
+            "formal_result": item["formal_evaluation"]["status"] or "",
+            "final_status": item["formal_evaluation"]["status"]
+            or item["generation"]["status"]
+            or "",
+            "generation_status": item["generation"]["status"] or "",
+        }
+        for item in records
+    ]
+    operator_level_stats = _operator_stats(all_generated_tests)
     final_summary = {
         "run_id": run_dir.name,
         "total_instances": len(instance_ids),
@@ -316,11 +475,41 @@ def export_run(args: argparse.Namespace) -> dict[str, Any]:
     output_jsonl = Path(args.output_jsonl) if args.output_jsonl else exports_dir / "all_outputs.jsonl"
     tests_json = Path(args.tests_only_json) if args.tests_only_json else exports_dir / "all_tests_only.json"
     summary_json = Path(args.summary_json) if args.summary_json else exports_dir / "final_summary.json"
+    formal_eval_summary = _read_json(evaluation_dir / "formal_eval_summary.json", {})
+    if not isinstance(formal_eval_summary, dict):
+        formal_eval_summary = {
+            "status": "not_run",
+            "total": 0,
+            "f2p_success": 0,
+            "f2p_rate": 0.0,
+        }
+    generation_summary = _read_json(generation_dir / "summary.json", {})
+    generation_results = generation_summary.get("results") if isinstance(generation_summary, dict) else []
+    generation_status_counts = Counter(
+        str(item.get("status") or "UNKNOWN")
+        for item in generation_results
+        if isinstance(item, dict)
+    )
+    smoke_summary = {
+        "run_id": run_dir.name,
+        "total_instances": len(instance_ids),
+        "generated_count": generated_count,
+        "generation_status_counts": dict(generation_status_counts),
+        "issue_rewrite": generation_summary.get("issue_rewrite", {})
+        if isinstance(generation_summary, dict)
+        else {},
+    }
     _atomic_json(output_json, all_outputs)
     _atomic_text(output_jsonl, "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in records))
     _atomic_json(tests_json, tests_only)
     _atomic_json(summary_json, final_summary)
     _atomic_json(checkpoint_root / "index.json", checkpoint_index)
+    _atomic_json(run_dir / "all_generated_tests.json", all_generated_tests)
+    _atomic_json(run_dir / "operator_level_stats.json", operator_level_stats)
+    _atomic_json(run_dir / "final_summary.json", final_summary)
+    _atomic_json(run_dir / "formal_eval_summary.json", formal_eval_summary)
+    if bool(config.get("smoke")) or "smoke" in run_dir.name.lower():
+        _atomic_json(run_dir / "smoke_summary.json", smoke_summary)
     print(json.dumps(final_summary, ensure_ascii=False, indent=2), flush=True)
     return final_summary
 

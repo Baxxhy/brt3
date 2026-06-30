@@ -77,11 +77,11 @@ python - <<'PY'
 from llm.api_pool import configured_api_metadata
 entries = configured_api_metadata()
 names = {entry["name"] for entry in entries}
-if len(entries) != 9:
-    raise SystemExit(f"expected 9 configured API accounts, got {len(entries)}")
-if "fa_251812017" not in names:
-    raise SystemExit("missing required API account name fa_251812017")
-print("configured_api_accounts=9")
+if len(entries) != 10:
+    raise SystemExit(f"expected 10 configured API accounts, got {len(entries)}")
+if "fa_254711066" not in names:
+    raise SystemExit("missing required API account name fa_254711066")
+print("configured_api_accounts=10")
 print("required_api_name_present=true")
 PY
 

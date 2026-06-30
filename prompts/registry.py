@@ -19,6 +19,7 @@ PROMPT_TASKS = {
     "repair_oracle": "repair_oracle",
     "surrogate_patch": "surrogate_patch",
     "protocol_recovery": "protocol_recovery",
+    "protocol_context_audit": "protocol_context_audit",
     "seed_mutation_plan": "seed_mutation_plan",
     "observation_oracle_probe": "observation_oracle_probe",
     "observation_oracle_rebind": "observation_oracle_rebind",

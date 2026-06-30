@@ -41,6 +41,20 @@ python -m cli.run_issue_rewrite \
 
 This writes one `behavior_target.json` per instance.
 
+Precompute issue rewrites for all 276 instances with nine workers:
+
+```bash
+bash scripts/run_issue_rewrite_276.sh --max-workers 9 --resume
+```
+
+Results are written to `results/issue_rewrite/<instance_id>/`. Each directory
+contains `behavior_target.json`, the prompt, the raw response, and metadata.
+After all 276 instances succeed, they are combined into:
+
+```text
+results/issue_rewrite/issue_rewrite.json
+```
+
 ## BRT Generation
 
 ```bash
@@ -50,6 +64,7 @@ python -m cli.run \
   --test_retrieval_path /root/Baxxhy/BugReproduce/iCoRe/retrieval_results/test/icore/gpt/related_tests.json \
   --repo_root_base /root/Baxxhy/BugReproduce/swe_repos \
   --output_dir results/runs/run_generation_smoke/generation \
+  --issue_rewrite_path /root/Baxxhy/BugReproduce/brt3/results/issue_rewrite/issue_rewrite.json \
   --model deepseek-v3 \
   --limit 1 \
   --max_workers 1 \
@@ -59,6 +74,12 @@ python -m cli.run \
 Generation does not read the true patch. It writes each instance under
 `generation/<instance_id>/`, including `final_test.py`, prompt/response files,
 execution logs, and `summary.json`.
+
+When `--issue_rewrite_path` is provided, generation loads the aggregate JSON
+once, requires every selected instance to be present, and does not call the
+issue rewrite model. Omit the option to retain the original inline rewrite
+behavior. `--issue_rewrite_dir` remains available only for compatibility with
+older per-instance caches.
 
 ## Smoke Run
 
@@ -81,6 +102,7 @@ JSON output without launching a full 276-instance evaluation.
 ```bash
 bash scripts/run_latest_full_pipeline.sh \
   --instances-file /root/Baxxhy/BugReproduce/brt2/data/issues/swt276_issues.json \
+  --issue-rewrite-path /root/Baxxhy/BugReproduce/brt3/results/issue_rewrite/issue_rewrite.json \
   --model deepseek-v3 \
   --max-workers 6 \
   --timeout 1800
@@ -124,6 +146,8 @@ python -m evaluation.direct_eval --help
 | `--model` | LLM model name, usually `deepseek-v3`. |
 | `--max_workers` | Parallel workers. Use 1 for smoke, 6-7 for full runs. |
 | `--timeout` | Per setup/test timeout in seconds. |
+| `--issue_rewrite_path` / `--issue-rewrite-path` | Aggregate `issue_rewrite.json`; loaded once and skips inline issue rewrite. |
+| `--issue_rewrite_dir` / `--issue-rewrite-dir` | Deprecated compatibility mode for per-instance caches. |
 | `--resume` | Reuse completed instance summaries or formal worker results. |
 
 ## Output Layout
@@ -171,4 +195,3 @@ python -m scripts.collect_outputs \
   --input results/runs/run_YYYYMMDD_HHMMSS \
   --output results/runs/run_YYYYMMDD_HHMMSS/exports/collected_outputs.json
 ```
-

@@ -1,9 +1,8 @@
 请分析下面这个缺陷复现任务。
 
-你的目标不是简单润色 Issue，而是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
+你的目标是将原始 Issue 与 iCoRe 检索出的相关源码、相关测试对齐，提取后续生成 Bug Reproduction Test 所需的信息。
 
 你需要同时输出：
-
 1. original_issue：原始 Issue，保持原文；
 2. clarified_issue：在不引入无依据内容的前提下，把 Issue 改写成更清楚的缺陷复现描述；
 3. BehaviorTarget：用于后续 seed selection、mutation plan、observation oracle 和 strict verifier 的结构化行为目标。
@@ -128,7 +127,6 @@
 }}
 
 规则：
-
 1. 所有字段都必须出现；
 2. 如果某个字段没有足够依据，填写空数组、空字符串或 confidence=low；
 3. 不要复制大段代码到 JSON 里；

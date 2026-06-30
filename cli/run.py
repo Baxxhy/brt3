@@ -9,6 +9,7 @@ import subprocess
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 
 from core.config import (
@@ -21,6 +22,7 @@ from core.config import (
     DEFAULT_TOP_TESTS,
 )
 from execution.feedback import run_instance_pipeline
+from context.issue_rewriter import load_behavior_target
 from core.io_utils import build_instance_context, load_issue_data
 from llm.llm_client import LLMClient
 from core.utils import ensure_dir, safe_json_dump
@@ -44,6 +46,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test_retrieval_path", required=True)
     parser.add_argument("--repo_root_base", required=True)
     parser.add_argument("--output_dir", required=True)
+    parser.add_argument(
+        "--issue_rewrite_path",
+        "--issue-rewrite-path",
+        dest="issue_rewrite_path",
+        default="",
+        help=(
+            "Precomputed aggregate issue_rewrite JSON, including a partial "
+            "aggregate. Existing instances are reused and missing instances "
+            "are rewritten inline."
+        ),
+    )
+    parser.add_argument(
+        "--issue_rewrite_dir",
+        "--issue-rewrite-dir",
+        dest="issue_rewrite_dir",
+        default="",
+        help=(
+            "Deprecated compatibility mode: directory containing "
+            "<instance_id>/behavior_target.json from "
+            "cli.run_issue_rewrite. When set, the pipeline requires and reuses "
+            "that file instead of calling issue rewrite."
+        ),
+    )
     parser.add_argument("--model", default="deepseek-v3")
     parser.add_argument("--api_key", default=None)
     parser.add_argument("--base_url", default=None)
@@ -236,6 +261,13 @@ def _run_one(args: argparse.Namespace, instance_id: str, issue_row: dict) -> dic
                 deterministic=args.deterministic,
                 analysis_prior_dir=args.analysis_prior_dir,
                 use_mutation_prior=args.use_mutation_prior,
+                issue_rewrite_dir=args.issue_rewrite_dir,
+                precomputed_behavior_target=(
+                    args.precomputed_issue_rewrites.get(instance_id)
+                    if args.precomputed_issue_rewrites
+                    else None
+                ),
+                issue_rewrite_source=args.issue_rewrite_path,
             )
         return {"instance_id": instance_id, "status": result.status, "summary": result.to_dict()}
     except Exception as exc:  # noqa: BLE001
@@ -293,6 +325,66 @@ def main() -> None:
     ids = [args.instance_id] if args.instance_id else list(issues)
     if args.limit:
         ids = ids[: args.limit]
+    if args.issue_rewrite_path and args.issue_rewrite_dir:
+        parser.error("use only one of --issue_rewrite_path and --issue_rewrite_dir")
+    args.precomputed_issue_rewrites = {}
+    args.issue_rewrite_aggregate = {}
+    if args.issue_rewrite_path:
+        aggregate_path = Path(args.issue_rewrite_path)
+        if not aggregate_path.is_file():
+            parser.error(f"--issue_rewrite_path is not a file: {aggregate_path}")
+        try:
+            aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError) as exc:
+            parser.error(f"invalid --issue_rewrite_path JSON: {aggregate_path}: {exc}")
+        instances = aggregate.get("instances") if isinstance(aggregate, dict) else None
+        if not isinstance(instances, dict):
+            parser.error(
+                "--issue_rewrite_path must contain an 'instances' object "
+                "keyed by instance_id"
+            )
+        args.issue_rewrite_aggregate = aggregate
+        invalid_rewrites = []
+        for instance_id in ids:
+            data = instances.get(instance_id)
+            if not isinstance(data, dict):
+                continue
+            source_instance_id = str(data.get("instance_id") or "")
+            if source_instance_id != instance_id:
+                invalid_rewrites.append(
+                    f"instance mismatch for {instance_id}: found {source_instance_id!r}"
+                )
+                continue
+            args.precomputed_issue_rewrites[instance_id] = data
+        if invalid_rewrites:
+            preview = "\n".join(f"  - {item}" for item in invalid_rewrites[:20])
+            remainder = len(invalid_rewrites) - 20
+            suffix = f"\n  ... and {remainder} more" if remainder > 0 else ""
+            parser.error(
+                f"{len(invalid_rewrites)} malformed aggregate issue rewrites:\n"
+                f"{preview}{suffix}"
+            )
+    if args.issue_rewrite_dir:
+        rewrite_root = Path(args.issue_rewrite_dir)
+        if not rewrite_root.is_dir():
+            parser.error(f"--issue_rewrite_dir is not a directory: {rewrite_root}")
+        invalid_rewrites = []
+        for instance_id in ids:
+            try:
+                load_behavior_target(
+                    rewrite_root / instance_id / "behavior_target.json",
+                    expected_instance_id=instance_id,
+                )
+            except (OSError, ValueError) as exc:
+                invalid_rewrites.append(str(exc))
+        if invalid_rewrites:
+            preview = "\n".join(f"  - {item}" for item in invalid_rewrites[:20])
+            remainder = len(invalid_rewrites) - 20
+            suffix = f"\n  ... and {remainder} more" if remainder > 0 else ""
+            parser.error(
+                f"{len(invalid_rewrites)} invalid precomputed issue rewrites:\n"
+                f"{preview}{suffix}"
+            )
     if not args.instance_id and not args.conda_env:
         ids = _interleave_by_conda_env(ids, issues)
     results = []
@@ -339,6 +431,53 @@ def main() -> None:
             "use_mutation_prior": args.use_mutation_prior,
         },
     }
+    if args.issue_rewrite_path:
+        source_instances = args.issue_rewrite_aggregate.get("instances", {})
+        merged_instances = dict(source_instances) if isinstance(source_instances, dict) else {}
+        reused_ids = [
+            iid for iid in ids if iid in args.precomputed_issue_rewrites
+        ]
+        regenerated_ids: list[str] = []
+        failed_ids: list[str] = []
+        for instance_id in ids:
+            if instance_id in args.precomputed_issue_rewrites:
+                continue
+            try:
+                behavior = load_behavior_target(
+                    output_dir / instance_id / "behavior_target.json",
+                    expected_instance_id=instance_id,
+                )
+            except (OSError, ValueError):
+                failed_ids.append(instance_id)
+                continue
+            merged_instances[instance_id] = behavior.to_dict()
+            regenerated_ids.append(instance_id)
+        completion = {
+            "schema_version": 1,
+            "generated_at": datetime.now().astimezone().isoformat(),
+            "source_path": str(Path(args.issue_rewrite_path).resolve()),
+            "source_count": len(source_instances) if isinstance(source_instances, dict) else 0,
+            "count": len(merged_instances),
+            "requested_count": len(ids),
+            "reused_count": len(reused_ids),
+            "regenerated_count": len(regenerated_ids),
+            "failed_rewrite_count": len(failed_ids),
+            "reused_instance_ids": reused_ids,
+            "regenerated_instance_ids": regenerated_ids,
+            "failed_rewrite_instance_ids": failed_ids,
+            "instances": merged_instances,
+        }
+        completed_path = Path(args.issue_rewrite_path).with_name(
+            "issue_rewrite.completed.json"
+        )
+        safe_json_dump(completion, str(completed_path))
+        summary["issue_rewrite"] = {
+            "source_path": str(Path(args.issue_rewrite_path).resolve()),
+            "completed_path": str(completed_path.resolve()),
+            "reused_count": len(reused_ids),
+            "regenerated_count": len(regenerated_ids),
+            "failed_rewrite_count": len(failed_ids),
+        }
     safe_json_dump(summary, str(Path(args.output_dir) / "summary.json"))
 
 

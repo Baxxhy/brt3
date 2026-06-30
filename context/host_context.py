@@ -18,7 +18,10 @@ def select_related_test(
     related_tests: list[RetrievedTest],
     behavior: BehaviorTarget,
 ) -> RetrievedTest | None:
-    """Select one coherent seed instead of merging incompatible contexts."""
+    """Legacy scored selector retained for import compatibility.
+
+    The main BRT3 pipeline no longer uses this function for Seed Selection.
+    """
     if not related_tests:
         return None
     preferred_files = {
@@ -57,7 +60,10 @@ def select_related_test(
 def rank_related_tests(
     related_tests: list[RetrievedTest], behavior: BehaviorTarget
 ) -> list[RetrievedTest]:
-    """Return seeds in the same deterministic score order used by selection."""
+    """Legacy scored ranking retained for import compatibility.
+
+    The main BRT3 pipeline preserves the original iCoRe retrieval order.
+    """
     if not related_tests:
         return []
     preferred_files = {

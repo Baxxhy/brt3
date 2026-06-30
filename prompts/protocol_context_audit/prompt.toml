@@ -1,0 +1,10 @@
+task = "protocol_context_audit"
+status = "used"
+description = "在静态测试协议恢复之后，结合 BehaviorTarget、top-k related tests 和 retrieved source 进行协议风险审计与生成约束补充"
+
+[template]
+system = "system.md"
+user = "user.md"
+
+[output]
+format = "json"

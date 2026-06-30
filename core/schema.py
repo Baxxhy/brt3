@@ -120,6 +120,7 @@ class MutationPlan(JsonMixin):
     round_id: int = 0
     mutation_goal: str = ""
     issue_pattern: str = "unknown"
+    fault_proxy: dict[str, str] = field(default_factory=dict)
     selected_rules: list[dict[str, Any]] = field(default_factory=list)
     preserve_from_seed: list[str] = field(default_factory=list)
     do_not_change: list[str] = field(default_factory=list)

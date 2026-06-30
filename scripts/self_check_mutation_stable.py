@@ -17,6 +17,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from llm.api_pool import configured_api_metadata
 from llm.llm_client import LLMClient
+from execution.icore_runtime import (
+    disable_editable_install_command,
+    harden_editable_install_command,
+)
 from mutation.brt_mutation_rules import RULE_NAMES, rule_catalog
 from mutation.mutation_plan_schema import validate_plan_payload
 from core.schema import BehaviorTarget
@@ -25,10 +29,10 @@ from core.schema import BehaviorTarget
 def check_api_pool() -> None:
     entries = configured_api_metadata()
     names = {entry["name"] for entry in entries}
-    assert len(entries) == 8, f"expected 8 API entries, got {len(entries)}"
-    assert "fa_251812017" in names, "missing fa_251812017"
+    assert len(entries) == 10, f"expected 10 API entries, got {len(entries)}"
+    assert "fa_254711066" in names, "missing fa_254711066"
     # Intentionally do not print keys or Authorization headers.
-    print("api_pool_check=ok count=8 required_name_present=true")
+    print("api_pool_check=ok count=10 required_name_present=true")
 
 
 def check_mutation_schema() -> None:
@@ -38,18 +42,47 @@ def check_mutation_schema() -> None:
     plan, warnings = validate_plan_payload(
         {
             "issue_pattern": "null_empty",
+            "fault_proxy": {
+                "trigger_precondition": "call API with empty input",
+                "buggy_behavior": "raises unrelated exception",
+                "expected_fixed_behavior": "handles input",
+                "observable_symptom": "public return value differs",
+                "target_api": "example.api",
+                "oracle_type": "return_value",
+                "why_issue_aligned": "Issue mentions empty input.",
+            },
             "selected_rules": [
                 {
                     "rule": "ARG_BOUNDARY_EXPAND",
+                    "operator_subtype": "empty_container",
+                    "mutation_scope": "trigger",
+                    "confidence": 0.8,
+                    "confidence_reason": "empty input is the trigger",
+                    "pre_requisite": [],
+                    "depends_on": [],
+                    "implementation_mode": "llm_edit",
+                    "ast_feasibility": "partial",
+                    "target_code": "example.api([1])",
+                    "seed_element": "[1]",
+                    "before_pattern": "[1]",
+                    "after_pattern": "[]",
+                    "expected_trigger_effect": "enters empty-input path",
+                    "observable_difference": "return value changes",
                     "why_issue_aligned": "Issue mentions empty input.",
+                    "expected_buggy_observation": "raises",
+                    "expected_fixed_behavior": "returns",
                     "risk": "low",
                 }
             ],
+            "target_api": ["example.api"],
             "oracle_strategy": "public_property",
         },
         behavior,
     )
     assert plan["mutation_ops"] == ["ARG_BOUNDARY_EXPAND"]
+    assert plan["fault_proxy"]["target_api"] == "example.api"
+    assert plan["selected_rules"][0]["operator_subtype"] == "empty_container"
+    assert plan["selected_rules"][0]["after_pattern"] == "[]"
     assert isinstance(warnings, list)
     print("mutation_rule_schema_check=ok")
 
@@ -108,6 +141,30 @@ def check_api_retry() -> None:
     print("api_retry_check=ok")
 
 
+def check_editable_install_hardening() -> None:
+    command = (
+        "python -m pip install 'setuptools_scm>=6.2' wheel "
+        "&& python -m pip install --no-build-isolation -e .\"[test]\" --verbose"
+    )
+    hardened = harden_editable_install_command(command)
+    assert hardened.startswith(
+        "python -m pip install 'setuptools_scm>=6.2' wheel && "
+    )
+    assert (
+        "python -m pip install --ignore-installed --no-deps "
+        "--no-build-isolation -e .\"[test]\" --verbose"
+    ) in hardened
+    assert hardened.count("--ignore-installed") == 1
+    assert harden_editable_install_command(hardened) == hardened
+    regular = disable_editable_install_command(hardened)
+    assert " -e ." not in regular
+    assert "--ignore-installed --no-deps --no-build-isolation" in regular
+    assert harden_editable_install_command("python -m pip install wheel") == (
+        "python -m pip install wheel"
+    )
+    print("editable_install_hardening_check=ok")
+
+
 def check_analysis_script_outputs() -> None:
     script = Path("scripts/analyze_v0_v1_regression.py")
     assert script.is_file()
@@ -127,6 +184,7 @@ def main() -> None:
     check_mutation_schema()
     check_llm_cache()
     check_api_retry()
+    check_editable_install_hardening()
     check_analysis_script_outputs()
     print(json.dumps({"self_check": "ok"}, ensure_ascii=False))
 

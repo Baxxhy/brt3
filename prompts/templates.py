@@ -53,6 +53,9 @@ SURROGATE_PATCH_USER_PROMPT = get_user_prompt("surrogate_patch")
 PROTOCOL_RECOVERY_SYSTEM_PROMPT = get_system_prompt("protocol_recovery")
 PROTOCOL_RECOVERY_USER_PROMPT = get_user_prompt("protocol_recovery")
 
+PROTOCOL_CONTEXT_AUDIT_SYSTEM_PROMPT = get_system_prompt("protocol_context_audit")
+PROTOCOL_CONTEXT_AUDIT_USER_PROMPT = get_user_prompt("protocol_context_audit")
+
 SEED_MUTATION_PLAN_SYSTEM_PROMPT = get_system_prompt("seed_mutation_plan")
 SEED_MUTATION_PLAN_USER_PROMPT = get_user_prompt("seed_mutation_plan")
 

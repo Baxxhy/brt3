@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from llm.api_pool import API_NAMES, configured_apis
+from llm.api_pool import configured_api_name, configured_apis
 from core.config import (
     DEFAULT_LLM_BACKOFF_BASE,
     DEFAULT_LLM_MAX_ATTEMPTS,
@@ -63,7 +63,7 @@ class LLMClient:
             self.model = local_model or self.model
             self._uses_local_pool = True
             self.selected_key_index = local_index
-            self.selected_key_name = API_NAMES[local_index] if local_index < len(API_NAMES) else f"key_{local_index}"
+            self.selected_key_name = configured_api_name(local_index)
         else:
             multi_key = self._pick_env_key() if not api_key else None
             self.api_key = api_key or multi_key or cfg.api_key
@@ -137,7 +137,7 @@ class LLMClient:
                 if local_model:
                     self.model = local_model
                 self.selected_key_index = index
-                self.selected_key_name = API_NAMES[index] if index < len(API_NAMES) else f"key_{index}"
+                self.selected_key_name = configured_api_name(index)
                 return
         rotated = self._pick_env_key()
         if rotated:

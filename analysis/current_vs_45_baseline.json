@@ -1,0 +1,28 @@
+{
+  "current_result_path": "/root/Baxxhy/BugReproduce/brt3/results/runs/run_20260628_182802_method_trigger_only_oracle_repair_deep_t01_full/evaluation/formal_eval_summary.json",
+  "current_total": 276,
+  "current_f2p_success": 113,
+  "current_f2p_rate": 0.40942028985507245,
+  "baseline_f2p_rate": 0.45,
+  "absolute_gap": -0.04057971014492756,
+  "relative_gap": -0.09017713365539458,
+  "failure_breakdown": {
+    "BUGGY_PASS": 36,
+    "BUGGY_FAIL_FIXED_FAIL": 126,
+    "SETUP_ERROR": 5,
+    "COLLECT_ERROR": 2,
+    "SYNTAX_ERROR": 1,
+    "TIMEOUT": 0,
+    "ISSUE_ALIGNED_FAIL": 83,
+    "SURROGATE_F2P_SUCCESS": 65,
+    "UNRELATED_FAIL": 84,
+    "FLAKY_EVAL": 1
+  },
+  "notes": [
+    "The latest complete formal evaluation contains 276 instances and returncode=0.",
+    "Formal status counts are BUGGY_PASS=36, F2P_SUCCESS=113, FIXED_FAIL=126, and FLAKY_EVAL=1.",
+    "SETUP_ERROR, COLLECT_ERROR, and SYNTAX_ERROR are generation-stage final buggy execution statuses; the formal evaluation reports mechanical_setup_failure=0.",
+    "ISSUE_ALIGNED_FAIL, SURROGATE_F2P_SUCCESS, and UNRELATED_FAIL are generation-stage final statuses from the same run.",
+    "Historical 45% evidence exists at /root/Baxxhy/BugReproduce/brt3/results/runs/run_20260624_refactor_deepseek7/evaluation/metrics.json with 125/276=0.4528985507246377; calculations use the requested baseline_f2p_rate=0.45."
+  ]
+}

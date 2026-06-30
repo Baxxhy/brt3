@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import traceback
 from pathlib import Path
 from typing import Any
@@ -42,12 +43,36 @@ def behavior_from_dict(instance_id: str, data: dict[str, Any]) -> BehaviorTarget
     for key in ["trigger_condition", "error_symptom", "expected_behavior"]:
         if not isinstance(normalized.get(key), dict):
             normalized[key] = {}
-    return BehaviorTarget(instance_id=instance_id, raw=data, **normalized)
+    raw = data.get("raw") if isinstance(data.get("raw"), dict) else data
+    return BehaviorTarget(instance_id=instance_id, raw=raw, **normalized)
+
+
+def load_behavior_target(
+    path: str | Path,
+    expected_instance_id: str = "",
+) -> BehaviorTarget:
+    source = Path(path)
+    if not source.is_file():
+        raise FileNotFoundError(f"precomputed issue rewrite not found: {source}")
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError(f"invalid precomputed issue rewrite JSON: {source}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"precomputed issue rewrite must be a JSON object: {source}")
+    source_instance_id = str(data.get("instance_id") or "")
+    if expected_instance_id and source_instance_id != expected_instance_id:
+        raise ValueError(
+            "precomputed issue rewrite instance mismatch: "
+            f"expected {expected_instance_id!r}, found {source_instance_id!r} in {source}"
+        )
+    instance_id = expected_instance_id or source_instance_id
+    if not instance_id:
+        raise ValueError(f"precomputed issue rewrite has no instance_id: {source}")
+    return behavior_from_dict(instance_id, data)
 
 
 def save_enhanced_issue_copy(behavior: BehaviorTarget, output_dir: str) -> None:
-    enhanced = behavior.to_dict()
-    safe_json_dump(enhanced, str(Path(output_dir) / "enhanced_issue.json"))
     lines = [
         f"instance_id: {behavior.instance_id}",
         "",
@@ -85,8 +110,6 @@ def save_enhanced_issue_copy(behavior: BehaviorTarget, output_dir: str) -> None:
 
 
 def json_dumps_for_text(value: Any) -> str:
-    import json
-
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 

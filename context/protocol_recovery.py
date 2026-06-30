@@ -10,12 +10,15 @@ from pathlib import Path
 from execution.icore_runtime import icore_test_command
 from prompts.loader import load_prompt
 from core.schema import BehaviorTarget, ProtocolRecovery, RetrievedCode, RetrievedTest
-from core.utils import extract_json_object, truncate_text, write_text
+from core.utils import extract_json_object, safe_json_dump, truncate_text, write_text
 
 
 _PROTOCOL_RECOVERY_PROMPT = load_prompt("protocol_recovery")
 PROTOCOL_RECOVERY_SYSTEM_PROMPT = _PROTOCOL_RECOVERY_PROMPT.system
 PROTOCOL_RECOVERY_USER_PROMPT = _PROTOCOL_RECOVERY_PROMPT.user
+_PROTOCOL_CONTEXT_AUDIT_PROMPT = load_prompt("protocol_context_audit")
+PROTOCOL_CONTEXT_AUDIT_SYSTEM_PROMPT = _PROTOCOL_CONTEXT_AUDIT_PROMPT.system
+PROTOCOL_CONTEXT_AUDIT_USER_PROMPT = _PROTOCOL_CONTEXT_AUDIT_PROMPT.user
 
 
 _SETUP_NAMES = {"setUp", "setUpClass", "setup_method", "setup_class"}
@@ -206,3 +209,66 @@ def audit_recovered_protocol(
             current = getattr(protocol, field_name)
             setattr(protocol, field_name, list(dict.fromkeys(current + [str(item) for item in values])))
     return protocol
+
+
+def _compact_related_test(test: RetrievedTest, max_code_chars: int = 6000) -> dict[str, object]:
+    return {
+        "name": test.name,
+        "file": test.file,
+        "code_content": truncate_text(test.code_content, max_code_chars),
+        "raw": test.raw,
+    }
+
+
+def _compact_related_source(source: RetrievedCode, max_code_chars: int = 6000) -> dict[str, object]:
+    return {
+        "obj_name": source.obj_name,
+        "node_type": source.node_type,
+        "path": source.path,
+        "code_start_line": source.code_start_line,
+        "code_end_line": source.code_end_line,
+        "parent": source.parent,
+        "code_content": truncate_text(source.code_content, max_code_chars),
+    }
+
+
+def audit_protocol_context(
+    protocol: ProtocolRecovery,
+    behavior: BehaviorTarget,
+    selected_seed: RetrievedTest,
+    related_tests: list[RetrievedTest],
+    related_source: list[RetrievedCode],
+    llm_client: object,
+    output_dir: str,
+) -> dict[str, object]:
+    """Audit protocol context without replacing factual AST extraction."""
+    prompt = PROTOCOL_CONTEXT_AUDIT_USER_PROMPT.format(
+        behavior_json=json.dumps(behavior.to_dict(), ensure_ascii=False),
+        protocol_json=json.dumps(protocol.to_dict(), ensure_ascii=False),
+        selected_seed_test=json.dumps(
+            _compact_related_test(selected_seed, 10000),
+            ensure_ascii=False,
+        ),
+        related_tests_context=json.dumps(
+            [_compact_related_test(item, 6000) for item in related_tests[:5]],
+            ensure_ascii=False,
+        ),
+        source_context=json.dumps(
+            [_compact_related_source(item, 6000) for item in related_source[:10]],
+            ensure_ascii=False,
+        ),
+    )
+    prompt_path = Path(output_dir) / "prompts" / "protocol_context_audit_prompt.txt"
+    response_path = Path(output_dir) / "responses" / "protocol_context_audit_response.txt"
+    output_path = Path(output_dir) / "protocol_context_audit.json"
+    write_text(str(prompt_path), PROTOCOL_CONTEXT_AUDIT_SYSTEM_PROMPT + "\n\n" + prompt)
+    response = llm_client.chat(  # type: ignore[attr-defined]
+        PROTOCOL_CONTEXT_AUDIT_SYSTEM_PROMPT,
+        prompt,
+        stage_name="protocol_context_audit",
+        response_format="json",
+    )
+    write_text(str(response_path), response)
+    data = extract_json_object(response)
+    safe_json_dump(data, str(output_path))
+    return data

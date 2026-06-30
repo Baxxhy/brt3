@@ -21,6 +21,8 @@ smoke=false
 smoke_n=5
 temperature=0.1
 timeout=1800
+issue_rewrite_dir=""
+issue_rewrite_path=""
 original_args=("$@")
 
 usage() {
@@ -41,6 +43,10 @@ Options:
   --smoke-n N            Number of smoke instances (default: 5).
   --temperature FLOAT    Generation temperature (default: 0.1).
   --timeout SECONDS      Per setup/test timeout (default: 1800).
+  --issue-rewrite-dir PATH
+                         Deprecated: reuse per-instance behavior_target.json files.
+  --issue-rewrite-path PATH
+                         Reuse one aggregate issue_rewrite.json file.
   --help                 Show this help.
 
 The three *-only modes are mutually exclusive. The default runs generation,
@@ -69,6 +75,8 @@ while (($#)); do
     --smoke-n) smoke_n=$2; shift 2 ;;
     --temperature) temperature=$2; shift 2 ;;
     --timeout) timeout=$2; shift 2 ;;
+    --issue-rewrite-dir) issue_rewrite_dir=$2; shift 2 ;;
+    --issue-rewrite-path) issue_rewrite_path=$2; shift 2 ;;
     --help|-h) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -82,6 +90,24 @@ fi
 [[ "$smoke_n" =~ ^[1-9][0-9]*$ ]] || { echo "--smoke-n must be positive." >&2; exit 2; }
 [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo "--timeout must be positive." >&2; exit 2; }
 instances_file=$(realpath -m "$instances_file")
+if [[ -n "$issue_rewrite_dir" ]]; then
+  issue_rewrite_dir=$(realpath -m "$issue_rewrite_dir")
+  [[ -d "$issue_rewrite_dir" ]] || {
+    echo "--issue-rewrite-dir does not exist: $issue_rewrite_dir" >&2
+    exit 2
+  }
+fi
+if [[ -n "$issue_rewrite_path" ]]; then
+  issue_rewrite_path=$(realpath -m "$issue_rewrite_path")
+  [[ -f "$issue_rewrite_path" ]] || {
+    echo "--issue-rewrite-path does not exist: $issue_rewrite_path" >&2
+    exit 2
+  }
+fi
+if [[ -n "$issue_rewrite_dir" && -n "$issue_rewrite_path" ]]; then
+  echo "Use only one of --issue-rewrite-dir and --issue-rewrite-path." >&2
+  exit 2
+fi
 
 if [[ -z "$run_dir" ]]; then
   if [[ -z "$run_id" ]]; then
@@ -157,6 +183,8 @@ data = {
     "temperature": float(${temperature@Q}),
     "max_workers": int(${max_workers@Q}),
     "timeout": int(${timeout@Q}),
+    "issue_rewrite_dir": ${issue_rewrite_dir@Q},
+    "issue_rewrite_path": ${issue_rewrite_path@Q},
     "max_env_rounds": 3,
     "max_brt_rounds": 3,
     "max_patch_rounds": 3,
@@ -245,6 +273,12 @@ PY
     --enable_observation_oracle true
     --enable_strict_semantic_verifier true
   )
+  if [[ -n "$issue_rewrite_dir" ]]; then
+    generation_cmd+=(--issue_rewrite_dir "$issue_rewrite_dir")
+  fi
+  if [[ -n "$issue_rewrite_path" ]]; then
+    generation_cmd+=(--issue_rewrite_path "$issue_rewrite_path")
+  fi
   $resume && generation_cmd+=(--resume)
   printf '%q ' "${generation_cmd[@]}" > "$run_dir/logs/generation.command.txt"
   printf '\n' >> "$run_dir/logs/generation.command.txt"

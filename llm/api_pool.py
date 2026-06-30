@@ -1,75 +1,89 @@
-"""Local OpenAI-compatible API pool.
-
-Keys are read from the process environment and must never be printed or
-serialized into experiment outputs.
-"""
+"""Local OpenAI-compatible API pool loaded from an untracked secrets file."""
 
 from __future__ import annotations
 
-API_NAMES: list[str] = [
-    "fa_254701003",
-    "fa_244711003",
-    "fa_254711063",
-    "fa_244701007",
-    "fa_254711072",
-    "tao_yifan",
-    "fa_254711067",
-    "fa_251812017",
-    "extra_20260628",
-]
+import json
+import os
+from pathlib import Path
+from typing import Any
 
-API_KEYS: list[str] = [
-    "sk-lZfASZqz0EyU13GNFhT8uVfUQD3aC6umuIFozrg6HTz1VDgq",
-    "sk-23Nv7ebOWzNr4I05UX9YmWzEwp7JCSx5kfjGbKIVJ0ChCmWK",
-    "sk-8nOXxOG58owlpoGCHxPmou1IFdvqmllHW4CKXURWlPMTX1lN",
-    "sk-C5qhFRG0JcccispW1tZ5EGFp5vdpYJod1Yaj7eW5hGCNFeeV",
-    "sk-BPWARlpCwipqJWGLbgA8thLTs5C0ukyRkx0G7D4gHajNxrFb",
-    "sk-1LXIfDaj5uXPDGxaoOnPF3yVeCx3ihmAunaiMx8y2egJSfZt",
-    "sk-fsgAIDD91mdxR8FOyf5a7yfACLxMekCP1ubfBhfadBBh0Tw7",
-    "sk-2I1EnoJE82BLWl5EgVR7Gds0Em3suNPaML2gTdxnJG7coy9o",
-    "sk-h0cFjLrI80RePeqK7hyFUzW4IrVo9u1GJUX9rTmZVe85xqBP",
-]
 
-API_BASE_URLS: list[str] = [
-    "https://api.chat.csu.edu.cn/v1",
-]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SECRETS_PATH = PROJECT_ROOT / ".secrets" / "api_pool.local.json"
 
-API_MODELS: list[str] = [
-    "deepseek-v3",
-]
+
+def _secrets_path() -> Path:
+    configured = os.environ.get("BRT3_API_POOL_SECRETS", "").strip()
+    return Path(configured).expanduser().resolve() if configured else DEFAULT_SECRETS_PATH
+
+
+def _load_secret_entries() -> list[dict[str, str]]:
+    path = _secrets_path()
+    if not path.is_file():
+        raise FileNotFoundError(
+            "BRT3 API pool secrets file is missing: "
+            f"{path}. Create an untracked .secrets/api_pool.local.json file."
+        )
+    try:
+        payload: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError(f"invalid BRT3 API pool secrets JSON at {path}: {exc}") from exc
+    raw_entries = payload.get("apis") if isinstance(payload, dict) else None
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise ValueError(
+            f"BRT3 API pool secrets at {path} must contain a non-empty 'apis' list"
+        )
+    entries: list[dict[str, str]] = []
+    names: set[str] = set()
+    for index, raw in enumerate(raw_entries):
+        if not isinstance(raw, dict):
+            raise ValueError(f"API pool entry {index} must be an object")
+        entry = {
+            "name": str(raw.get("name") or "").strip(),
+            "base_url": str(raw.get("base_url") or "").strip(),
+            "api_key": str(raw.get("api_key") or "").strip(),
+            "model": str(raw.get("model") or "deepseek-v3").strip(),
+        }
+        missing = [key for key in ("name", "base_url", "api_key") if not entry[key]]
+        if missing:
+            raise ValueError(
+                f"API pool entry {index} is missing required fields: {', '.join(missing)}"
+            )
+        if entry["name"] in names:
+            raise ValueError(f"duplicate API pool name: {entry['name']}")
+        names.add(entry["name"])
+        entries.append(entry)
+    return entries
 
 
 def configured_apis() -> list[tuple[str, str, str]]:
     """Return validated (key, base_url, model) entries without logging secrets."""
-    keys = [value.strip() for value in API_KEYS if value.strip()]
-    if not keys:
-        return []
-    if len(API_NAMES) != len(keys):
-        raise ValueError("API_NAMES must match API_KEYS length")
-    if len(API_BASE_URLS) not in {1, len(keys)}:
-        raise ValueError("API_BASE_URLS must contain one value or match key count")
-    if len(API_MODELS) not in {0, 1, len(keys)}:
-        raise ValueError("API_MODELS must be empty, contain one value, or match key count")
-    bases = API_BASE_URLS * len(keys) if len(API_BASE_URLS) == 1 else API_BASE_URLS
-    if not API_MODELS:
-        models = [""] * len(keys)
-    else:
-        models = API_MODELS * len(keys) if len(API_MODELS) == 1 else API_MODELS
     return [
-        (key, bases[index].strip(), models[index].strip())
-        for index, key in enumerate(keys)
+        (entry["api_key"], entry["base_url"], entry["model"])
+        for entry in _load_secret_entries()
     ]
 
 
+def configured_api_name(index: int) -> str:
+    entries = _load_secret_entries()
+    return entries[index]["name"] if 0 <= index < len(entries) else f"key_{index}"
+
+
+def _mask_key(value: str) -> str:
+    if len(value) <= 8:
+        return "****"
+    return f"{value[:3]}****{value[-4:]}"
+
+
 def configured_api_metadata() -> list[dict[str, str | int]]:
-    """Return non-secret API metadata for logs, summaries, and self-checks."""
-    entries = configured_apis()
+    """Return only masked, non-secret API metadata for logs and self-checks."""
     return [
         {
             "index": index,
-            "name": API_NAMES[index] if index < len(API_NAMES) else f"key_{index}",
-            "base_url": entries[index][1],
-            "model": entries[index][2],
+            "name": entry["name"],
+            "base_url": entry["base_url"],
+            "model": entry["model"],
+            "masked_key": _mask_key(entry["api_key"]),
         }
-        for index in range(len(entries))
+        for index, entry in enumerate(_load_secret_entries())
     ]
