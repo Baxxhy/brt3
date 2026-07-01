@@ -325,6 +325,14 @@ def validate_plan_payload(
         "risk": str(data.get("risk") or selected_rules[0].get("risk") or "medium"),
         "fallback_if_buggy_pass": str(data.get("fallback_if_buggy_pass") or ""),
         "fallback_if_fixed_fail": str(data.get("fallback_if_fixed_fail") or ""),
+        "anchor_seed_used": str(data.get("anchor_seed_used") or ""),
+        "reference_seeds_used": _strings(data.get("reference_seeds_used")),
+        "borrowed_elements": _strings(data.get("borrowed_elements")),
+        "mutated_elements": _strings(data.get("mutated_elements")),
+        "issue_alignment": str(data.get("issue_alignment") or ""),
+        "buggy_expected_behavior": str(data.get("buggy_expected_behavior") or ""),
+        "fixed_expected_behavior": str(data.get("fixed_expected_behavior") or ""),
+        "oracle_plan": data.get("oracle_plan") if isinstance(data.get("oracle_plan"), dict) else str(data.get("oracle_plan") or ""),
     }
     return normalized, warnings
 

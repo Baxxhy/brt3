@@ -70,6 +70,7 @@ def build_mutation_plan(
     verifier_feedback: dict[str, Any] | None = None,
     analysis_prior_hint: str = "",
     protocol_context_audit: dict[str, Any] | None = None,
+    seed_pack: dict[str, Any] | None = None,
 ) -> MutationPlan:
     candidate_operators = route_candidate_operators(
         behavior,
@@ -98,6 +99,19 @@ def build_mutation_plan(
         candidate_operators_json=json.dumps(candidate_operators, ensure_ascii=False),
         analysis_prior_hint=analysis_prior_hint or "无",
     )
+    if seed_pack:
+        prompt += (
+            "\n\n【iCoRe Anchored Multi-Seed Context】\n"
+            + json.dumps(_compact_for_prompt(seed_pack, 6000), ensure_ascii=False)
+            + "\nanchor_seed 是唯一允许继承 host scaffold 的测试。"
+            "reference_seeds 只能用于参考 API usage、object construction、"
+            "boundary values、assertion style 和 mock pattern；不得把 reference "
+            "seed 的 class wrapper、fixtures 或 setup 搬进 anchor scaffold，"
+            "除非它们已经存在于 HostContext/HostScaffold。"
+            "\nMutationPlan 必须显式填写 anchor_seed_used、reference_seeds_used、"
+            "borrowed_elements、mutated_elements、issue_alignment、"
+            "buggy_expected_behavior、fixed_expected_behavior、oracle_plan。"
+        )
     prompt_path = Path(output_dir) / "prompts" / f"mutation_plan_round_{round_id}.txt"
     response_path = Path(output_dir) / "responses" / f"mutation_plan_round_{round_id}.txt"
     write_text(str(prompt_path), SEED_MUTATION_PLAN_SYSTEM_PROMPT + "\n\n" + prompt)

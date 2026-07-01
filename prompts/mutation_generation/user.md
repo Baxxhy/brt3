@@ -29,7 +29,7 @@ buggy 版本已经存在的异常路径。应调用项目真实的检查/验证/
 行为目标：{behavior_json}
 HostContext：{host_context_json}
 相关源码：{code_context}
-相似测试代码：{seed_test_code}
+anchor_seed 代码（唯一允许继承 host scaffold 的测试）：{seed_test_code}
 上一轮反馈：{feedback}
 
-要求：保留可执行上下文，只修改输入值、参数、对象状态、mock、配置、调用链、边界值或 operator 中与 Issue 相关的部分。不要裸 assert False。只输出 Python 代码，不要 markdown，不要解释。
+要求：保留 anchor_seed 的可执行上下文，只修改输入值、参数、对象状态、mock、配置、调用链、边界值或 operator 中与 Issue 相关的部分。reference_seeds 只能提供 API 用法、对象构造、边界输入、断言风格或 mock pattern 参考；不要混用不兼容 fixture/class setup。不要裸 assert False。只输出 Python 代码，不要 markdown，不要解释。

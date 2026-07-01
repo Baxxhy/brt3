@@ -32,11 +32,12 @@ from context.protocol_recovery import (
     audit_recovered_protocol,
     recover_test_protocol,
 )
-from context.seed_reranker import (
-    AST_RERANK_MIN_SCORE,
-    AST_SEED_SELECTION_STRATEGY,
-    apply_preflight_score,
-    rank_seed_candidates,
+from context.icore_seed_pack import (
+    ALLOW_SAME_FILE_EXPANSION,
+    SEED_POLICY,
+    build_icore_seed_pack,
+    seed_pack_prompt_payload,
+    select_anchor_seed,
 )
 from mutation.seed_mutator import build_mutation_plan
 from mutation.brt_mutation_rules import TRIGGER_RULE_NAMES, infer_issue_pattern
@@ -79,7 +80,7 @@ MECHANICAL_SEED_FAILURE_STATUSES = frozenset(
     {"SETUP_ERROR", "IMPORT_ERROR", "SYNTAX_ERROR", "COLLECT_ERROR", "TIMEOUT", "ERROR"}
 )
 SEED_SELECTION_STRATEGY = (
-    "icore_original_order_first_mechanically_executable_top5"
+    SEED_POLICY
 )
 SEED_PREFLIGHT_LIMIT = 5
 
@@ -740,8 +741,6 @@ def run_instance_pipeline(
         protocol = None
         seed_fallback_used = False
         seed_attempts: list[dict[str, Any]] = []
-        # Prefer AST-aware function-level reranking, while keeping the original
-        # iCoRe-order selector below as the final fallback.
         seeds_to_try = list(context.retrieved_tests)[:SEED_PREFLIGHT_LIMIT]
         related_test = seeds_to_try[0] if seeds_to_try else None
         host = None
@@ -752,14 +751,29 @@ def run_instance_pipeline(
         protocol_cache_path = Path(output_dir) / "protocol_recovery.json"
         seed_reused = False
         seed_change_reason = ""
-        seed_selection_mode = "fallback_old"
+        seed_selection_mode = SEED_POLICY
         seed_candidates_count = 0
         selected_seed_score = 0.0
         matched_apis: list[dict[str, Any]] = []
         seed_score_breakdown: dict[str, Any] = {}
         seed_selection_fallback_reason = ""
         primary_seed_test: dict[str, Any] = {}
-        seed_rerank_diagnostics: dict[str, Any] = {}
+        seed_pack = build_icore_seed_pack(
+            context.retrieved_tests,
+            behavior,
+            context.buggy_repo_path,
+            top_k=SEED_PREFLIGHT_LIMIT,
+        )
+        seed_candidates_count = len(seed_pack)
+        static_anchor, seed_rerank_diagnostics = select_anchor_seed(
+            seed_pack,
+            max_fallback=3,
+        )
+        reference_seed_ids = [item.seed_id for item in seed_pack]
+        reference_seed_count = len(seed_pack)
+        anchor_seed_id = static_anchor.seed_id if static_anchor else ""
+        anchor_icore_rank = static_anchor.icore_rank if static_anchor else -1
+        anchor_level = str(seed_rerank_diagnostics.get("anchor_level") or "")
 
         def _seed_rank(seed: Any) -> int:
             for index, item in enumerate(context.retrieved_tests):
@@ -777,11 +791,6 @@ def run_instance_pipeline(
                 saved_seed = {}
         saved_file = str(saved_seed.get("selected_seed_file") or "")
         saved_name = str(saved_seed.get("selected_seed_name") or "")
-        saved_primary_seed = (
-            saved_seed.get("primary_seed_test")
-            if isinstance(saved_seed.get("primary_seed_test"), dict)
-            else {}
-        )
         matched_seed = next(
             (
                 item
@@ -790,16 +799,9 @@ def run_instance_pipeline(
             ),
             None,
         )
-        if matched_seed is None and saved_file and saved_name:
-            matched_seed = RetrievedTest(
-                instance_id=context.instance_id,
-                name=saved_name,
-                file=saved_file,
-                code_content=str(saved_primary_seed.get("test_code") or ""),
-                raw={"source": "selected_seed_cache"},
-            )
         cache_matches_strategy = (
-            saved_seed.get("selection_strategy") == AST_SEED_SELECTION_STRATEGY
+            saved_seed.get("seed_policy") == SEED_POLICY
+            and saved_seed.get("selected_from_expanded_ast") is False
             and matched_seed is not None
         )
 
@@ -837,7 +839,14 @@ def run_instance_pipeline(
                 seed_selection_fallback_reason = str(
                     saved_seed.get("seed_selection_fallback_reason") or ""
                 )
-                primary_seed_test = saved_primary_seed
+                primary_seed_test = (
+                    saved_seed.get("primary_seed_test")
+                    if isinstance(saved_seed.get("primary_seed_test"), dict)
+                    else {}
+                )
+                anchor_seed_id = str(saved_seed.get("anchor_seed_id") or anchor_seed_id)
+                anchor_icore_rank = int(saved_seed.get("anchor_icore_rank") or anchor_icore_rank)
+                anchor_level = str(saved_seed.get("anchor_level") or anchor_level)
                 if enable_protocol_recovery and protocol_cache_path.is_file():
                     protocol = _dataclass_from_mapping(
                         ProtocolRecovery,
@@ -857,11 +866,13 @@ def run_instance_pipeline(
                 if not seed_attempts:
                     seed_attempts.append(
                         {
-                            "rank": _seed_rank(related_test),
+                            "seed_id": anchor_seed_id,
+                            "icore_rank": _seed_rank(related_test),
                             "file": related_test.file,
                             "name": related_test.name,
                             "execution_status": host.seed_execution_status,
                             "selected": True,
+                            "selection_mode": SEED_POLICY,
                             "protocol_risks": (
                                 protocol.protocol_risks if protocol else []
                             ),
@@ -881,126 +892,18 @@ def run_instance_pipeline(
                 seed_change_reason = f"cached HostContext/ProtocolRecovery could not be loaded: {exc}"
         elif deterministic and host_cache_path.is_file():
             seed_change_reason = (
-                "cached seed selection used a previous strategy or is no "
-                "longer available in the top-5 iCoRe results"
+                "cached seed selection used a previous strategy or is no longer "
+                "available in the top-5 iCoRe results"
             )
 
         if host is None:
-            ast_ranked = []
-            try:
-                ast_ranked, seed_rerank_diagnostics = rank_seed_candidates(
-                    seeds_to_try,
-                    behavior,
-                    context.buggy_repo_path,
-                    max_retrieved=SEED_PREFLIGHT_LIMIT,
-                )
-                seed_candidates_count = len(ast_ranked)
-            except Exception as exc:  # noqa: BLE001
-                seed_selection_fallback_reason = f"AST seed reranking failed: {exc}"
-                seed_rerank_diagnostics = {
-                    "strategy": AST_SEED_SELECTION_STRATEGY,
-                    "error": str(exc),
-                    "traceback": traceback.format_exc(),
-                }
-            if ast_ranked:
-                best_ast_score = ast_ranked[0].seed_score
-                if best_ast_score < AST_RERANK_MIN_SCORE:
-                    seed_selection_fallback_reason = (
-                        f"best AST seed score {best_ast_score:.1f} is below "
-                        f"{AST_RERANK_MIN_SCORE:.1f}"
-                    )
-                else:
-                    evaluated_ast: list[
-                        tuple[Any, RetrievedTest, HostContext, ProtocolRecovery | None]
-                    ] = []
-                    for candidate in ast_ranked[:SEED_PREFLIGHT_LIMIT]:
-                        seed = candidate.to_retrieved_test(
-                            context.instance_id,
-                            {
-                                "source": "ast_rerank",
-                                "retrieved_rank": candidate.retrieved_rank,
-                                "source_kind": candidate.source_kind,
-                            },
-                        )
-                        candidate_host = build_host_context(
-                            context.instance_id, seed, context.buggy_repo_path, behavior,
-                            context.retrieved_code, conda_env, timeout, no_conda,
-                            skip_execution=generate_only, repo=context.repo,
-                            version=str(context.metadata.get("version") or ""),
-                        )
-                        apply_preflight_score(
-                            candidate,
-                            candidate_host.seed_execution_status,
-                        )
-                        candidate_protocol = recover_test_protocol(
-                            context.instance_id, seed, context.buggy_repo_path, behavior,
-                            context.retrieved_code, context.repo,
-                            str(context.metadata.get("version") or ""),
-                        ) if enable_protocol_recovery else None
-                        attempt = candidate.to_record(max_code_chars=1200)
-                        attempt.update({
-                            "rank": candidate.retrieved_rank,
-                            "file": seed.file,
-                            "name": seed.name,
-                            "execution_status": candidate_host.seed_execution_status,
-                            "selected": False,
-                            "selection_mode": "ast_rerank",
-                            "protocol_risks": (
-                                candidate_protocol.protocol_risks
-                                if candidate_protocol
-                                else []
-                            ),
-                        })
-                        seed_attempts.append(attempt)
-                        evaluated_ast.append((candidate, seed, candidate_host, candidate_protocol))
-                    viable_ast = [
-                        item
-                        for item in evaluated_ast
-                        if generate_only
-                        or _seed_is_mechanically_executable(item[2].seed_execution_status)
-                    ]
-                    if viable_ast:
-                        selected_candidate, related_test, host, protocol = max(
-                            viable_ast,
-                            key=lambda item: (
-                                item[0].seed_score,
-                                -item[0].retrieved_rank,
-                                item[0].test_file,
-                                item[0].test_entry,
-                            ),
-                        )
-                        seed_selection_mode = "ast_rerank"
-                        selected_seed_score = selected_candidate.seed_score
-                        matched_apis = selected_candidate.matched_apis
-                        seed_score_breakdown = selected_candidate.seed_score_breakdown
-                        primary_seed_test = selected_candidate.to_record()
-                        for attempt in seed_attempts:
-                            attempt["selected"] = (
-                                attempt.get("selection_mode") == "ast_rerank"
-                                and attempt.get("file") == related_test.file
-                                and attempt.get("name") == related_test.name
-                            )
-                    else:
-                        seed_selection_fallback_reason = (
-                            "AST seed rerank preflight found no mechanically "
-                            "executable candidate"
-                        )
-            else:
-                seed_selection_fallback_reason = (
-                    seed_selection_fallback_reason
-                    or "AST seed reranking produced no candidates"
-                )
-
-        if host is None:
-            if not seed_selection_fallback_reason:
-                seed_selection_fallback_reason = (
-                    "AST seed reranking unavailable; using legacy iCoRe order"
-                )
             first_candidate_seed = None
             first_candidate_host = None
             first_candidate_protocol = None
-            for seed_index, seed in enumerate(seeds_to_try):
-                rank = _seed_rank(seed)
+            recoverable_top3 = [item for item in seed_pack[:3] if item.host_recoverable]
+            anchor_candidates = recoverable_top3 or seed_pack[:1]
+            for seed_item in anchor_candidates:
+                seed = seed_item.to_retrieved_test(context.instance_id)
                 candidate_host = build_host_context(
                     context.instance_id, seed, context.buggy_repo_path, behavior,
                     context.retrieved_code, conda_env, timeout, no_conda,
@@ -1012,17 +915,21 @@ def run_instance_pipeline(
                     context.retrieved_code, context.repo,
                     str(context.metadata.get("version") or ""),
                 ) if enable_protocol_recovery else None
-                if seed_index == 0:
+                seed_item.preflight_status = candidate_host.seed_execution_status
+                if first_candidate_seed is None:
                     first_candidate_seed = seed
                     first_candidate_host = candidate_host
                     first_candidate_protocol = candidate_protocol
                 seed_attempts.append({
-                    "rank": rank if rank >= 0 else seed_index,
+                    "seed_id": seed_item.seed_id,
+                    "icore_rank": seed_item.icore_rank,
                     "file": seed.file,
                     "name": seed.name,
                     "execution_status": candidate_host.seed_execution_status,
                     "selected": False,
-                    "selection_mode": "fallback_old",
+                    "selection_mode": SEED_POLICY,
+                    "host_recoverable": seed_item.host_recoverable,
+                    "exact_entry_found": seed_item.exact_entry_found,
                     "protocol_risks": candidate_protocol.protocol_risks if candidate_protocol else [],
                 })
                 if generate_only or _seed_is_mechanically_executable(
@@ -1034,25 +941,26 @@ def run_instance_pipeline(
                         candidate_protocol,
                     )
                     seed_attempts[-1]["selected"] = True
-                    seed_fallback_used = seed_index > 0
+                    anchor_seed_id = seed_item.seed_id
+                    anchor_icore_rank = seed_item.icore_rank
+                    anchor_level = (
+                        "exact_icore_top1"
+                        if seed_item.icore_rank == 0
+                        else "icore_topk_fallback"
+                    )
+                    seed_fallback_used = seed_item.icore_rank > 0
                     if seed_fallback_used:
                         seed_change_reason = (
-                            "previous seed failed mechanical execution "
-                            "qualification; tried next iCoRe-ranked seed"
+                            "previous iCoRe seed failed mechanical preflight; "
+                            "tried next iCoRe-ranked seed"
                         )
                     for attempt in seed_attempts:
                         attempt["selected"] = (
-                            attempt.get("selection_mode") == "fallback_old"
+                            attempt.get("selection_mode") == SEED_POLICY
                             and attempt.get("file") == related_test.file
                             and attempt.get("name") == related_test.name
                         )
                     break
-                if seed_index < len(seeds_to_try) - 1:
-                    seed_fallback_used = True
-                    seed_change_reason = (
-                        "previous seed failed mechanical execution "
-                        "qualification; tried next iCoRe-ranked seed"
-                    )
             else:
                 if first_candidate_seed is not None and first_candidate_host is not None:
                     related_test, host, protocol = (
@@ -1062,20 +970,37 @@ def run_instance_pipeline(
                     )
                     for attempt in seed_attempts:
                         attempt["selected"] = (
-                            attempt.get("selection_mode") == "fallback_old"
+                            attempt.get("selection_mode") == SEED_POLICY
                             and attempt.get("file") == related_test.file
                             and attempt.get("name") == related_test.name
                         )
                     seed_fallback_used = True
+                    anchor_seed_id = "icore_0"
+                    anchor_icore_rank = 0
+                    anchor_level = "exact_icore_top1"
                     seed_change_reason = (
-                        "all top-5 iCoRe-ranked seeds failed mechanical "
+                        "all checked iCoRe top3 seeds failed mechanical "
                         "execution qualification; falling back to the first "
                         "iCoRe-ranked seed"
                     )
+                    seed_selection_fallback_reason = seed_change_reason
                 else:
                     related_test = None
                     host = None
                     protocol = None
+            if related_test is not None:
+                selected_item = next(
+                    (
+                        item
+                        for item in seed_pack
+                        if item.file == related_test.file and item.name == related_test.name
+                    ),
+                    None,
+                )
+                if selected_item is not None:
+                    primary_seed_test = selected_item.to_dict()
+                    selected_seed_score = float(max(0, 5 - selected_item.icore_rank))
+                    seed_score_breakdown = selected_item.brief_score_breakdown
         if host is None:
             host = build_host_context(
                 context.instance_id, None, context.buggy_repo_path, behavior,
@@ -1114,9 +1039,34 @@ def run_instance_pipeline(
                     f"ProtocolRecovery: {exc}"
                 )
         selected_seed_signature = _host_signature(host)
+        seed_pack_payload = seed_pack_prompt_payload(seed_pack)
+        seed_pack_record = {
+            "seed_policy": SEED_POLICY,
+            "allow_same_file_expansion": ALLOW_SAME_FILE_EXPANSION,
+            "expanded_ast_candidates_disabled": True,
+            "icore_top5": [item.to_dict(max_code_chars=1200) for item in seed_pack],
+            "anchor_candidates_top3": [
+                item.to_dict(max_code_chars=1200) for item in seed_pack[:3]
+            ],
+            "host_recoverable_status": [
+                {
+                    "seed_id": item.seed_id,
+                    "icore_rank": item.icore_rank,
+                    "file": item.file,
+                    "name": item.name,
+                    "host_recoverable": item.host_recoverable,
+                    "exact_entry_found": item.exact_entry_found,
+                    "preflight_status": item.preflight_status,
+                }
+                for item in seed_pack
+            ],
+            "selected_anchor": primary_seed_test,
+            "reference_seeds": seed_pack_payload["reference_seeds"],
+        }
         safe_json_dump(
             {
-                "selection_strategy": AST_SEED_SELECTION_STRATEGY,
+                "seed_policy": SEED_POLICY,
+                "selection_strategy": SEED_POLICY,
                 "legacy_selection_strategy": SEED_SELECTION_STRATEGY,
                 "seed_selection_mode": seed_selection_mode,
                 "seed_candidates_count": seed_candidates_count,
@@ -1127,14 +1077,27 @@ def run_instance_pipeline(
                 "primary_seed_test": primary_seed_test,
                 "diagnostics": seed_rerank_diagnostics,
                 "attempts": seed_attempts,
+                **seed_pack_record,
             },
             str(seed_rerank_path),
         )
+        safe_json_dump(seed_pack_record, str(Path(output_dir) / "seed_pack.json"))
         safe_json_dump(
             {
-                "selection_strategy": AST_SEED_SELECTION_STRATEGY,
+                "seed_policy": SEED_POLICY,
+                "selection_strategy": SEED_POLICY,
                 "legacy_selection_strategy": SEED_SELECTION_STRATEGY,
                 "seed_selection_mode": seed_selection_mode,
+                "anchor_seed_id": anchor_seed_id,
+                "anchor_icore_rank": anchor_icore_rank,
+                "anchor_file": related_test.file if related_test else "",
+                "anchor_name": related_test.name if related_test else "",
+                "anchor_level": anchor_level,
+                "is_icore_exact_seed": related_test is not None,
+                "selected_from_expanded_ast": False,
+                "allow_same_file_expansion": ALLOW_SAME_FILE_EXPANSION,
+                "reference_seed_count": reference_seed_count,
+                "reference_seed_ids": reference_seed_ids,
                 "fallback_used": seed_fallback_used,
                 "fallback_reason": (
                     seed_change_reason if seed_fallback_used else ""
@@ -1151,12 +1114,23 @@ def run_instance_pipeline(
         )
         safe_json_dump(
             {
-                "selection_strategy": AST_SEED_SELECTION_STRATEGY,
+                "seed_policy": SEED_POLICY,
+                "selection_strategy": SEED_POLICY,
                 "legacy_selection_strategy": SEED_SELECTION_STRATEGY,
                 "seed_selection_mode": seed_selection_mode,
                 "selected_seed_file": related_test.file if related_test else "",
                 "selected_seed_name": related_test.name if related_test else "",
                 "seed_rank": _seed_rank(related_test) if related_test else -1,
+                "anchor_seed_id": anchor_seed_id,
+                "anchor_icore_rank": anchor_icore_rank,
+                "anchor_file": related_test.file if related_test else "",
+                "anchor_name": related_test.name if related_test else "",
+                "anchor_level": anchor_level,
+                "is_icore_exact_seed": related_test is not None,
+                "selected_from_expanded_ast": False,
+                "allow_same_file_expansion": ALLOW_SAME_FILE_EXPANSION,
+                "reference_seed_count": reference_seed_count,
+                "reference_seed_ids": reference_seed_ids,
                 "fallback_used": seed_fallback_used,
                 "fallback_reason": seed_change_reason if seed_fallback_used else "",
                 "seed_selection_fallback_reason": seed_selection_fallback_reason,
@@ -1239,6 +1213,7 @@ def run_instance_pipeline(
                 protocol, llm_client, output_dir,
                 analysis_prior_hint=analysis_prior_hint,
                 protocol_context_audit=protocol_context_audit,
+                seed_pack=seed_pack_payload,
             )
         if initial_plan:
             mutation_plans.append(initial_plan)
@@ -1256,6 +1231,7 @@ def run_instance_pipeline(
             protocol=protocol,
             mutation_plan=initial_plan,
             host_scaffold=host_scaffold,
+            seed_pack=seed_pack_payload,
         )
         write_text(str(Path(output_dir) / "mutation_round_0_test.py"), candidate.code)
         _refresh_candidate_command(context, candidate)
@@ -1559,6 +1535,7 @@ def run_instance_pipeline(
                         decision.to_dict(),
                         analysis_prior_hint,
                         protocol_context_audit=protocol_context_audit,
+                        seed_pack=seed_pack_payload,
                     )
                     mutation_plans.append(mutation_plan)
                 candidate = repair_candidate(

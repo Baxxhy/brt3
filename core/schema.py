@@ -161,6 +161,14 @@ class MutationPlan(JsonMixin):
     risk: str = "medium"
     fallback_if_buggy_pass: str = ""
     fallback_if_fixed_fail: str = ""
+    anchor_seed_used: str = ""
+    reference_seeds_used: list[str] = field(default_factory=list)
+    borrowed_elements: list[str] = field(default_factory=list)
+    mutated_elements: list[str] = field(default_factory=list)
+    issue_alignment: str = ""
+    buggy_expected_behavior: str = ""
+    fixed_expected_behavior: str = ""
+    oracle_plan: str | dict[str, Any] = ""
     mutation_plan_mode: str = "fallback_old"
     selected_operators: list[str] = field(default_factory=list)
     mutation_targets: list[dict[str, Any]] = field(default_factory=list)

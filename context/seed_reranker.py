@@ -17,6 +17,7 @@ from core.utils import truncate_text
 
 AST_SEED_SELECTION_STRATEGY = "ast_aware_rerank_with_icore_fallback"
 AST_RERANK_MIN_SCORE = 20.0
+ALLOW_SAME_FILE_EXPANSION = False
 
 _TESTCASE_BASE_NAMES = {
     "TestCase",
@@ -108,12 +109,22 @@ def rank_seed_candidates(
     buggy_repo: str,
     max_retrieved: int = 5,
     max_file_tests: int = 200,
+    allow_same_file_expansion: bool = ALLOW_SAME_FILE_EXPANSION,
 ) -> tuple[list[SeedCandidate], dict[str, Any]]:
     diagnostics: dict[str, Any] = {
         "strategy": AST_SEED_SELECTION_STRATEGY,
         "fallback_reason": "",
         "files_considered": [],
+        "allow_same_file_expansion": allow_same_file_expansion,
     }
+    if not allow_same_file_expansion:
+        diagnostics["fallback_reason"] = (
+            "same-file AST seed expansion is disabled; use iCoRe anchored seed pack"
+        )
+        diagnostics["expanded_ast_candidates_disabled"] = True
+        diagnostics["candidate_count"] = 0
+        diagnostics["top_candidates"] = []
+        return [], diagnostics
     candidates: dict[tuple[str, str], SeedCandidate] = {}
     for rank, retrieved in enumerate(related_tests[:max_retrieved]):
         file_candidates, file_diag = _candidates_for_retrieved(

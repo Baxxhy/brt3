@@ -550,6 +550,7 @@ def generate_candidate(
     protocol: ProtocolRecovery | None = None,
     mutation_plan: MutationPlan | None = None,
     host_scaffold: HostScaffold | None = None,
+    seed_pack: dict[str, Any] | None = None,
 ) -> CandidateTest:
     ensure_dir(Path(output_dir) / "prompts")
     ensure_dir(Path(output_dir) / "responses")
@@ -578,6 +579,19 @@ def generate_candidate(
         user_prompt += (
             "\n\n【必须保留的测试协议】\n"
             + _json_for_prompt(protocol.to_dict(), MAX_PROMPT_PROTOCOL_CHARS)
+        )
+    if seed_pack:
+        user_prompt += (
+            "\n\n【iCoRe Anchored Multi-Seed Context】\n"
+            + _json_for_prompt(seed_pack, MAX_PROMPT_SEED_CHARS)
+            + "\nanchor_seed 是唯一允许继承 host scaffold 的测试；生成测试必须"
+            "保留 anchor 的 imports、fixtures、class wrapper 和 setup protocol，"
+            "final_test.py 必须与 anchor seed 的 HostContext 兼容。"
+            "\nreference_seeds 来自 iCoRe top5，只能用于参考 API usage、"
+            "object construction、boundary values、assertion style 和 mock pattern。"
+            "不得混用 incompatible fixtures/class setup；不得把 reference seed 的"
+            " class wrapper 或 fixture 直接搬到 anchor scaffold，除非它已经在"
+            " anchor HostContext/HostScaffold 中可用。"
         )
     if mutation_plan is not None:
         user_prompt += (

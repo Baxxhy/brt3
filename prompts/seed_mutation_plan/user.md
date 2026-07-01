@@ -99,5 +99,17 @@ Verifier 反馈：{verifier_feedback}
   "why_this_should_trigger": "",
   "risk": "low|medium|high",
   "fallback_if_buggy_pass": "",
-  "fallback_if_fixed_fail": ""
+  "fallback_if_fixed_fail": "",
+  "anchor_seed_used": "icore_0|icore_1|icore_2",
+  "reference_seeds_used": ["icore_0"],
+  "borrowed_elements": [
+    "从 reference seed 借用的 API usage / object construction / boundary value / assertion style"
+  ],
+  "mutated_elements": [
+    "anchor seed 中被改变的输入、状态、调用链或断言片段"
+  ],
+  "issue_alignment": "说明该变异如何对齐 Issue trigger 和 expected behavior",
+  "buggy_expected_behavior": "buggy 版本预期表现",
+  "fixed_expected_behavior": "fixed 版本预期表现",
+  "oracle_plan": "断言或观测计划"
 }}
