@@ -179,6 +179,7 @@ class MutationPlan(JsonMixin):
     sanitizer_warnings: list[str] = field(default_factory=list)
     fallback_reason: str = ""
     scaffold_hash: str = ""
+    mutation_ops_truncated: bool = False
 
 
 @dataclass
@@ -352,3 +353,13 @@ class FinalResult(JsonMixin):
     regression_guard_triggered: bool = False
     regression_guard_reason: str = ""
     final_selection_reason: str = ""
+    seed_mode: str = "single"
+    available_retrieved_tests_count: int = 0
+    valid_seed_tests_count: int = 0
+    used_seed_tests_count: int = 0
+    invalid_seed_reasons: list[dict[str, Any]] = field(default_factory=list)
+    max_mutation_ops: int = 3
+    selected_seed_rank: int = -1
+    selected_candidate_priority: str = ""
+    selected_priority_reason: str = ""
+    seed_candidate_results: list[dict[str, Any]] = field(default_factory=list)

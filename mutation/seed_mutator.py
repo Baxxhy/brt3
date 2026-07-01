@@ -71,6 +71,7 @@ def build_mutation_plan(
     analysis_prior_hint: str = "",
     protocol_context_audit: dict[str, Any] | None = None,
     seed_pack: dict[str, Any] | None = None,
+    max_mutation_ops: int | None = None,
 ) -> MutationPlan:
     candidate_operators = route_candidate_operators(
         behavior,
@@ -99,6 +100,16 @@ def build_mutation_plan(
         candidate_operators_json=json.dumps(candidate_operators, ensure_ascii=False),
         analysis_prior_hint=analysis_prior_hint or "无",
     )
+    if max_mutation_ops and max_mutation_ops > 0:
+        prompt += (
+            "\n\nMutation operator budget:\n"
+            f"Use at most {max_mutation_ops} mutation operators.\n"
+            "Prefer minimal issue-aligned changes.\n"
+            "Do not combine unrelated mutations.\n"
+            "If one mutation is sufficient, use only one.\n"
+            "Choose mutations that directly move the seed test toward the "
+            "issue trigger condition and expected behavior.\n"
+        )
     if seed_pack:
         prompt += (
             "\n\n【iCoRe Anchored Multi-Seed Context】\n"
@@ -242,12 +253,24 @@ def build_mutation_plan(
         )
         plan.scaffold_hash = host_scaffold.scaffold_hash
 
+    if max_mutation_ops and max_mutation_ops > 0:
+        original_ops = list(plan.mutation_ops or [])
+        original_selected = list(plan.selected_operators or [])
+        if len(original_ops) > max_mutation_ops:
+            plan.mutation_ops = original_ops[:max_mutation_ops]
+            plan.mutation_ops_truncated = True
+        if len(original_selected) > max_mutation_ops:
+            plan.selected_operators = original_selected[:max_mutation_ops]
+            plan.mutation_ops_truncated = True
+
     sanitizer_payload = {
         **sanitizer,
         "repair_attempted": repair_attempted,
         "repair_error": repair_error,
         "mutation_plan_mode": plan.mutation_plan_mode,
         "fallback_reason": plan.fallback_reason,
+        "max_mutation_ops": max_mutation_ops,
+        "mutation_ops_truncated": plan.mutation_ops_truncated,
     }
     safe_json_dump(
         sanitizer_payload,

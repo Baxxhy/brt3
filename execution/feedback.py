@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import ast
 import hashlib
 import json
 import fcntl
@@ -72,7 +73,7 @@ from core.schema import (
     RetrievedTest,
     VerifierDecision,
 )
-from core.utils import ensure_dir, safe_json_dump, write_text
+from core.utils import ensure_dir, safe_json_dump, truncate_text, write_text
 from validation.verifier import verify_buggy_only
 
 
@@ -616,7 +617,7 @@ def prepare_instance_worktree(
     }
 
 
-def run_instance_pipeline(
+def _run_instance_pipeline_single(
     context: InstanceContext,
     llm_client: Any,
     output_dir: str,
@@ -1762,3 +1763,1057 @@ def run_instance_pipeline(
                 final_selection_reason="pipeline exception",
             ),
         )
+
+
+def _normalize_seed_entry_name(name: str) -> str:
+    raw = re.sub(r"\[[^\]]*\]$", "", str(name or "").strip())
+    if not raw:
+        return ""
+    if "::" in raw:
+        parts = [part for part in raw.split("::") if part]
+        if parts and parts[0].endswith(".py"):
+            parts = parts[1:]
+        return ".".join(parts[-2:]) if len(parts) >= 2 else (parts[-1] if parts else "")
+    parts = [part for part in raw.split(".") if part]
+    return ".".join(parts[-2:]) if len(parts) >= 2 else (parts[-1] if parts else "")
+
+
+def _seed_entry_exists(source: str, name: str) -> bool:
+    normalized = _normalize_seed_entry_name(name)
+    if not source.strip() or not normalized:
+        return False
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    wanted_class = ""
+    wanted_name = normalized
+    if "." in normalized:
+        wanted_class, wanted_name = normalized.rsplit(".", 1)
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            if wanted_class and node.name != wanted_class:
+                continue
+            for child in node.body:
+                if (
+                    isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and child.name == wanted_name
+                ):
+                    return True
+        if (
+            not wanted_class
+            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == wanted_name
+        ):
+            return True
+    return False
+
+
+def _has_any_test_entry(source: str) -> bool:
+    if not source.strip():
+        return False
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return bool(re.search(r"def\s+test_[A-Za-z0-9_]+\s*\(", source))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            return True
+    return False
+
+
+def _valid_seed_tests(
+    context: InstanceContext,
+) -> tuple[list[tuple[int, RetrievedTest]], list[dict[str, Any]]]:
+    valid: list[tuple[int, RetrievedTest]] = []
+    invalid: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    repo_root = Path(context.buggy_repo_path)
+    for rank, seed in enumerate(context.retrieved_tests):
+        seed_file = str(seed.file or "").strip()
+        seed_name = str(seed.name or "").strip()
+        key = (seed_file, seed_name)
+        if key in seen:
+            invalid.append(
+                {
+                    "seed_rank": rank,
+                    "seed_file": seed_file,
+                    "seed_test_name": seed_name,
+                    "reason": "duplicate_seed",
+                }
+            )
+            continue
+        seen.add(key)
+        if not seed_file:
+            invalid.append(
+                {
+                    "seed_rank": rank,
+                    "seed_file": seed_file,
+                    "seed_test_name": seed_name,
+                    "reason": "missing_seed_file",
+                }
+            )
+            continue
+        full_path = repo_root / seed_file
+        if not full_path.is_file():
+            invalid.append(
+                {
+                    "seed_rank": rank,
+                    "seed_file": seed_file,
+                    "seed_test_name": seed_name,
+                    "reason": "seed_file_not_found",
+                }
+            )
+            continue
+        source = full_path.read_text(encoding="utf-8", errors="replace")
+        if seed_name:
+            if not _seed_entry_exists(source, seed_name):
+                invalid.append(
+                    {
+                        "seed_rank": rank,
+                        "seed_file": seed_file,
+                        "seed_test_name": seed_name,
+                        "reason": "seed_test_entry_not_found",
+                    }
+                )
+                continue
+        elif not (seed.code_content and _has_any_test_entry(seed.code_content)):
+            invalid.append(
+                {
+                    "seed_rank": rank,
+                    "seed_file": seed_file,
+                    "seed_test_name": seed_name,
+                    "reason": "missing_seed_test_name_and_no_retrieved_test_entry",
+                }
+            )
+            continue
+        valid.append((rank, seed))
+    return valid, invalid
+
+
+_CANDIDATE_PRIORITY_ORDER = {
+    "surrogate_f2p_success": 0,
+    "strict_accept_buggy_fail": 1,
+    "issue_aligned_fail": 2,
+    "runnable_buggy_fail": 3,
+    "buggy_pass": 4,
+    "unusable_execution": 5,
+}
+
+
+def _candidate_priority(
+    execution: ExecutionResult,
+    decision: VerifierDecision | None,
+    dual: DualVersionResult | None,
+) -> tuple[str, str, str]:
+    if dual and dual.status in {"F2P_SUCCESS", "SURROGATE_F2P_SUCCESS"}:
+        return (
+            "surrogate_f2p_success",
+            "candidate fails on buggy source and passes with surrogate patched source",
+            "surrogate",
+        )
+    if decision and decision.decision == "accept" and execution.returncode != 0:
+        return (
+            "strict_accept_buggy_fail",
+            "strict verifier accepted the buggy failure as issue-aligned",
+            "strict_verifier",
+        )
+    if execution.returncode != 0 and execution.status in {
+        "ISSUE_ALIGNED_FAIL",
+        "ASSERTION_FAIL",
+    }:
+        return (
+            "issue_aligned_fail",
+            f"buggy execution status suggests issue-aligned failure: {execution.status}",
+            execution.status,
+        )
+    if execution.returncode != 0 and execution.status not in {
+        "SETUP_ERROR",
+        "SYNTAX_ERROR",
+        "COLLECT_ERROR",
+        "TIMEOUT",
+    }:
+        return (
+            "runnable_buggy_fail",
+            f"candidate ran and failed without setup/syntax/collect/timeout: {execution.status}",
+            execution.status,
+        )
+    if execution.returncode == 0:
+        return ("buggy_pass", "candidate passed on buggy source", execution.status)
+    return (
+        "unusable_execution",
+        f"candidate was not usable: {execution.status}",
+        execution.status,
+    )
+
+
+def _surrogate_patch_provider(dual: DualVersionResult | None) -> str:
+    if not dual:
+        return ""
+    patch = dual.surrogate_patch if isinstance(dual.surrogate_patch, dict) else {}
+    source = str(patch.get("source") or patch.get("provider") or "")
+    if source:
+        return source
+    return "brt3" if dual.mode == "surrogate_patch" else ""
+
+
+def _short_execution_log(execution: ExecutionResult | None) -> str:
+    if execution is None:
+        return ""
+    return truncate_text((execution.stdout or "") + "\n" + (execution.stderr or ""), 3000)
+
+
+def _final_status_from_selected(
+    priority: str,
+    execution: ExecutionResult,
+    decision: VerifierDecision | None,
+    dual: DualVersionResult | None,
+) -> str:
+    if dual and dual.status in {"F2P_SUCCESS", "SURROGATE_F2P_SUCCESS"}:
+        return dual.status
+    if priority in {"strict_accept_buggy_fail", "issue_aligned_fail"}:
+        return "ISSUE_ALIGNED_FAIL"
+    if execution.status in {"SETUP_ERROR", "SYNTAX_ERROR", "COLLECT_ERROR", "TIMEOUT"}:
+        return execution.status
+    if execution.returncode != 0:
+        return "UNRELATED_FAIL"
+    return execution.status
+
+
+def _all_seed_result_fields(
+    *,
+    available_count: int,
+    valid_count: int,
+    used_count: int,
+    invalid_seed_reasons: list[dict[str, Any]],
+    max_mutation_ops: int,
+    selected_seed_rank: int = -1,
+    selected_priority: str = "",
+    selected_reason: str = "",
+    seed_candidate_results: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "seed_mode": "all",
+        "available_retrieved_tests_count": available_count,
+        "valid_seed_tests_count": valid_count,
+        "used_seed_tests_count": used_count,
+        "invalid_seed_reasons": invalid_seed_reasons,
+        "max_mutation_ops": max_mutation_ops,
+        "selected_seed_rank": selected_seed_rank,
+        "selected_candidate_priority": selected_priority,
+        "selected_priority_reason": selected_reason,
+        "seed_candidate_results": seed_candidate_results or [],
+    }
+
+
+def _run_instance_pipeline_all(
+    context: InstanceContext,
+    llm_client: Any,
+    output_dir: str,
+    conda_env: str = "",
+    timeout: int = 120,
+    no_conda: bool = False,
+    max_feedback_rounds: int = 3,
+    max_env_rounds: int | None = None,
+    max_brt_rounds: int | None = None,
+    max_patch_rounds: int = 3,
+    validation_mode: str = "buggy_only",
+    patched_repo_base: str = "",
+    patch_file: str = "",
+    generate_only: bool = False,
+    enable_protocol_recovery: bool = True,
+    enable_seed_mutation: bool = True,
+    enable_observation_oracle: bool = True,
+    enable_strict_semantic_verifier: bool = True,
+    mode: str = "deep",
+    deterministic: bool = True,
+    analysis_prior_dir: str = "",
+    use_mutation_prior: bool = True,
+    issue_rewrite_dir: str = "",
+    precomputed_behavior_target: dict[str, Any] | None = None,
+    issue_rewrite_source: str = "",
+    max_mutation_ops: int = 3,
+) -> FinalResult:
+    del patched_repo_base, patch_file
+    output_dir = str(Path(output_dir).resolve())
+    ensure_dir(output_dir)
+    ensure_dir(Path(output_dir) / "prompts")
+    ensure_dir(Path(output_dir) / "responses")
+    ensure_dir(Path(output_dir) / "logs")
+    mode = mode if mode in {"fast", "deep"} else "deep"
+    analysis_prior_used = bool(analysis_prior_dir and use_mutation_prior)
+    max_patch_rounds = max(1, max_patch_rounds)
+    try:
+        if not generate_only:
+            prepared_repo, prepare_meta = prepare_instance_worktree(
+                context, output_dir, conda_env, timeout, no_conda
+            )
+            context.buggy_repo_path = prepared_repo
+            safe_json_dump(prepare_meta, str(Path(output_dir) / "repo_prepare.json"))
+            if prepare_meta.get("status") in {
+                "WORKTREE_ERROR",
+                "ENV_CREATE_ERROR",
+                "SETUP_ERROR",
+            }:
+                result = FinalResult(
+                    instance_id=context.instance_id,
+                    status="SETUP_ERROR",
+                    final_test_path="",
+                    rounds_used=0,
+                    buggy_execution=prepare_meta.get("setup_execution", {}),
+                    dual_version_result={"mode": validation_mode, "status": "SKIPPED"},
+                    behavior_target={},
+                    host_context={},
+                    observation_report={},
+                    notes="repository worktree/setup failed before BRT generation",
+                    protocol_recovery_enabled=enable_protocol_recovery,
+                    seed_mutation_enabled=enable_seed_mutation,
+                    observation_oracle_enabled=enable_observation_oracle,
+                    strict_verifier_enabled=enable_strict_semantic_verifier,
+                    final_reason="repository worktree/setup failed before BRT generation",
+                    **_stable_result_fields(
+                        llm_client,
+                        mode=mode,
+                        deterministic=deterministic,
+                        analysis_prior_used=analysis_prior_used,
+                    ),
+                    **_all_seed_result_fields(
+                        available_count=len(context.retrieved_tests),
+                        valid_count=0,
+                        used_count=0,
+                        invalid_seed_reasons=[],
+                        max_mutation_ops=max_mutation_ops,
+                    ),
+                )
+                result.save_json(str(Path(output_dir) / "summary.json"))
+                return result
+        else:
+            safe_json_dump(
+                {"status": "SKIPPED", "reason": "generate_only"},
+                str(Path(output_dir) / "repo_prepare.json"),
+            )
+
+        local_behavior_path = Path(output_dir) / "behavior_target.json"
+        if precomputed_behavior_target is not None:
+            from context.issue_rewriter import behavior_from_dict
+
+            behavior = behavior_from_dict(
+                context.instance_id,
+                precomputed_behavior_target,
+            )
+            safe_json_dump(
+                {
+                    "mode": "precomputed_aggregate",
+                    "source_path": str(Path(issue_rewrite_source).resolve()),
+                    "instance_id": context.instance_id,
+                },
+                str(Path(output_dir) / "issue_rewrite_source.json"),
+            )
+        elif issue_rewrite_dir:
+            from context.issue_rewriter import load_behavior_target
+
+            cached_behavior_path = (
+                Path(issue_rewrite_dir) / context.instance_id / "behavior_target.json"
+            )
+            behavior = load_behavior_target(
+                cached_behavior_path,
+                expected_instance_id=context.instance_id,
+            )
+            safe_json_dump(
+                {
+                    "mode": "precomputed",
+                    "source_path": str(cached_behavior_path.resolve()),
+                    "instance_id": context.instance_id,
+                },
+                str(Path(output_dir) / "issue_rewrite_source.json"),
+            )
+        elif local_behavior_path.exists():
+            from context.issue_rewriter import load_behavior_target
+
+            behavior = load_behavior_target(
+                local_behavior_path,
+                expected_instance_id=context.instance_id,
+            )
+        else:
+            behavior = rewrite_issue(context, llm_client, output_dir)
+        behavior.save_json(str(local_behavior_path))
+
+        valid_seeds, invalid_seed_reasons = _valid_seed_tests(context)
+        available_count = len(context.retrieved_tests)
+        if not valid_seeds:
+            fallback_result = _run_instance_pipeline_single(
+                context,
+                llm_client,
+                output_dir,
+                conda_env=conda_env,
+                timeout=timeout,
+                no_conda=no_conda,
+                max_feedback_rounds=max_feedback_rounds,
+                max_env_rounds=max_env_rounds,
+                max_brt_rounds=max_brt_rounds,
+                validation_mode=validation_mode,
+                generate_only=generate_only,
+                enable_protocol_recovery=enable_protocol_recovery,
+                enable_seed_mutation=enable_seed_mutation,
+                enable_observation_oracle=enable_observation_oracle,
+                enable_strict_semantic_verifier=enable_strict_semantic_verifier,
+                mode=mode,
+                deterministic=deterministic,
+                analysis_prior_dir=analysis_prior_dir,
+                use_mutation_prior=use_mutation_prior,
+                issue_rewrite_dir=issue_rewrite_dir,
+                precomputed_behavior_target=behavior.to_dict(),
+                issue_rewrite_source=str(local_behavior_path),
+                max_patch_rounds=max_patch_rounds,
+            )
+            fallback_result.seed_fallback_used = True
+            fallback_result.seed_mode = "all"
+            fallback_result.available_retrieved_tests_count = available_count
+            fallback_result.valid_seed_tests_count = 0
+            fallback_result.used_seed_tests_count = 0
+            fallback_result.invalid_seed_reasons = invalid_seed_reasons
+            fallback_result.max_mutation_ops = max_mutation_ops
+            fallback_result.seed_candidate_results = [
+                {
+                    "seed_rank": -1,
+                    "seed_file": fallback_result.selected_seed_file,
+                    "seed_test_name": fallback_result.selected_seed_name,
+                    "seed_valid": False,
+                    "candidate_priority": fallback_result.selected_candidate_priority,
+                    "priority_reason": "no valid iCoRe seed; fell back to single/no-seed flow",
+                    "buggy_execution_status": fallback_result.buggy_execution.get("status", ""),
+                    "verifier_decision": fallback_result.strict_verifier_decision,
+                    "surrogate_status": fallback_result.dual_version_result.get("status", ""),
+                    "failure_category": fallback_result.status,
+                    "short_log": truncate_text(
+                        str(fallback_result.buggy_execution.get("stdout", ""))
+                        + "\n"
+                        + str(fallback_result.buggy_execution.get("stderr", "")),
+                        3000,
+                    ),
+                }
+            ]
+            fallback_result.save_json(str(Path(output_dir) / "summary.json"))
+            return fallback_result
+
+        safe_json_dump(
+            {
+                "available_retrieved_tests_count": available_count,
+                "valid_seed_tests_count": len(valid_seeds),
+                "used_seed_tests_count": len(valid_seeds),
+                "invalid_seed_reasons": invalid_seed_reasons,
+            },
+            str(Path(output_dir) / "all_seed_selection.json"),
+        )
+
+        analysis_prior_hint = (
+            _analysis_prior_hint(analysis_prior_dir, context, behavior)
+            if analysis_prior_used
+            else ""
+        )
+        seed_candidate_results: list[dict[str, Any]] = []
+        selected_record: dict[str, Any] | None = None
+        selected_payload: dict[str, Any] = {}
+
+        for candidate_index, (seed_rank, seed) in enumerate(valid_seeds):
+            seed_dir = ensure_dir(
+                Path(output_dir) / "seed_candidates" / f"seed_{seed_rank}"
+            )
+            ensure_dir(Path(seed_dir) / "prompts")
+            ensure_dir(Path(seed_dir) / "responses")
+            ensure_dir(Path(seed_dir) / "logs")
+            mutation_plans: list[MutationPlan] = []
+            protocol = None
+            host_scaffold = None
+            candidate = None
+            execution = None
+            decision = None
+            strict_result = None
+            dual = None
+            result_record: dict[str, Any] = {
+                "seed_rank": seed_rank,
+                "seed_file": seed.file,
+                "seed_test_name": seed.name,
+                "seed_valid": True,
+                "host_context_status": "",
+                "mutation_plan": {},
+                "mutation_ops": [],
+                "mutation_ops_truncated": False,
+                "generated_test_path": "",
+                "buggy_execution_status": "",
+                "verifier_decision": "",
+                "surrogate_status": "",
+                "surrogate_patch_provider": "",
+                "candidate_priority": "unusable_execution",
+                "priority_reason": "candidate did not complete",
+                "failure_category": "incomplete",
+                "short_log": "",
+            }
+            try:
+                host = build_host_context(
+                    context.instance_id,
+                    seed,
+                    context.buggy_repo_path,
+                    behavior,
+                    context.retrieved_code,
+                    conda_env,
+                    timeout,
+                    no_conda,
+                    skip_execution=generate_only,
+                    repo=context.repo,
+                    version=str(context.metadata.get("version") or ""),
+                )
+                result_record["host_context_status"] = host.seed_execution_status
+                protocol = (
+                    recover_test_protocol(
+                        context.instance_id,
+                        seed,
+                        context.buggy_repo_path,
+                        behavior,
+                        context.retrieved_code,
+                        context.repo,
+                        str(context.metadata.get("version") or ""),
+                    )
+                    if enable_protocol_recovery
+                    else None
+                )
+                primary_seed_test = {
+                    "seed_id": f"icore_{seed_rank}",
+                    "icore_rank": seed_rank,
+                    "file": seed.file,
+                    "name": seed.name,
+                    "code_content": truncate_text(seed.code_content, 1200),
+                }
+                try:
+                    host_scaffold = extract_host_scaffold(
+                        context.instance_id,
+                        primary_seed_test,
+                        seed,
+                        host,
+                        context.buggy_repo_path,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    host_scaffold = fallback_host_scaffold(
+                        context.instance_id,
+                        host,
+                        seed.file,
+                        seed.name,
+                        f"HostScaffold extraction failed: {exc}",
+                    )
+                host.save_json(str(Path(seed_dir) / "host_context.json"))
+                host_scaffold.save_json(str(Path(seed_dir) / "host_scaffold.json"))
+                protocol_context_audit: dict[str, Any] = {}
+                if protocol is not None:
+                    try:
+                        protocol = apply_scaffold_to_protocol(
+                            protocol,
+                            host_scaffold,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        protocol.protocol_risks.append(
+                            f"HostScaffold protocol merge failed; retained old ProtocolRecovery: {exc}"
+                        )
+                    try:
+                        protocol = audit_recovered_protocol(
+                            protocol, behavior, seed, llm_client, str(seed_dir)
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        protocol.protocol_risks.append(
+                            f"协议模型审计失败，保留 AST 恢复结果：{exc}"
+                        )
+                    protocol.save_json(str(Path(seed_dir) / "protocol_recovery.json"))
+                    try:
+                        protocol_context_audit = audit_protocol_context(
+                            protocol,
+                            behavior,
+                            seed,
+                            [seed],
+                            context.retrieved_code,
+                            llm_client,
+                            str(seed_dir),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        protocol_context_audit = {
+                            "audit_failed": True,
+                            "error": str(exc),
+                        }
+                        safe_json_dump(
+                            protocol_context_audit,
+                            str(Path(seed_dir) / "protocol_context_audit.json"),
+                        )
+
+                initial_plan = None
+                if enable_seed_mutation:
+                    initial_plan = build_mutation_plan(
+                        context.instance_id,
+                        0,
+                        behavior,
+                        host,
+                        host_scaffold,
+                        protocol,
+                        llm_client,
+                        str(seed_dir),
+                        analysis_prior_hint=analysis_prior_hint,
+                        protocol_context_audit=protocol_context_audit,
+                        max_mutation_ops=max_mutation_ops,
+                    )
+                    mutation_plans.append(initial_plan)
+                    result_record["mutation_plan"] = initial_plan.to_dict()
+                    result_record["mutation_ops"] = list(initial_plan.mutation_ops)
+                    result_record["mutation_ops_truncated"] = bool(
+                        initial_plan.mutation_ops_truncated
+                    )
+
+                candidate = generate_candidate(
+                    context.instance_id,
+                    behavior,
+                    host,
+                    seed,
+                    context.retrieved_code,
+                    llm_client,
+                    str(seed_dir),
+                    context.buggy_repo_path,
+                    0,
+                    write_to_repo=not generate_only,
+                    protocol=protocol,
+                    mutation_plan=initial_plan,
+                    host_scaffold=host_scaffold,
+                )
+                write_text(str(Path(seed_dir) / "mutation_round_0_test.py"), candidate.code)
+                _refresh_candidate_command(context, candidate)
+                result_record["generated_test_path"] = candidate.candidate_file_path
+
+                if generate_only:
+                    execution = ExecutionResult(
+                        instance_id=context.instance_id,
+                        command=candidate.command,
+                        cwd=context.buggy_repo_path,
+                        status="SKIPPED",
+                        returncode=0,
+                    )
+                    decision = VerifierDecision(
+                        context.instance_id,
+                        "reject",
+                        "generate_only: verifier skipped",
+                    )
+                    dual = DualVersionResult(
+                        context.instance_id,
+                        "buggy_only",
+                        execution.to_dict(),
+                        {},
+                        "SKIPPED",
+                        "generate_only",
+                    )
+                else:
+                    execution = run_command_in_conda(
+                        candidate.command,
+                        context.buggy_repo_path,
+                        conda_env,
+                        timeout,
+                        no_conda,
+                        behavior,
+                        context.instance_id,
+                    )
+                    safe_json_dump(
+                        execution.to_dict(),
+                        str(Path(seed_dir) / "execution_round_0.json"),
+                    )
+                    write_text(
+                        str(Path(seed_dir) / "logs" / "execution_round_0.log"),
+                        execution.stdout + "\n" + execution.stderr,
+                    )
+                    effective_source = format_effective_source_context(
+                        behavior,
+                        context.retrieved_code,
+                        context.buggy_repo_path,
+                    )
+                    if enable_strict_semantic_verifier:
+                        decision, strict_result = verify_strict_semantics(
+                            context.issue_text,
+                            behavior,
+                            protocol,
+                            candidate,
+                            execution,
+                            effective_source,
+                            llm_client,
+                            str(seed_dir),
+                            0,
+                        )
+                    else:
+                        decision = verify_buggy_only(
+                            context.issue_text,
+                            behavior,
+                            candidate,
+                            execution,
+                            llm_client,
+                            host.to_dict(),
+                            effective_source,
+                        )
+                    safe_json_dump(
+                        decision.to_dict(),
+                        str(Path(seed_dir) / "verifier_round_0.json"),
+                    )
+                    if decision.decision == "accept" and validation_mode == "surrogate_patch":
+                        validation_dir = str(
+                            Path(seed_dir) / "candidate_validations" / "attempt_0"
+                        )
+                        ensure_dir(validation_dir)
+                        dual = run_surrogate_patch_loop(
+                            context.instance_id,
+                            behavior,
+                            candidate,
+                            context.retrieved_code,
+                            context.buggy_repo_path,
+                            execution,
+                            llm_client,
+                            validation_dir,
+                            conda_env,
+                            timeout,
+                            no_conda,
+                            max_patch_rounds,
+                        )
+                    elif validation_mode == "surrogate_patch":
+                        if execution.returncode == 0:
+                            dual = DualVersionResult(
+                                context.instance_id,
+                                validation_mode,
+                                execution.to_dict(),
+                                {},
+                                "BUGGY_PASS",
+                                "Surrogate patch validation skipped because the BRT passes on buggy source.",
+                            )
+                        else:
+                            dual = DualVersionResult(
+                                context.instance_id,
+                                validation_mode,
+                                execution.to_dict(),
+                                {},
+                                "SKIPPED_UNALIGNED_BUGGY_FAIL",
+                                "Surrogate patch validation requires an issue-aligned buggy failure.",
+                            )
+                    else:
+                        dual = DualVersionResult(
+                            context.instance_id,
+                            "buggy_only",
+                            execution.to_dict(),
+                            {},
+                            "SKIPPED",
+                            "Only buggy source was executed.",
+                        )
+                    dual.save_json(str(Path(seed_dir) / "dual_version_result.json"))
+
+                priority, priority_reason, failure_category = _candidate_priority(
+                    execution,
+                    decision,
+                    dual,
+                )
+                result_record.update(
+                    {
+                        "buggy_execution_status": execution.status,
+                        "verifier_decision": decision.decision if decision else "",
+                        "surrogate_status": dual.status if dual else "",
+                        "surrogate_patch_provider": _surrogate_patch_provider(dual),
+                        "candidate_priority": priority,
+                        "priority_reason": priority_reason,
+                        "failure_category": failure_category,
+                        "short_log": _short_execution_log(execution),
+                    }
+                )
+                safe_json_dump(
+                    {
+                        "candidate": candidate.to_dict(),
+                        "execution": execution.to_dict(),
+                        "verifier": decision.to_dict() if decision else {},
+                        "surrogate": dual.to_dict() if dual else {},
+                        "candidate_priority": priority,
+                        "priority_reason": priority_reason,
+                    },
+                    str(Path(seed_dir) / "seed_candidate_checkpoint.json"),
+                )
+                selected_candidate_key = (
+                    _CANDIDATE_PRIORITY_ORDER.get(priority, 99),
+                    seed_rank,
+                    candidate_index,
+                    len(result_record["short_log"])
+                    + (100000 if execution.status in MECHANICAL_SEED_FAILURE_STATUSES else 0),
+                )
+                result_record["_selection_key"] = selected_candidate_key
+                if selected_record is None or selected_candidate_key < selected_record["_selection_key"]:
+                    selected_record = result_record
+                    selected_payload = {
+                        "seed_rank": seed_rank,
+                        "seed": seed,
+                        "host": host,
+                        "protocol": protocol,
+                        "host_scaffold": host_scaffold,
+                        "candidate": copy.deepcopy(candidate),
+                        "execution": copy.deepcopy(execution),
+                        "decision": copy.deepcopy(decision),
+                        "strict_result": copy.deepcopy(strict_result),
+                        "dual": copy.deepcopy(dual),
+                        "mutation_plans": copy.deepcopy(mutation_plans),
+                        "priority": priority,
+                        "priority_reason": priority_reason,
+                    }
+            except Exception as exc:  # noqa: BLE001
+                result_record.update(
+                    {
+                        "candidate_priority": "unusable_execution",
+                        "priority_reason": f"seed candidate chain failed: {exc}",
+                        "failure_category": "pipeline_exception",
+                        "short_log": truncate_text(traceback.format_exc(), 3000),
+                    }
+                )
+                safe_json_dump(
+                    result_record,
+                    str(Path(seed_dir) / "seed_candidate_error.json"),
+                )
+            seed_candidate_results.append(
+                {
+                    key: value
+                    for key, value in result_record.items()
+                    if key != "_selection_key"
+                }
+            )
+
+        if not selected_payload:
+            raise RuntimeError("all-seed mode produced no selectable candidate")
+
+        selected_candidate = selected_payload["candidate"]
+        selected_execution = selected_payload["execution"]
+        selected_decision = selected_payload["decision"]
+        selected_dual = selected_payload["dual"]
+        selected_host = selected_payload["host"]
+        selected_seed = selected_payload["seed"]
+        selected_protocol = selected_payload["protocol"]
+        selected_scaffold = selected_payload["host_scaffold"]
+        selected_mutation_plans = selected_payload["mutation_plans"]
+        selected_strict = selected_payload["strict_result"]
+        selected_priority = str(selected_payload["priority"])
+        selected_reason = str(selected_payload["priority_reason"])
+
+        write_text(selected_candidate.candidate_file_path, selected_candidate.code)
+        _refresh_candidate_command(context, selected_candidate)
+        final_code = selected_candidate.code
+        write_text(str(Path(output_dir) / "final_test.py"), final_code)
+        selected_dual.save_json(str(Path(output_dir) / "dual_version_result.json"))
+        selected_host.save_json(str(Path(output_dir) / "host_context.json"))
+        if selected_protocol is not None:
+            selected_protocol.save_json(str(Path(output_dir) / "protocol_recovery.json"))
+        if selected_scaffold is not None:
+            selected_scaffold.save_json(str(Path(output_dir) / "host_scaffold.json"))
+        safe_json_dump(
+            {
+                "selection_policy": (
+                    "surrogate_f2p_success > strict_accept_buggy_fail > "
+                    "issue_aligned_fail > runnable_buggy_fail > buggy_pass > "
+                    "unusable_execution; ties use iCoRe seed rank then generation order"
+                ),
+                "selected_seed_rank": selected_payload["seed_rank"],
+                "selected_candidate_priority": selected_priority,
+                "selected_priority_reason": selected_reason,
+                "seed_candidate_results": seed_candidate_results,
+            },
+            str(Path(output_dir) / "candidate_ranking.json"),
+        )
+        status = _final_status_from_selected(
+            selected_priority,
+            selected_execution,
+            selected_decision,
+            selected_dual,
+        )
+        strict_level = (
+            "llm"
+            if selected_strict is not None and enable_strict_semantic_verifier
+            else ("skipped" if not enable_strict_semantic_verifier else "local")
+        )
+        surrogate_patch_used = bool(
+            selected_dual
+            and selected_dual.mode == "surrogate_patch"
+            and selected_dual.status
+            not in {"SKIPPED", "BUGGY_PASS", "SKIPPED_UNALIGNED_BUGGY_FAIL"}
+        )
+        result = FinalResult(
+            instance_id=context.instance_id,
+            status=status,
+            final_test_path=str(Path(output_dir) / "final_test.py"),
+            rounds_used=1,
+            buggy_execution=selected_execution.to_dict(),
+            dual_version_result=selected_dual.to_dict(),
+            behavior_target=behavior.to_dict(),
+            host_context=selected_host.to_dict(),
+            observation_report={},
+            notes=selected_decision.reason if selected_decision else "",
+            protocol_recovery_enabled=enable_protocol_recovery,
+            seed_mutation_enabled=enable_seed_mutation,
+            observation_oracle_enabled=enable_observation_oracle,
+            strict_verifier_enabled=enable_strict_semantic_verifier,
+            selected_seed_file=selected_seed.file,
+            selected_seed_name=selected_seed.name,
+            seed_fallback_used=False,
+            mutation_ops=list(
+                dict.fromkeys(
+                    op for plan in selected_mutation_plans for op in plan.mutation_ops
+                )
+            ),
+            strict_verifier_decision=(
+                selected_strict.decision if selected_strict else ""
+            ),
+            strict_failure_class=(
+                selected_strict.failure_class if selected_strict else ""
+            ),
+            final_reason=selected_decision.reason if selected_decision else "",
+            **_stable_result_fields(
+                llm_client,
+                selected_mutation_plans,
+                mode=mode,
+                deterministic=deterministic,
+                selected_seed_signature=_host_signature(selected_host),
+                analysis_prior_used=analysis_prior_used,
+                regression_guard_triggered=bool(
+                    selected_decision and selected_decision.decision == "accept"
+                ),
+                regression_guard_reason=(
+                    "surrogate patch is ranking-only; accepted candidate was not rewritten after surrogate failure"
+                    if selected_decision and selected_decision.decision == "accept"
+                    else ""
+                ),
+                surrogate_patch_used=surrogate_patch_used,
+                strict_verifier_level=strict_level,
+                final_selection_reason=selected_reason,
+                seed_selection_mode="all_valid_icore_seeds",
+                seed_candidates_count=len(valid_seeds),
+                selected_seed_score=0.0,
+                primary_seed_test={
+                    "icore_rank": selected_payload["seed_rank"],
+                    "file": selected_seed.file,
+                    "name": selected_seed.name,
+                },
+                host_scaffold=selected_scaffold,
+                candidate=selected_candidate,
+                final_code=final_code,
+            ),
+            **_all_seed_result_fields(
+                available_count=available_count,
+                valid_count=len(valid_seeds),
+                used_count=len(valid_seeds),
+                invalid_seed_reasons=invalid_seed_reasons,
+                max_mutation_ops=max_mutation_ops,
+                selected_seed_rank=int(selected_payload["seed_rank"]),
+                selected_priority=selected_priority,
+                selected_reason=selected_reason,
+                seed_candidate_results=seed_candidate_results,
+            ),
+        )
+        result.save_json(str(Path(output_dir) / "summary.json"))
+        return result
+    except Exception as exc:  # noqa: BLE001
+        payload = {
+            "instance_id": context.instance_id,
+            "status": "ERROR",
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+            "protocol_recovery_enabled": enable_protocol_recovery,
+            "seed_mutation_enabled": enable_seed_mutation,
+            "observation_oracle_enabled": enable_observation_oracle,
+            "strict_verifier_enabled": enable_strict_semantic_verifier,
+            "final_reason": str(exc),
+            **_stable_result_fields(
+                llm_client,
+                mode=mode,
+                deterministic=deterministic,
+                analysis_prior_used=analysis_prior_used,
+                final_selection_reason="all-seed pipeline exception",
+            ),
+            **_all_seed_result_fields(
+                available_count=len(context.retrieved_tests),
+                valid_count=0,
+                used_count=0,
+                invalid_seed_reasons=[],
+                max_mutation_ops=max_mutation_ops,
+            ),
+        }
+        safe_json_dump(payload, str(Path(output_dir) / "summary.json"))
+        return FinalResult(
+            instance_id=context.instance_id,
+            status="ERROR",
+            notes=str(exc),
+            **_stable_result_fields(
+                llm_client,
+                mode=mode,
+                deterministic=deterministic,
+                analysis_prior_used=analysis_prior_used,
+                final_selection_reason="all-seed pipeline exception",
+            ),
+            **_all_seed_result_fields(
+                available_count=len(context.retrieved_tests),
+                valid_count=0,
+                used_count=0,
+                invalid_seed_reasons=[],
+                max_mutation_ops=max_mutation_ops,
+            ),
+        )
+
+
+def run_instance_pipeline(
+    context: InstanceContext,
+    llm_client: Any,
+    output_dir: str,
+    conda_env: str = "",
+    timeout: int = 120,
+    no_conda: bool = False,
+    max_feedback_rounds: int = 3,
+    max_env_rounds: int | None = None,
+    max_brt_rounds: int | None = None,
+    max_patch_rounds: int = 3,
+    seed_mode: str = "single",
+    max_mutation_ops: int = 3,
+    validation_mode: str = "buggy_only",
+    patched_repo_base: str = "",
+    patch_file: str = "",
+    generate_only: bool = False,
+    enable_protocol_recovery: bool = True,
+    enable_seed_mutation: bool = True,
+    enable_observation_oracle: bool = True,
+    enable_strict_semantic_verifier: bool = True,
+    mode: str = "deep",
+    deterministic: bool = True,
+    analysis_prior_dir: str = "",
+    use_mutation_prior: bool = True,
+    issue_rewrite_dir: str = "",
+    precomputed_behavior_target: dict[str, Any] | None = None,
+    issue_rewrite_source: str = "",
+) -> FinalResult:
+    common = {
+        "context": context,
+        "llm_client": llm_client,
+        "output_dir": output_dir,
+        "conda_env": conda_env,
+        "timeout": timeout,
+        "no_conda": no_conda,
+        "max_feedback_rounds": max_feedback_rounds,
+        "max_env_rounds": max_env_rounds,
+        "max_brt_rounds": max_brt_rounds,
+        "max_patch_rounds": max_patch_rounds,
+        "validation_mode": validation_mode,
+        "patched_repo_base": patched_repo_base,
+        "patch_file": patch_file,
+        "generate_only": generate_only,
+        "enable_protocol_recovery": enable_protocol_recovery,
+        "enable_seed_mutation": enable_seed_mutation,
+        "enable_observation_oracle": enable_observation_oracle,
+        "enable_strict_semantic_verifier": enable_strict_semantic_verifier,
+        "mode": mode,
+        "deterministic": deterministic,
+        "analysis_prior_dir": analysis_prior_dir,
+        "use_mutation_prior": use_mutation_prior,
+        "issue_rewrite_dir": issue_rewrite_dir,
+        "precomputed_behavior_target": precomputed_behavior_target,
+        "issue_rewrite_source": issue_rewrite_source,
+    }
+    if seed_mode == "all":
+        return _run_instance_pipeline_all(
+            **common,
+            max_mutation_ops=max_mutation_ops,
+        )
+    return _run_instance_pipeline_single(**common)

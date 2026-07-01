@@ -78,6 +78,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_env_rounds", type=int, default=None)
     parser.add_argument("--max_brt_rounds", type=int, default=None)
     parser.add_argument("--max_patch_rounds", type=int, default=3)
+    parser.add_argument(
+        "--seed_mode",
+        choices=["single", "all"],
+        default="single",
+        help="single preserves the legacy one-seed pipeline; all runs one candidate per valid iCoRe seed.",
+    )
+    parser.add_argument(
+        "--max_mutation_ops",
+        type=int,
+        default=3,
+        help="Maximum mutation operators allowed inside each seed MutationPlan in all-seed mode.",
+    )
     parser.add_argument("--num_candidates", type=int, default=1)
     parser.add_argument("--instance_id", default=None)
     parser.add_argument("--limit", type=int, default=None)
@@ -213,7 +225,7 @@ def _run_one(args: argparse.Namespace, instance_id: str, issue_row: dict) -> dic
         args.test_retrieval_path,
         args.repo_root_base,
         args.top_code,
-        args.top_tests,
+        100000 if args.seed_mode == "all" else args.top_tests,
     )
     client = LLMClient(
         model=args.model,
@@ -251,6 +263,8 @@ def _run_one(args: argparse.Namespace, instance_id: str, issue_row: dict) -> dic
                 max_env_rounds=args.max_env_rounds,
                 max_brt_rounds=args.max_brt_rounds,
                 max_patch_rounds=args.max_patch_rounds,
+                seed_mode=args.seed_mode,
+                max_mutation_ops=args.max_mutation_ops,
                 validation_mode=args.validation_mode,
                 generate_only=args.generate_only,
                 enable_protocol_recovery=args.enable_protocol_recovery,
@@ -418,6 +432,8 @@ def main() -> None:
             "num_candidates": 1,
             "max_feedback_rounds": DEFAULT_MAX_FEEDBACK_ROUNDS,
             "validation_mode": "surrogate_patch",
+            "seed_mode": args.seed_mode,
+            "max_mutation_ops": args.max_mutation_ops,
             "generate_only": False,
             "enable_protocol_recovery": args.enable_protocol_recovery,
             "enable_seed_mutation": args.enable_seed_mutation,
