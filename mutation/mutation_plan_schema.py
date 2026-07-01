@@ -275,12 +275,39 @@ def validate_plan_payload(
                 "risk": "medium",
             }
         ]
-    selected_rules = selected_rules[:3]
+    selected_rules = selected_rules[:2]
 
-    oracle = str(data.get("oracle_strategy") or "public_property")
-    if oracle not in ORACLE_STRATEGIES:
-        warnings.append(f"invalid oracle_strategy={oracle}; using public_property")
-        oracle = "public_property"
+    raw_oracle = data.get("oracle_strategy")
+    if isinstance(raw_oracle, dict):
+        preferred = str(
+            raw_oracle.get("preferred_assertion_style") or "public_property"
+        )
+        if preferred not in ORACLE_STRATEGIES:
+            warnings.append(
+                f"invalid preferred_assertion_style={preferred}; "
+                "using public_property"
+            )
+            preferred = "public_property"
+        observation_points = raw_oracle.get("observation_points")
+        if not isinstance(observation_points, list):
+            observation_points = (
+                [str(observation_points)] if observation_points else []
+            )
+        oracle: str | dict[str, Any] = {
+            "observation_points": [
+                str(item) for item in observation_points if str(item).strip()
+            ],
+            "assertion_goal": str(raw_oracle.get("assertion_goal") or ""),
+            "preferred_assertion_style": preferred,
+            "avoid": str(raw_oracle.get("avoid") or ""),
+        }
+    else:
+        oracle = str(raw_oracle or "public_property")
+        if oracle not in ORACLE_STRATEGIES:
+            warnings.append(
+                f"invalid oracle_strategy={oracle}; using public_property"
+            )
+            oracle = "public_property"
     target_api = _strings(data.get("target_api")) or _behavior_target_apis(behavior)
     normalized = {
         "mutation_goal": str(data.get("mutation_goal") or ""),

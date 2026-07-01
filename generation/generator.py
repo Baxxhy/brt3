@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import ast
@@ -12,9 +13,26 @@ from typing import Any
 
 from core.io_utils import format_code_context
 from prompts.loader import load_prompt
-from core.schema import BehaviorTarget, CandidateTest, ExecutionResult, HostContext, MutationPlan, ProtocolRecovery, RetrievedCode, RetrievedTest
+from core.schema import (
+    BehaviorTarget,
+    CandidateTest,
+    ExecutionResult,
+    HostContext,
+    HostScaffold,
+    MutationPlan,
+    ProtocolRecovery,
+    RetrievedCode,
+    RetrievedTest,
+)
 from validation.semantic_guard import audit_candidate
-from core.utils import clean_code_block, ensure_dir, sanitize_instance_id, truncate_text, write_text
+from core.utils import (
+    clean_code_block,
+    ensure_dir,
+    safe_json_dump,
+    sanitize_instance_id,
+    truncate_text,
+    write_text,
+)
 
 
 _MUTATION_GENERATION_PROMPT = load_prompt("mutation_generation")
@@ -363,6 +381,152 @@ def _candidate_paths(instance_id: str, buggy_repo: str, host: HostContext) -> tu
     return rel, str(Path(buggy_repo) / rel)
 
 
+def _anchored_candidate_code(
+    instance_id: str,
+    scaffold: HostScaffold,
+    mutation_plan: MutationPlan,
+) -> tuple[str, dict[str, Any]]:
+    diagnostics: dict[str, Any] = {
+        "generator_mode": "anchored_replace",
+        "before_pattern_found": False,
+        "before_pattern_unique": False,
+        "targets": [],
+        "fallback_reason": "",
+    }
+    if scaffold.host_scaffold_mode != "ast_scaffold":
+        diagnostics["fallback_reason"] = (
+            "HostScaffold is not AST-backed"
+        )
+        return "", diagnostics
+    if mutation_plan.mutation_plan_mode != "anchored":
+        diagnostics["fallback_reason"] = (
+            "MutationPlan is not in anchored mode"
+        )
+        return "", diagnostics
+    if mutation_plan.sanitizer_status != "PASS":
+        diagnostics["fallback_reason"] = (
+            f"MutationPlan sanitizer status is "
+            f"{mutation_plan.sanitizer_status or 'unknown'}"
+        )
+        return "", diagnostics
+    code = scaffold.scaffold_code
+    if not code.strip():
+        diagnostics["fallback_reason"] = "HostScaffold code is empty"
+        return "", diagnostics
+
+    all_found = True
+    all_unique = True
+    for index, target in enumerate(mutation_plan.mutation_targets[:2]):
+        before = str(target.get("before_pattern") or "")
+        after = str(target.get("after_pattern") or "")
+        count = code.count(before) if before else 0
+        target_diag = {
+            "index": index,
+            "operator": str(target.get("operator") or ""),
+            "anchor_scope": str(target.get("anchor_scope") or ""),
+            "before_count_in_scaffold": count,
+            "applied": False,
+        }
+        diagnostics["targets"].append(target_diag)
+        all_found = all_found and count > 0
+        all_unique = all_unique and count == 1
+        if count != 1:
+            diagnostics["before_pattern_found"] = all_found
+            diagnostics["before_pattern_unique"] = all_unique
+            diagnostics["fallback_reason"] = (
+                f"target {index} before_pattern occurs {count} times in "
+                "scaffold_code"
+            )
+            return "", diagnostics
+        code = code.replace(before, after, 1)
+        target_diag["applied"] = True
+
+    diagnostics["before_pattern_found"] = all_found
+    diagnostics["before_pattern_unique"] = all_unique
+    old_name = scaffold.test_entry.replace("::", ".").rsplit(".", 1)[-1]
+    new_name = f"test_brt_{sanitize_instance_id(instance_id)}"
+    function_pattern = re.compile(
+        rf"(\b(?:async\s+)?def\s+){re.escape(old_name)}(\s*\()"
+    )
+    rename_matches = list(function_pattern.finditer(code))
+    if len(rename_matches) != 1:
+        diagnostics["fallback_reason"] = (
+            f"seed function name {old_name!r} occurs "
+            f"{len(rename_matches)} times in scaffold_code"
+        )
+        return "", diagnostics
+    code, rename_count = function_pattern.subn(
+        rf"\g<1>{new_name}\g<2>",
+        code,
+        count=1,
+    )
+    if rename_count != 1:
+        diagnostics["fallback_reason"] = (
+            f"could not uniquely rename seed function {old_name!r}"
+        )
+        return "", diagnostics
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        diagnostics["fallback_reason"] = (
+            f"anchored replacement produced invalid Python: {exc}"
+        )
+        return "", diagnostics
+    generated = _find_generated_test(
+        tree,
+        new_name,
+        scaffold.enclosing_class,
+    )
+    if generated is None:
+        diagnostics["fallback_reason"] = (
+            "renamed BRT test function is missing from generated scaffold"
+        )
+        return "", diagnostics
+    generated_fixtures = [
+        arg.arg
+        for arg in generated.args.posonlyargs
+        + generated.args.args
+        + generated.args.kwonlyargs
+        if arg.arg not in {"self", "cls"}
+    ]
+    if generated_fixtures != scaffold.fixture_args:
+        diagnostics["fallback_reason"] = (
+            "anchored replacement changed fixture arguments"
+        )
+        return "", diagnostics
+    code = code.rstrip() + "\n"
+    diagnostics["final_test_hash"] = _code_hash(code)
+    return code, diagnostics
+
+
+def _find_generated_test(
+    tree: ast.Module,
+    test_name: str,
+    enclosing_class: str,
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            if enclosing_class and node.name != enclosing_class:
+                continue
+            for child in node.body:
+                if (
+                    isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and child.name == test_name
+                ):
+                    return child
+        elif (
+            not enclosing_class
+            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == test_name
+        ):
+            return node
+    return None
+
+
+def _code_hash(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest() if code else ""
+
+
 def write_candidate_to_repo(candidate: CandidateTest, buggy_repo: str) -> CandidateTest:
     ensure_dir(Path(candidate.candidate_file_path).parent)
     write_text(candidate.candidate_file_path, candidate.code)
@@ -385,6 +549,7 @@ def generate_candidate(
     write_to_repo: bool = True,
     protocol: ProtocolRecovery | None = None,
     mutation_plan: MutationPlan | None = None,
+    host_scaffold: HostScaffold | None = None,
 ) -> CandidateTest:
     ensure_dir(Path(output_dir) / "prompts")
     ensure_dir(Path(output_dir) / "responses")
@@ -420,12 +585,52 @@ def generate_candidate(
             + _json_for_prompt(mutation_plan.to_dict(), MAX_PROMPT_PLAN_CHARS)
             + "\n必须严格按 mutation plan 生成一个完整 Python 文件；不得自由扩大变异或重写无关 setup。"
         )
+    if host_scaffold is not None:
+        user_prompt += (
+            "\n\n【最小宿主脚手架】\n"
+            + _json_for_prompt(
+                host_scaffold.to_dict(),
+                MAX_PROMPT_HOST_CHARS,
+            )
+            + "\n保留脚手架中的 imports、pytestmark、class wrapper、setup、"
+            "fixture 参数和 runner 协议。"
+        )
     prompt_path = str(Path(output_dir) / "prompts" / f"generation_round_{round_id}.txt")
     response_path = str(Path(output_dir) / "responses" / f"generation_round_{round_id}.txt")
     write_text(prompt_path, MUTATION_GENERATION_SYSTEM_PROMPT + "\n\n" + user_prompt)
-    response = llm_client.chat(MUTATION_GENERATION_SYSTEM_PROMPT, user_prompt)
-    write_text(response_path, response)
-    code = _wrap_if_needed(response, host, safe_id)
+    generator_mode = "fallback_old"
+    fallback_reason = ""
+    anchored_diagnostics: dict[str, Any] = {}
+    code = ""
+    if host_scaffold is not None and mutation_plan is not None:
+        code, anchored_diagnostics = _anchored_candidate_code(
+            instance_id,
+            host_scaffold,
+            mutation_plan,
+        )
+        fallback_reason = str(
+            anchored_diagnostics.get("fallback_reason") or ""
+        )
+        if code:
+            generator_mode = "anchored_replace"
+            write_text(response_path, code)
+    if not code:
+        if fallback_reason:
+            user_prompt += (
+                "\n\n锚定替换无法安全应用，已切换旧 generator。原因："
+                + fallback_reason
+                + "\n仍需尽量保留 HostScaffold，只输出一个完整 Python 文件。"
+            )
+            write_text(
+                prompt_path,
+                MUTATION_GENERATION_SYSTEM_PROMPT + "\n\n" + user_prompt,
+            )
+        response = llm_client.chat(
+            MUTATION_GENERATION_SYSTEM_PROMPT,
+            user_prompt,
+        )
+        write_text(response_path, response)
+        code = _wrap_if_needed(response, host, safe_id)
     rel_path, full_path = _candidate_paths(instance_id, buggy_repo, host)
     candidate = CandidateTest(
         instance_id=instance_id,
@@ -435,6 +640,15 @@ def generate_candidate(
         candidate_repo_path=rel_path,
         prompt_path=prompt_path,
         response_path=response_path,
+        generator_mode=generator_mode,
+        fallback_reason=fallback_reason,
+        before_pattern_found=bool(
+            anchored_diagnostics.get("before_pattern_found")
+        ),
+        before_pattern_unique=bool(
+            anchored_diagnostics.get("before_pattern_unique")
+        ),
+        final_test_hash=_code_hash(code),
     )
     if write_to_repo:
         write_candidate_to_repo(candidate, buggy_repo)
@@ -442,6 +656,17 @@ def generate_candidate(
         candidate.pytest_nodeid = candidate.candidate_repo_path
         candidate.command = f"python -m pytest {candidate.candidate_repo_path} -q"
     write_text(str(Path(output_dir) / f"candidate_round_{round_id}.py"), code)
+    safe_json_dump(
+        {
+            "generator_mode": candidate.generator_mode,
+            "fallback_reason": candidate.fallback_reason,
+            "before_pattern_found": candidate.before_pattern_found,
+            "before_pattern_unique": candidate.before_pattern_unique,
+            "final_test_hash": candidate.final_test_hash,
+            "anchored_diagnostics": anchored_diagnostics,
+        },
+        str(Path(output_dir) / f"generator_round_{round_id}.json"),
+    )
     return candidate
 
 
@@ -461,6 +686,7 @@ def repair_candidate(
     buggy_repo: str = "",
     protocol: ProtocolRecovery | None = None,
     mutation_plan: MutationPlan | None = None,
+    host_scaffold: HostScaffold | None = None,
 ) -> CandidateTest:
     feedback_json = _json_for_prompt(verifier_feedback or {}, MAX_PROMPT_OBSERVATION_CHARS)
     source_context = _text_for_prompt(
@@ -474,6 +700,72 @@ def repair_candidate(
     behavior_json = _json_for_prompt(behavior.to_dict(), MAX_PROMPT_BEHAVIOR_CHARS)
     host_context_json = _json_for_prompt(host.to_dict(), MAX_PROMPT_HOST_CHARS)
     candidate_code = _text_for_prompt(candidate.code, MAX_PROMPT_SEED_CHARS)
+    anchored_fallback_reason = ""
+    if (
+        focus == "trigger"
+        and host_scaffold is not None
+        and mutation_plan is not None
+    ):
+        anchored_code, anchored_diagnostics = _anchored_candidate_code(
+            instance_id,
+            host_scaffold,
+            mutation_plan,
+        )
+        anchored_prompt_path = str(
+            Path(output_dir)
+            / "prompts"
+            / f"repair_prompt_round_{round_id}.txt"
+        )
+        anchored_response_path = str(
+            Path(output_dir)
+            / "responses"
+            / f"repair_response_round_{round_id}.txt"
+        )
+        write_text(
+            anchored_prompt_path,
+            "Deterministic anchored trigger repair\n\n"
+            + _json_for_prompt(
+                {
+                    "host_scaffold": host_scaffold.to_dict(),
+                    "mutation_plan": mutation_plan.to_dict(),
+                },
+                MAX_PROMPT_HOST_CHARS + MAX_PROMPT_PLAN_CHARS,
+            ),
+        )
+        if anchored_code:
+            write_text(anchored_response_path, anchored_code)
+            new_candidate = CandidateTest(
+                instance_id=instance_id,
+                round_id=round_id,
+                code=anchored_code,
+                candidate_file_path=candidate.candidate_file_path,
+                candidate_repo_path=candidate.candidate_repo_path,
+                prompt_path=anchored_prompt_path,
+                response_path=anchored_response_path,
+                generator_mode="anchored_replace",
+                before_pattern_found=bool(
+                    anchored_diagnostics.get("before_pattern_found")
+                ),
+                before_pattern_unique=bool(
+                    anchored_diagnostics.get("before_pattern_unique")
+                ),
+                final_test_hash=_code_hash(anchored_code),
+            )
+            write_text(new_candidate.candidate_file_path, anchored_code)
+            new_candidate.pytest_nodeid = new_candidate.candidate_repo_path
+            new_candidate.command = candidate.command
+            write_text(
+                str(Path(output_dir) / f"candidate_round_{round_id}.py"),
+                anchored_code,
+            )
+            safe_json_dump(
+                anchored_diagnostics,
+                str(Path(output_dir) / f"generator_round_{round_id}.json"),
+            )
+            return new_candidate
+        anchored_fallback_reason = str(
+            anchored_diagnostics.get("fallback_reason") or ""
+        )
     if focus == "setup":
         system = REPAIR_SETUP_SYSTEM_PROMPT
         template = REPAIR_SETUP_USER_PROMPT
@@ -601,9 +893,24 @@ def repair_candidate(
         candidate_repo_path=candidate.candidate_repo_path,
         prompt_path=prompt_path,
         response_path=response_path,
+        generator_mode="fallback_old",
+        fallback_reason=anchored_fallback_reason,
+        before_pattern_found=False,
+        before_pattern_unique=False,
+        final_test_hash=_code_hash(code),
     )
     write_text(new_candidate.candidate_file_path, code)
     new_candidate.pytest_nodeid = new_candidate.candidate_repo_path
     new_candidate.command = candidate.command
     write_text(str(Path(output_dir) / f"candidate_round_{round_id}.py"), code)
+    safe_json_dump(
+        {
+            "generator_mode": new_candidate.generator_mode,
+            "fallback_reason": new_candidate.fallback_reason,
+            "before_pattern_found": new_candidate.before_pattern_found,
+            "before_pattern_unique": new_candidate.before_pattern_unique,
+            "final_test_hash": new_candidate.final_test_hash,
+        },
+        str(Path(output_dir) / f"generator_round_{round_id}.json"),
+    )
     return new_candidate

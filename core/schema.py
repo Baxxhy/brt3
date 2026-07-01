@@ -93,6 +93,34 @@ class HostContext(JsonMixin):
 
 
 @dataclass
+class HostScaffold(JsonMixin):
+    instance_id: str
+    host_scaffold_mode: str = "fallback_old"
+    test_file: str = ""
+    test_entry: str = ""
+    enclosing_class: str = ""
+    framework: str = "unknown"
+    cleaned_imports: list[str] = field(default_factory=list)
+    module_pytestmark: str = ""
+    class_wrapper: str = ""
+    setup_methods: list[str] = field(default_factory=list)
+    teardown_methods: list[str] = field(default_factory=list)
+    fixture_args: list[str] = field(default_factory=list)
+    local_helpers: list[dict[str, str]] = field(default_factory=list)
+    seed_decorators: list[str] = field(default_factory=list)
+    seed_function_signature: str = ""
+    seed_function_body: str = ""
+    seed_function_code: str = ""
+    class_decorators: list[str] = field(default_factory=list)
+    class_bases: list[str] = field(default_factory=list)
+    class_attributes: list[str] = field(default_factory=list)
+    scaffold_code: str = ""
+    scaffold_hash: str = ""
+    seed_function_hash: str = ""
+    fallback_reason: str = ""
+
+
+@dataclass
 class ProtocolRecovery(JsonMixin):
     instance_id: str
     test_file: str = ""
@@ -128,11 +156,21 @@ class MutationPlan(JsonMixin):
     target_path: list[str] = field(default_factory=list)
     mutation_ops: list[str] = field(default_factory=list)
     expected_behavior: str = ""
-    oracle_strategy: str = ""
+    oracle_strategy: str | dict[str, Any] = ""
     why_this_should_trigger: str = ""
     risk: str = "medium"
     fallback_if_buggy_pass: str = ""
     fallback_if_fixed_fail: str = ""
+    mutation_plan_mode: str = "fallback_old"
+    selected_operators: list[str] = field(default_factory=list)
+    mutation_targets: list[dict[str, Any]] = field(default_factory=list)
+    preserve_constraints: list[str] = field(default_factory=list)
+    before_pattern_found: bool = False
+    before_pattern_unique: bool = False
+    sanitizer_status: str = "NOT_RUN"
+    sanitizer_warnings: list[str] = field(default_factory=list)
+    fallback_reason: str = ""
+    scaffold_hash: str = ""
 
 
 @dataclass
@@ -160,6 +198,11 @@ class CandidateTest(JsonMixin):
     response_path: str = ""
     status: str = "CREATED"
     notes: str = ""
+    generator_mode: str = "fallback_old"
+    fallback_reason: str = ""
+    before_pattern_found: bool = False
+    before_pattern_unique: bool = False
+    final_test_hash: str = ""
 
 
 @dataclass
@@ -270,6 +313,24 @@ class FinalResult(JsonMixin):
     selected_seed_signature: str = ""
     seed_reused: bool = False
     seed_change_reason: str = ""
+    seed_selection_mode: str = ""
+    seed_candidates_count: int = 0
+    selected_seed_score: float = 0.0
+    matched_apis: list[dict[str, Any]] = field(default_factory=list)
+    seed_score_breakdown: dict[str, Any] = field(default_factory=dict)
+    seed_selection_fallback_reason: str = ""
+    primary_seed_test: dict[str, Any] = field(default_factory=dict)
+    host_scaffold_mode: str = ""
+    scaffold_hash: str = ""
+    seed_function_hash: str = ""
+    mutation_plan_mode: str = ""
+    selected_operators: list[str] = field(default_factory=list)
+    before_pattern_found: bool = False
+    before_pattern_unique: bool = False
+    sanitizer_status: str = ""
+    generator_mode: str = ""
+    fallback_reason: str = ""
+    final_test_hash: str = ""
     mutation_plan: dict[str, Any] = field(default_factory=dict)
     mutation_rules_used: list[str] = field(default_factory=list)
     mutation_risk: str = "medium"

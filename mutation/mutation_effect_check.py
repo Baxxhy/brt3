@@ -79,7 +79,13 @@ def check_mutation_effect(
     buggy_pass = "BUGGY_PASS" in feedback_text or "TARGET_NOT_HIT" in feedback_text
     strengthened = any(item.get("rule") in _STRONGER_TRIGGER_RULES for item in rules)
     issue_pattern = str(data.get("issue_pattern") or "")
-    oracle_strategy = str(data.get("oracle_strategy") or "")
+    raw_oracle_strategy = data.get("oracle_strategy")
+    if isinstance(raw_oracle_strategy, dict):
+        oracle_strategy = str(
+            raw_oracle_strategy.get("preferred_assertion_style") or ""
+        )
+    else:
+        oracle_strategy = str(raw_oracle_strategy or "")
     friendly = (
         issue_pattern not in _OBSERVATION_FRIENDLY
         or oracle_strategy in _OBSERVATION_FRIENDLY[issue_pattern]

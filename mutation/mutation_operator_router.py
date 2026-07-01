@@ -116,6 +116,39 @@ def _preferred_prior_rules(prior: Any) -> set[str]:
     return {str(item) for item in values} if isinstance(values, list) else set()
 
 
+def _hinted_routes(
+    behavior_data: dict[str, Any],
+) -> list[tuple[str, tuple[str, ...]]]:
+    routes: list[tuple[str, tuple[str, ...]]] = []
+    hints = behavior_data.get("mutation_hints")
+    if not isinstance(hints, list):
+        return routes
+    for hint in hints:
+        if not isinstance(hint, dict):
+            continue
+        rule = str(
+            hint.get("suggested_operator")
+            or hint.get("operator")
+            or ""
+        )
+        if rule not in TRIGGER_RULE_NAMES:
+            continue
+        subtype = str(
+            hint.get("operator_subtype")
+            or hint.get("suggested_subtype")
+            or hint.get("subtype")
+            or ""
+        )
+        subtypes = (
+            (subtype,)
+            if subtype in RULES[rule].subtypes
+            else tuple(RULES[rule].subtypes[:2])
+        )
+        if rule not in {item[0] for item in routes}:
+            routes.append((rule, subtypes))
+    return routes
+
+
 def route_candidate_operators(
     behavior: Any,
     host: Any,
@@ -146,7 +179,14 @@ def route_candidate_operators(
     ).lower()
     feedback = _feedback_text(execution_feedback, verifier_feedback or {})
     preferred = _preferred_prior_rules(prior)
-    routes = _BASE_ROUTES.get(issue_pattern, _FALLBACK_ROUTES)
+    hinted_routes = _hinted_routes(behavior_data)
+    base_routes = _BASE_ROUTES.get(issue_pattern, _FALLBACK_ROUTES)
+    routes = tuple(hinted_routes) + tuple(
+        item
+        for item in base_routes
+        if item[0] not in {hint[0] for hint in hinted_routes}
+    )
+    hinted_rules = {item[0] for item in hinted_routes}
     candidates: list[dict[str, Any]] = []
     for index, (rule, subtypes) in enumerate(routes):
         if rule not in TRIGGER_RULE_NAMES:
@@ -154,6 +194,11 @@ def route_candidate_operators(
         confidence = 0.84 - (0.07 * index)
         evidence = [f"issue_pattern={issue_pattern}"]
         requires: list[str] = []
+        if rule in hinted_rules:
+            confidence += 0.12
+            evidence.append(
+                "BehaviorTarget mutation_hints explicitly suggests rule"
+            )
         if rule in preferred:
             confidence += 0.05
             evidence.append("aggregate prior prefers rule")

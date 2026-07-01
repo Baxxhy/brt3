@@ -77,13 +77,14 @@ python - <<'PY'
 from llm.api_pool import configured_api_metadata
 entries = configured_api_metadata()
 names = {entry["name"] for entry in entries}
-if len(entries) != 10:
-    raise SystemExit(f"expected 10 configured API accounts, got {len(entries)}")
+if len(entries) < 10:
+    raise SystemExit(f"expected at least 10 configured API accounts, got {len(entries)}")
 if "fa_254711066" not in names:
     raise SystemExit("missing required API account name fa_254711066")
-print("configured_api_accounts=10")
+print(f"configured_api_accounts={len(entries)}")
 print("required_api_name_present=true")
 PY
+api_account_count=$(python -c 'from llm.api_pool import configured_api_metadata; print(len(configured_api_metadata()))')
 
 ts=$(date +%Y%m%d_%H%M%S)
 if [[ -z "$run_dir" ]]; then
@@ -189,7 +190,7 @@ workers: $max_workers
 mode: $mode_name
 deterministic: true
 analysis_prior_dir: $analysis_dir
-api_accounts: 9
+api_accounts: $api_account_count
 note: API keys are intentionally excluded from this manifest.
 EOF
 

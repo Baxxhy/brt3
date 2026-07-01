@@ -1,8 +1,0 @@
-{
-  "instance_id": "sympy__sympy-21171",
-  "started_at": "2026-06-29 16:57:37",
-  "status": "ERROR",
-  "finished_at": "2026-06-29 17:01:08",
-  "error": "failed to parse JSON object from response: Expecting ',' delimiter: line 101 column 10 (char 13508)",
-  "traceback": "Traceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 139, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 116 column 10 (char 13715)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/root/Baxxhy/BugReproduce/brt3/context/issue_rewriter.py\", line 150, in rewrite_issue\n    data = extract_json_object(response)\n  File \"/root/Baxxhy/BugReproduce/brt3/core/utils.py\", line 86, in extract_json_object\n    raise ValueError(f\"failed to parse JSON object from response: {last_error}\")\nValueError: failed to parse JSON object from response: Expecting ',' delimiter: line 101 column 10 (char 13508)\n"
-}

@@ -22,10 +22,21 @@ from generation.generator import (
     repair_candidate,
 )
 from context.host_context import build_host_context
+from context.host_scaffold import (
+    apply_scaffold_to_protocol,
+    extract_host_scaffold,
+    fallback_host_scaffold,
+)
 from context.protocol_recovery import (
     audit_protocol_context,
     audit_recovered_protocol,
     recover_test_protocol,
+)
+from context.seed_reranker import (
+    AST_RERANK_MIN_SCORE,
+    AST_SEED_SELECTION_STRATEGY,
+    apply_preflight_score,
+    rank_seed_candidates,
 )
 from mutation.seed_mutator import build_mutation_plan
 from mutation.brt_mutation_rules import TRIGGER_RULE_NAMES, infer_issue_pattern
@@ -53,9 +64,11 @@ from core.schema import (
     ExecutionResult,
     FinalResult,
     HostContext,
+    HostScaffold,
     InstanceContext,
     MutationPlan,
     ProtocolRecovery,
+    RetrievedTest,
     VerifierDecision,
 )
 from core.utils import ensure_dir, safe_json_dump, write_text
@@ -63,11 +76,12 @@ from validation.verifier import verify_buggy_only
 
 
 MECHANICAL_SEED_FAILURE_STATUSES = frozenset(
-    {"SETUP_ERROR", "SYNTAX_ERROR", "COLLECT_ERROR", "TIMEOUT", "ERROR"}
+    {"SETUP_ERROR", "IMPORT_ERROR", "SYNTAX_ERROR", "COLLECT_ERROR", "TIMEOUT", "ERROR"}
 )
 SEED_SELECTION_STRATEGY = (
     "icore_original_order_first_mechanically_executable_top5"
 )
+SEED_PREFLIGHT_LIMIT = 5
 
 
 def _seed_is_mechanically_executable(status: str) -> bool:
@@ -166,15 +180,37 @@ def _latest_plan_fields(mutation_plans: list[Any]) -> dict[str, Any]:
             "mutation_risk": "medium",
             "issue_pattern": "unknown",
             "oracle_strategy": "",
+            "mutation_plan_mode": "",
+            "selected_operators": [],
+            "before_pattern_found": False,
+            "before_pattern_unique": False,
+            "sanitizer_status": "",
         }
     latest = mutation_plans[-1]
     rules = list(dict.fromkeys(op for plan in mutation_plans for op in getattr(plan, "mutation_ops", [])))
+    raw_oracle = getattr(latest, "oracle_strategy", "") or ""
+    oracle_strategy = (
+        str(raw_oracle.get("preferred_assertion_style") or "")
+        if isinstance(raw_oracle, dict)
+        else str(raw_oracle)
+    )
     return {
         "mutation_plan": latest.to_dict(),
         "mutation_rules_used": rules,
         "mutation_risk": getattr(latest, "risk", "medium") or "medium",
         "issue_pattern": getattr(latest, "issue_pattern", "unknown") or "unknown",
-        "oracle_strategy": getattr(latest, "oracle_strategy", "") or "",
+        "oracle_strategy": oracle_strategy,
+        "mutation_plan_mode": getattr(latest, "mutation_plan_mode", "") or "",
+        "selected_operators": list(
+            getattr(latest, "selected_operators", []) or []
+        ),
+        "before_pattern_found": bool(
+            getattr(latest, "before_pattern_found", False)
+        ),
+        "before_pattern_unique": bool(
+            getattr(latest, "before_pattern_unique", False)
+        ),
+        "sanitizer_status": getattr(latest, "sanitizer_status", "") or "",
     }
 
 
@@ -193,8 +229,25 @@ def _stable_result_fields(
     observation_oracle_used: bool = False,
     strict_verifier_level: str = "",
     final_selection_reason: str = "",
+    seed_selection_mode: str = "",
+    seed_candidates_count: int = 0,
+    selected_seed_score: float = 0.0,
+    matched_apis: list[dict[str, Any]] | None = None,
+    seed_score_breakdown: dict[str, Any] | None = None,
+    seed_selection_fallback_reason: str = "",
+    primary_seed_test: dict[str, Any] | None = None,
+    host_scaffold: HostScaffold | None = None,
+    candidate: Any | None = None,
+    final_code: str = "",
 ) -> dict[str, Any]:
     fields = _llm_stats(llm_client)
+    mutation_plans = mutation_plans or []
+    latest_plan = mutation_plans[-1] if mutation_plans else None
+    fallback_reasons = [
+        str(getattr(host_scaffold, "fallback_reason", "") or ""),
+        str(getattr(latest_plan, "fallback_reason", "") or ""),
+        str(getattr(candidate, "fallback_reason", "") or ""),
+    ]
     fields.update(
         {
             "deterministic": deterministic,
@@ -210,9 +263,36 @@ def _stable_result_fields(
             "regression_guard_triggered": regression_guard_triggered,
             "regression_guard_reason": regression_guard_reason,
             "final_selection_reason": final_selection_reason,
+            "seed_selection_mode": seed_selection_mode,
+            "seed_candidates_count": seed_candidates_count,
+            "selected_seed_score": selected_seed_score,
+            "matched_apis": matched_apis or [],
+            "seed_score_breakdown": seed_score_breakdown or {},
+            "seed_selection_fallback_reason": seed_selection_fallback_reason,
+            "primary_seed_test": primary_seed_test or {},
+            "host_scaffold_mode": (
+                host_scaffold.host_scaffold_mode if host_scaffold else ""
+            ),
+            "scaffold_hash": (
+                host_scaffold.scaffold_hash if host_scaffold else ""
+            ),
+            "seed_function_hash": (
+                host_scaffold.seed_function_hash if host_scaffold else ""
+            ),
+            "generator_mode": str(
+                getattr(candidate, "generator_mode", "") or ""
+            ),
+            "fallback_reason": "; ".join(
+                dict.fromkeys(item for item in fallback_reasons if item)
+            ),
+            "final_test_hash": (
+                hashlib.sha256(final_code.encode("utf-8")).hexdigest()
+                if final_code
+                else str(getattr(candidate, "final_test_hash", "") or "")
+            ),
         }
     )
-    fields.update(_latest_plan_fields(mutation_plans or []))
+    fields.update(_latest_plan_fields(mutation_plans))
     return fields
 
 
@@ -660,21 +740,26 @@ def run_instance_pipeline(
         protocol = None
         seed_fallback_used = False
         seed_attempts: list[dict[str, Any]] = []
-        # Seed Selection follows the original iCoRe retrieval order. Since
-        # iCoRe already ranks related tests using textual similarity and
-        # call-graph similarity, BRT3 does not perform an additional strong
-        # reranking. It tries the top-k retrieved tests in order and selects
-        # the first seed whose original test protocol is mechanically
-        # executable.
-        seeds_to_try = list(context.retrieved_tests)[:5]
+        # Prefer AST-aware function-level reranking, while keeping the original
+        # iCoRe-order selector below as the final fallback.
+        seeds_to_try = list(context.retrieved_tests)[:SEED_PREFLIGHT_LIMIT]
         related_test = seeds_to_try[0] if seeds_to_try else None
         host = None
         selected_seed_path = Path(output_dir) / "selected_seed.json"
         seed_fallback_path = Path(output_dir) / "seed_fallback.json"
+        seed_rerank_path = Path(output_dir) / "seed_rerank.json"
         host_cache_path = Path(output_dir) / "host_context.json"
         protocol_cache_path = Path(output_dir) / "protocol_recovery.json"
         seed_reused = False
         seed_change_reason = ""
+        seed_selection_mode = "fallback_old"
+        seed_candidates_count = 0
+        selected_seed_score = 0.0
+        matched_apis: list[dict[str, Any]] = []
+        seed_score_breakdown: dict[str, Any] = {}
+        seed_selection_fallback_reason = ""
+        primary_seed_test: dict[str, Any] = {}
+        seed_rerank_diagnostics: dict[str, Any] = {}
 
         def _seed_rank(seed: Any) -> int:
             for index, item in enumerate(context.retrieved_tests):
@@ -692,6 +777,11 @@ def run_instance_pipeline(
                 saved_seed = {}
         saved_file = str(saved_seed.get("selected_seed_file") or "")
         saved_name = str(saved_seed.get("selected_seed_name") or "")
+        saved_primary_seed = (
+            saved_seed.get("primary_seed_test")
+            if isinstance(saved_seed.get("primary_seed_test"), dict)
+            else {}
+        )
         matched_seed = next(
             (
                 item
@@ -700,8 +790,16 @@ def run_instance_pipeline(
             ),
             None,
         )
+        if matched_seed is None and saved_file and saved_name:
+            matched_seed = RetrievedTest(
+                instance_id=context.instance_id,
+                name=saved_name,
+                file=saved_file,
+                code_content=str(saved_primary_seed.get("test_code") or ""),
+                raw={"source": "selected_seed_cache"},
+            )
         cache_matches_strategy = (
-            saved_seed.get("selection_strategy") == SEED_SELECTION_STRATEGY
+            saved_seed.get("selection_strategy") == AST_SEED_SELECTION_STRATEGY
             and matched_seed is not None
         )
 
@@ -724,6 +822,22 @@ def run_instance_pipeline(
                     or saved_seed.get("seed_change_reason")
                     or ""
                 )
+                seed_selection_mode = str(
+                    saved_seed.get("seed_selection_mode") or seed_selection_mode
+                )
+                seed_candidates_count = int(saved_seed.get("seed_candidates_count") or 0)
+                try:
+                    selected_seed_score = float(saved_seed.get("selected_seed_score") or 0.0)
+                except (TypeError, ValueError):
+                    selected_seed_score = 0.0
+                cached_matched_apis = saved_seed.get("matched_apis")
+                matched_apis = cached_matched_apis if isinstance(cached_matched_apis, list) else []
+                cached_breakdown = saved_seed.get("seed_score_breakdown")
+                seed_score_breakdown = cached_breakdown if isinstance(cached_breakdown, dict) else {}
+                seed_selection_fallback_reason = str(
+                    saved_seed.get("seed_selection_fallback_reason") or ""
+                )
+                primary_seed_test = saved_primary_seed
                 if enable_protocol_recovery and protocol_cache_path.is_file():
                     protocol = _dataclass_from_mapping(
                         ProtocolRecovery,
@@ -772,6 +886,116 @@ def run_instance_pipeline(
             )
 
         if host is None:
+            ast_ranked = []
+            try:
+                ast_ranked, seed_rerank_diagnostics = rank_seed_candidates(
+                    seeds_to_try,
+                    behavior,
+                    context.buggy_repo_path,
+                    max_retrieved=SEED_PREFLIGHT_LIMIT,
+                )
+                seed_candidates_count = len(ast_ranked)
+            except Exception as exc:  # noqa: BLE001
+                seed_selection_fallback_reason = f"AST seed reranking failed: {exc}"
+                seed_rerank_diagnostics = {
+                    "strategy": AST_SEED_SELECTION_STRATEGY,
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+            if ast_ranked:
+                best_ast_score = ast_ranked[0].seed_score
+                if best_ast_score < AST_RERANK_MIN_SCORE:
+                    seed_selection_fallback_reason = (
+                        f"best AST seed score {best_ast_score:.1f} is below "
+                        f"{AST_RERANK_MIN_SCORE:.1f}"
+                    )
+                else:
+                    evaluated_ast: list[
+                        tuple[Any, RetrievedTest, HostContext, ProtocolRecovery | None]
+                    ] = []
+                    for candidate in ast_ranked[:SEED_PREFLIGHT_LIMIT]:
+                        seed = candidate.to_retrieved_test(
+                            context.instance_id,
+                            {
+                                "source": "ast_rerank",
+                                "retrieved_rank": candidate.retrieved_rank,
+                                "source_kind": candidate.source_kind,
+                            },
+                        )
+                        candidate_host = build_host_context(
+                            context.instance_id, seed, context.buggy_repo_path, behavior,
+                            context.retrieved_code, conda_env, timeout, no_conda,
+                            skip_execution=generate_only, repo=context.repo,
+                            version=str(context.metadata.get("version") or ""),
+                        )
+                        apply_preflight_score(
+                            candidate,
+                            candidate_host.seed_execution_status,
+                        )
+                        candidate_protocol = recover_test_protocol(
+                            context.instance_id, seed, context.buggy_repo_path, behavior,
+                            context.retrieved_code, context.repo,
+                            str(context.metadata.get("version") or ""),
+                        ) if enable_protocol_recovery else None
+                        attempt = candidate.to_record(max_code_chars=1200)
+                        attempt.update({
+                            "rank": candidate.retrieved_rank,
+                            "file": seed.file,
+                            "name": seed.name,
+                            "execution_status": candidate_host.seed_execution_status,
+                            "selected": False,
+                            "selection_mode": "ast_rerank",
+                            "protocol_risks": (
+                                candidate_protocol.protocol_risks
+                                if candidate_protocol
+                                else []
+                            ),
+                        })
+                        seed_attempts.append(attempt)
+                        evaluated_ast.append((candidate, seed, candidate_host, candidate_protocol))
+                    viable_ast = [
+                        item
+                        for item in evaluated_ast
+                        if generate_only
+                        or _seed_is_mechanically_executable(item[2].seed_execution_status)
+                    ]
+                    if viable_ast:
+                        selected_candidate, related_test, host, protocol = max(
+                            viable_ast,
+                            key=lambda item: (
+                                item[0].seed_score,
+                                -item[0].retrieved_rank,
+                                item[0].test_file,
+                                item[0].test_entry,
+                            ),
+                        )
+                        seed_selection_mode = "ast_rerank"
+                        selected_seed_score = selected_candidate.seed_score
+                        matched_apis = selected_candidate.matched_apis
+                        seed_score_breakdown = selected_candidate.seed_score_breakdown
+                        primary_seed_test = selected_candidate.to_record()
+                        for attempt in seed_attempts:
+                            attempt["selected"] = (
+                                attempt.get("selection_mode") == "ast_rerank"
+                                and attempt.get("file") == related_test.file
+                                and attempt.get("name") == related_test.name
+                            )
+                    else:
+                        seed_selection_fallback_reason = (
+                            "AST seed rerank preflight found no mechanically "
+                            "executable candidate"
+                        )
+            else:
+                seed_selection_fallback_reason = (
+                    seed_selection_fallback_reason
+                    or "AST seed reranking produced no candidates"
+                )
+
+        if host is None:
+            if not seed_selection_fallback_reason:
+                seed_selection_fallback_reason = (
+                    "AST seed reranking unavailable; using legacy iCoRe order"
+                )
             first_candidate_seed = None
             first_candidate_host = None
             first_candidate_protocol = None
@@ -798,6 +1022,7 @@ def run_instance_pipeline(
                     "name": seed.name,
                     "execution_status": candidate_host.seed_execution_status,
                     "selected": False,
+                    "selection_mode": "fallback_old",
                     "protocol_risks": candidate_protocol.protocol_risks if candidate_protocol else [],
                 })
                 if generate_only or _seed_is_mechanically_executable(
@@ -815,6 +1040,12 @@ def run_instance_pipeline(
                             "previous seed failed mechanical execution "
                             "qualification; tried next iCoRe-ranked seed"
                         )
+                    for attempt in seed_attempts:
+                        attempt["selected"] = (
+                            attempt.get("selection_mode") == "fallback_old"
+                            and attempt.get("file") == related_test.file
+                            and attempt.get("name") == related_test.name
+                        )
                     break
                 if seed_index < len(seeds_to_try) - 1:
                     seed_fallback_used = True
@@ -829,8 +1060,12 @@ def run_instance_pipeline(
                         first_candidate_host,
                         first_candidate_protocol,
                     )
-                    if seed_attempts:
-                        seed_attempts[0]["selected"] = True
+                    for attempt in seed_attempts:
+                        attempt["selected"] = (
+                            attempt.get("selection_mode") == "fallback_old"
+                            and attempt.get("file") == related_test.file
+                            and attempt.get("name") == related_test.name
+                        )
                     seed_fallback_used = True
                     seed_change_reason = (
                         "all top-5 iCoRe-ranked seeds failed mechanical "
@@ -848,26 +1083,88 @@ def run_instance_pipeline(
                 skip_execution=generate_only, repo=context.repo,
                 version=str(context.metadata.get("version") or ""),
             )
+        try:
+            host_scaffold = extract_host_scaffold(
+                context.instance_id,
+                primary_seed_test,
+                related_test,
+                host,
+                context.buggy_repo_path,
+            )
+        except Exception as exc:  # noqa: BLE001
+            host_scaffold = fallback_host_scaffold(
+                context.instance_id,
+                host,
+                related_test.file if related_test else host.host_file,
+                related_test.name if related_test else host.seed_test_name,
+                f"HostScaffold extraction failed: {exc}",
+            )
+        host_scaffold.save_json(
+            str(Path(output_dir) / "host_scaffold.json")
+        )
+        if protocol is not None:
+            try:
+                protocol = apply_scaffold_to_protocol(
+                    protocol,
+                    host_scaffold,
+                )
+            except Exception as exc:  # noqa: BLE001
+                protocol.protocol_risks.append(
+                    f"HostScaffold protocol merge failed; retained old "
+                    f"ProtocolRecovery: {exc}"
+                )
         selected_seed_signature = _host_signature(host)
         safe_json_dump(
             {
-                "selection_strategy": SEED_SELECTION_STRATEGY,
+                "selection_strategy": AST_SEED_SELECTION_STRATEGY,
+                "legacy_selection_strategy": SEED_SELECTION_STRATEGY,
+                "seed_selection_mode": seed_selection_mode,
+                "seed_candidates_count": seed_candidates_count,
+                "selected_seed_score": selected_seed_score,
+                "matched_apis": matched_apis,
+                "seed_score_breakdown": seed_score_breakdown,
+                "seed_selection_fallback_reason": seed_selection_fallback_reason,
+                "primary_seed_test": primary_seed_test,
+                "diagnostics": seed_rerank_diagnostics,
+                "attempts": seed_attempts,
+            },
+            str(seed_rerank_path),
+        )
+        safe_json_dump(
+            {
+                "selection_strategy": AST_SEED_SELECTION_STRATEGY,
+                "legacy_selection_strategy": SEED_SELECTION_STRATEGY,
+                "seed_selection_mode": seed_selection_mode,
                 "fallback_used": seed_fallback_used,
                 "fallback_reason": (
                     seed_change_reason if seed_fallback_used else ""
                 ),
+                "seed_selection_fallback_reason": seed_selection_fallback_reason,
+                "seed_candidates_count": seed_candidates_count,
+                "selected_seed_score": selected_seed_score,
+                "matched_apis": matched_apis,
+                "seed_score_breakdown": seed_score_breakdown,
+                "primary_seed_test": primary_seed_test,
                 "attempts": seed_attempts,
             },
             str(seed_fallback_path),
         )
         safe_json_dump(
             {
-                "selection_strategy": SEED_SELECTION_STRATEGY,
+                "selection_strategy": AST_SEED_SELECTION_STRATEGY,
+                "legacy_selection_strategy": SEED_SELECTION_STRATEGY,
+                "seed_selection_mode": seed_selection_mode,
                 "selected_seed_file": related_test.file if related_test else "",
                 "selected_seed_name": related_test.name if related_test else "",
                 "seed_rank": _seed_rank(related_test) if related_test else -1,
                 "fallback_used": seed_fallback_used,
                 "fallback_reason": seed_change_reason if seed_fallback_used else "",
+                "seed_selection_fallback_reason": seed_selection_fallback_reason,
+                "seed_candidates_count": seed_candidates_count,
+                "selected_seed_score": selected_seed_score,
+                "matched_apis": matched_apis,
+                "seed_score_breakdown": seed_score_breakdown,
+                "primary_seed_test": primary_seed_test,
                 "seed_execution_status": host.seed_execution_status,
                 "host_context_signature": selected_seed_signature,
                 "seed_reused": seed_reused,
@@ -932,11 +1229,14 @@ def run_instance_pipeline(
                     MutationPlan,
                     json.loads(initial_plan_path.read_text(encoding="utf-8")),
                 )
+                if initial_plan.scaffold_hash != host_scaffold.scaffold_hash:
+                    initial_plan = None
             except Exception:  # noqa: BLE001
                 initial_plan = None
         if enable_seed_mutation and initial_plan is None:
             initial_plan = build_mutation_plan(
-                context.instance_id, 0, behavior, host, protocol, llm_client, output_dir,
+                context.instance_id, 0, behavior, host, host_scaffold,
+                protocol, llm_client, output_dir,
                 analysis_prior_hint=analysis_prior_hint,
                 protocol_context_audit=protocol_context_audit,
             )
@@ -955,6 +1255,7 @@ def run_instance_pipeline(
             write_to_repo=not generate_only,
             protocol=protocol,
             mutation_plan=initial_plan,
+            host_scaffold=host_scaffold,
         )
         write_text(str(Path(output_dir) / "mutation_round_0_test.py"), candidate.code)
         _refresh_candidate_command(context, candidate)
@@ -992,6 +1293,16 @@ def run_instance_pipeline(
                     seed_change_reason=seed_change_reason,
                     analysis_prior_used=analysis_prior_used,
                     final_selection_reason="generate_only",
+                    seed_selection_mode=seed_selection_mode,
+                    seed_candidates_count=seed_candidates_count,
+                    selected_seed_score=selected_seed_score,
+                    matched_apis=matched_apis,
+                    seed_score_breakdown=seed_score_breakdown,
+                    seed_selection_fallback_reason=seed_selection_fallback_reason,
+                    primary_seed_test=primary_seed_test,
+                    host_scaffold=host_scaffold,
+                    candidate=candidate,
+                    final_code=final_code,
                 ),
             )
             result.save_json(str(Path(output_dir) / "summary.json"))
@@ -1030,6 +1341,7 @@ def run_instance_pipeline(
                 context.retrieved_code,
                 buggy_repo=context.buggy_repo_path,
                 protocol=protocol,
+                host_scaffold=host_scaffold,
             )
             _refresh_candidate_command(context, candidate)
         if execution is not None and execution.status in {"SETUP_ERROR", "SYNTAX_ERROR", "COLLECT_ERROR"}:
@@ -1071,6 +1383,16 @@ def run_instance_pipeline(
                     seed_change_reason=seed_change_reason,
                     analysis_prior_used=analysis_prior_used,
                     final_selection_reason="environment qualification unresolved",
+                    seed_selection_mode=seed_selection_mode,
+                    seed_candidates_count=seed_candidates_count,
+                    selected_seed_score=selected_seed_score,
+                    matched_apis=matched_apis,
+                    seed_score_breakdown=seed_score_breakdown,
+                    seed_selection_fallback_reason=seed_selection_fallback_reason,
+                    primary_seed_test=primary_seed_test,
+                    host_scaffold=host_scaffold,
+                    candidate=candidate,
+                    final_code=final_code,
                 ),
             )
             result.save_json(str(Path(output_dir) / "summary.json"))
@@ -1231,7 +1553,8 @@ def run_instance_pipeline(
                     mutation_plan = build_mutation_plan(
                         context.instance_id,
                         env_rounds_used + brt_attempt + 1,
-                        behavior, host, protocol, llm_client, output_dir,
+                        behavior, host, host_scaffold, protocol, llm_client,
+                        output_dir,
                         execution.stdout + "\n" + execution.stderr,
                         decision.to_dict(),
                         analysis_prior_hint,
@@ -1254,6 +1577,7 @@ def run_instance_pipeline(
                     context.buggy_repo_path,
                     protocol,
                     mutation_plan,
+                    host_scaffold,
                 )
                 if mutation_plan is not None:
                     write_text(str(Path(output_dir) / f"mutation_round_{mutation_plan.round_id}_test.py"), candidate.code)
@@ -1408,6 +1732,16 @@ def run_instance_pipeline(
                 observation_oracle_used=oracle_rebound,
                 strict_verifier_level=strict_level,
                 final_selection_reason=selection_reason,
+                seed_selection_mode=seed_selection_mode,
+                seed_candidates_count=seed_candidates_count,
+                selected_seed_score=selected_seed_score,
+                matched_apis=matched_apis,
+                seed_score_breakdown=seed_score_breakdown,
+                seed_selection_fallback_reason=seed_selection_fallback_reason,
+                primary_seed_test=primary_seed_test,
+                host_scaffold=host_scaffold,
+                candidate=candidate,
+                final_code=final_code or candidate.code,
             ),
         )
         result.save_json(str(Path(output_dir) / "summary.json"))

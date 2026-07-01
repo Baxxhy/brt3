@@ -29,10 +29,13 @@ from core.schema import BehaviorTarget
 def check_api_pool() -> None:
     entries = configured_api_metadata()
     names = {entry["name"] for entry in entries}
-    assert len(entries) == 10, f"expected 10 API entries, got {len(entries)}"
+    assert len(entries) >= 10, f"expected at least 10 API entries, got {len(entries)}"
     assert "fa_254711066" in names, "missing fa_254711066"
     # Intentionally do not print keys or Authorization headers.
-    print("api_pool_check=ok count=10 required_name_present=true")
+    print(
+        f"api_pool_check=ok count={len(entries)} "
+        "required_name_present=true"
+    )
 
 
 def check_mutation_schema() -> None:
